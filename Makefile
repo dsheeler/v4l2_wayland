@@ -24,4 +24,4 @@ v4l2_wayland: v4l2_wayland.c ${OBJS}
 	${CC} -o $@ ${OBJS} ${LFLAGS}
 
 clean:
-	rm -f ${OBJS} $(PROGS:%=%.o)
+	rm -f ${OBJS} $(PROGS) $(PROGS:%=%.o)
