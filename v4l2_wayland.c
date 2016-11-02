@@ -24,6 +24,7 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 
+#include <linux/input.h>
 #include <ccv/ccv.h>
 #include <cairo/cairo.h>
 #include <wayland-client.h>
@@ -60,13 +61,18 @@ static struct wl_shm           *shm;
 static struct wl_surface       *surface;
 static struct wl_buffer        *buffer;
 static struct wl_callback      *frame_callback;
-static const int WIDTH = 1280;
-static const int HEIGHT = 720;
+static const int WIDTH = 320;
+static const int HEIGHT = 180;
 void *shm_data;
 
 static const struct wl_registry_listener registry_listener;
 static const struct wl_pointer_listener pointer_listener;
 
+static int              mdown = 0, mdown_x, mdown_y;
+static int              m_x, m_y;
+static int FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
+static int              doing_tld = 0;
+static int              make_new_tld = 0;
 static struct pollfd    fds[1];
 static char            *dev_name;
 static enum io_method   io = IO_METHOD_MMAP;
@@ -131,6 +137,12 @@ static void registry_global(void *data,
   else if (strcmp(interface, wl_shell_interface.name) == 0)
     shell = wl_registry_bind(registry, name,
         &wl_shell_interface, min(version, 1));
+  else if (strcmp(interface, wl_seat_interface.name) == 0) {
+    seat = wl_registry_bind(registry, name,
+        &wl_seat_interface, min(version, 2));
+    pointer = wl_seat_get_pointer(seat);
+    wl_pointer_add_listener(pointer, &pointer_listener, NULL);
+  }
 }
 
 static void registry_global_remove(void *a,
@@ -215,7 +227,6 @@ static const struct wl_callback_listener frame_listener;
 
 static void redraw(void *data, struct wl_callback *callback, uint32_t time)
 {
-  fprintf(stderr, "Redrawing\n");   
   wl_callback_destroy(frame_callback);
   wl_surface_damage(surface, 0, 0,
       WIDTH, HEIGHT); 
@@ -338,11 +349,14 @@ static void YUV2RGB(const unsigned char y, const unsigned char u,const unsigned 
   *b = CLIPVALUE(b2);
 }
 
+ccv_tld_t *new_tld(int x, int y, int w, int h) {
+  ccv_rect_t box = ccv_rect(x, y, w, h);
+  ccv_read(shm_data, &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, HEIGHT, WIDTH, 4*WIDTH);
+  return ccv_tld_new(cdm, box, ccv_tld_default_params);
+}
+
 static void process_image(const void *p, int size)
 {
-  /*printf("memcpy get called\n");
-  memcpy(shm_data, p, size);*/
-  static int first_call = 1;
   unsigned char y0, y1, u, v;
   unsigned char r, g, b;
   int n;
@@ -358,38 +372,36 @@ static void process_image(const void *p, int size)
     YUV2RGB(y1, u, v, &r, &g, &b);
     *pixel++ = r << 16 | g << 8 | b;
   }
-  if (first_call) {
-    first_call = 0;
-    int FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
-    FIRST_W = WIDTH/5.;
-    FIRST_H = HEIGHT/5.;
-    FIRST_X = WIDTH/2.0;
-    FIRST_Y = HEIGHT/2.0 - 0.5 * FIRST_H;
-    printf("%d %d %d %d\n", FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
-    ccv_rect_t box = ccv_rect(FIRST_X, FIRST_Y, FIRST_W, FIRST_Y);
-    ccv_read(shm_data, &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, HEIGHT, WIDTH, 4*WIDTH);
-    tld = ccv_tld_new(cdm, box, ccv_tld_default_params);
-  }
-  ccv_read(shm_data, &cdm2, CCV_IO_ARGB_RAW | CCV_IO_GRAY, HEIGHT, WIDTH, 4*WIDTH);
-  ccv_tld_info_t info;
-  ccv_comp_t newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
+  cairo_t *cr;
   cairo_surface_t *csurface;
   csurface = cairo_image_surface_create_for_data((unsigned char *)shm_data,
       CAIRO_FORMAT_RGB24, WIDTH, HEIGHT, 4*WIDTH);
-  cairo_t *cr;
   cr = cairo_create(csurface);
-  if (tld->found) {
-    printf("found!\n");
-    cairo_set_source_rgba(cr, 0., 0.25, 0., 0.5);
-    cairo_rectangle(cr, newbox.rect.x, newbox.rect.y, newbox.rect.width,
-     newbox.rect.height);
-    cairo_close_path(cr);
+  if (mdown) {
+    cairo_set_source_rgba(cr, 0.5, 0.25, 0., 0.5);
+    cairo_rectangle(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
     cairo_fill(cr);
+  }
+  if (doing_tld) {
+    if (make_new_tld == 1) {
+       tld = new_tld(FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
+      make_new_tld = 0;
+    } else {
+      ccv_read(shm_data, &cdm2, CCV_IO_ARGB_RAW | CCV_IO_GRAY, HEIGHT, WIDTH, 4*WIDTH);
+      ccv_tld_info_t info;
+      ccv_comp_t newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
+      if (tld->found) {
+        cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
+        cairo_rectangle(cr, newbox.rect.x, newbox.rect.y, newbox.rect.width,
+            newbox.rect.height);
+        cairo_fill(cr);
+      }
+      cdm = cdm2;
+      cdm2 = 0;
+    }
   }
   cairo_surface_finish(csurface);
   cairo_destroy(cr);
-  cdm = cdm2;
-  cdm2 = 0;
 }
 
 static int read_frame(void)
@@ -411,39 +423,25 @@ static int read_frame(void)
     }
   }
   assert(buf.index < n_buffers);
-  printf("buf.bytesused: %d\n", buf.bytesused);
   process_image(buffers[buf.index].start, buf.bytesused);
   if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
     errno_exit("VIDIOC_QBUF");
   return 1;
 }
 
+void on_button(uint32_t button) {
+}
+
+void set_button_callback(
+    struct wl_shell_surface *shell_surface,
+    void (*callback)(uint32_t))
+{
+  //struct wl_surface* surface;
+
+  //wl_surface_set_user_data(surface, callback);
+}
+
 static void mainloop(void) {
-  /*unsigned int count;
-  count = frame_count;
-  while (count-- > 0) {
-    for (;;) {
-      int r;
-      fds[0].fd = fd;
-      fds[0].events = POLLIN;
-      r = poll(fds, 1, 2000);
-      if (r > 0) {
-        if (fds[0].revents & POLLIN) {
-          if (read_frame())
-            break;
-        }
-      }
-      if (r < 0) {
-        if (errno == EINTR || errno == EAGAIN)
-          continue;
-        errno_exit("select");
-      }
-      if (0 == r) {
-        fprintf(stderr, "select timeout\n");
-        exit(EXIT_FAILURE);
-      }
-    }
-  }*/
   if (compositor == NULL) {
     fprintf(stderr, "Can't find compositor\n");
     exit(1);
@@ -471,9 +469,14 @@ static void mainloop(void) {
   wl_callback_add_listener(frame_callback, &frame_listener, NULL);
   create_window();
   ccv_enable_default_cache();
-  read_frame();
+  FIRST_W = WIDTH/5.;
+  FIRST_H = HEIGHT/5.;
+  FIRST_X = WIDTH/2.0;
+  FIRST_Y = HEIGHT/2.0 - 0.5 * FIRST_H;
+  //set_button_callback(shell_surface, on_button);
+  //make_new_tld = 1;
   while (wl_display_dispatch(display) != -1) {
-    printf("in wl_display_dispatch\n");
+  //  printf("in wl_display_dispatch\n");
   }
   wl_display_disconnect(display);
   printf("disconnected from display\n");
@@ -652,6 +655,87 @@ static void open_device(void)
     exit(EXIT_FAILURE);
   }
 }
+
+void hello_free_cursor(void)
+{
+  wl_pointer_set_user_data(pointer, NULL);
+}
+
+static void pointer_enter(void *data,
+    struct wl_pointer *wl_pointer,
+    uint32_t serial, struct wl_surface *surface,
+    wl_fixed_t surface_x, wl_fixed_t surface_y)
+{
+}
+
+static void pointer_leave(void *data,
+    struct wl_pointer *wl_pointer, uint32_t serial,
+    struct wl_surface *wl_surface) { }
+
+static void pointer_motion(void *data,
+    struct wl_pointer *wl_pointer, uint32_t time,
+    wl_fixed_t surface_x, wl_fixed_t surface_y) {
+  m_x = wl_fixed_to_int(surface_x);
+  m_y = wl_fixed_to_int(surface_y);
+  if (mdown) {
+    FIRST_W = m_x - mdown_x;
+    FIRST_H = m_y - mdown_y;
+    if (FIRST_W < 0) {
+      FIRST_X = mdown_x + FIRST_W;
+      FIRST_W = -FIRST_W;
+    }
+    if (FIRST_H < 0) {
+      FIRST_Y = mdown_y + FIRST_H;
+      FIRST_H = -FIRST_H;
+    }
+  } else {
+    FIRST_W = FIRST_H = 0;
+  }
+}
+
+static void pointer_button(void *data,
+    struct wl_pointer *wl_pointer, uint32_t serial,
+    uint32_t time, uint32_t button, uint32_t state)
+{
+  void (*callback)(uint32_t);
+
+  if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
+    mdown = 1;
+    mdown_x = m_x;
+    mdown_y = m_y;
+    FIRST_X = mdown_x;
+    FIRST_Y = mdown_y;
+    FIRST_W = 0;
+    FIRST_H = 0;
+  } else if (button == BTN_LEFT && state != WL_POINTER_BUTTON_STATE_PRESSED) {
+    mdown = 0;
+    FIRST_W = m_x - mdown_x;
+    FIRST_H = m_y - mdown_y;
+    if (FIRST_W < 0) {
+      FIRST_X = mdown_x + FIRST_W;
+      FIRST_W = -FIRST_W;
+    }
+    if (FIRST_H < 0) {
+      FIRST_Y = mdown_y + FIRST_H;
+      FIRST_H = -FIRST_H;
+    }
+    printf ("%d %d %d %d\n", FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
+    doing_tld = 1;
+    make_new_tld = 1;
+  }
+}
+
+static void pointer_axis(void *data,
+    struct wl_pointer *wl_pointer, uint32_t time,
+    uint32_t axis, wl_fixed_t value) { }
+
+static const struct wl_pointer_listener pointer_listener = {
+  .enter = pointer_enter,
+  .leave = pointer_leave,
+  .motion = pointer_motion,
+  .button = pointer_button,
+  .axis = pointer_axis
+};
 
 static void usage(FILE *fp, int argc, char **argv)
 {
