@@ -378,13 +378,15 @@ static void process_image(const void *p, int size)
       CAIRO_FORMAT_RGB24, WIDTH, HEIGHT, 4*WIDTH);
   cr = cairo_create(csurface);
   if (mdown) {
-    cairo_set_source_rgba(cr, 0.5, 0.25, 0., 0.5);
+    cairo_set_source_rgba(cr, 0.5, 0., 0., 0.5);
     cairo_rectangle(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
     cairo_fill(cr);
   }
   if (doing_tld) {
     if (make_new_tld == 1) {
-       tld = new_tld(FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
+      if (FIRST_W > 0 && FIRST_H > 0) {
+        tld = new_tld(FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
+      }
       make_new_tld = 0;
     } else {
       ccv_read(shm_data, &cdm2, CCV_IO_ARGB_RAW | CCV_IO_GRAY, HEIGHT, WIDTH, 4*WIDTH);
