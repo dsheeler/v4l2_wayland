@@ -61,13 +61,14 @@ static struct wl_shm           *shm;
 static struct wl_surface       *surface;
 static struct wl_buffer        *buffer;
 static struct wl_callback      *frame_callback;
-static const int WIDTH = 320;
-static const int HEIGHT = 180;
+static const int WIDTH = 1280;
+static const int HEIGHT = 720;
 void *shm_data;
 
 static const struct wl_registry_listener registry_listener;
 static const struct wl_pointer_listener pointer_listener;
 
+static cairo_t          *cr;
 static int              mdown = 0, mdown_x, mdown_y;
 static int              m_x, m_y;
 static int FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
@@ -372,15 +373,12 @@ static void process_image(const void *p, int size)
     YUV2RGB(y1, u, v, &r, &g, &b);
     *pixel++ = r << 16 | g << 8 | b;
   }
-  cairo_t *cr;
-  cairo_surface_t *csurface;
-  csurface = cairo_image_surface_create_for_data((unsigned char *)shm_data,
-      CAIRO_FORMAT_RGB24, WIDTH, HEIGHT, 4*WIDTH);
-  cr = cairo_create(csurface);
   if (mdown) {
+    cairo_save(cr);
     cairo_set_source_rgba(cr, 0.5, 0., 0., 0.5);
     cairo_rectangle(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
     cairo_fill(cr);
+    cairo_restore(cr);
   }
   if (doing_tld) {
     if (make_new_tld == 1) {
@@ -393,7 +391,7 @@ static void process_image(const void *p, int size)
       ccv_tld_info_t info;
       ccv_comp_t newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
       if (tld->found) {
-        cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
+        printf("FOUND\n");
         cairo_rectangle(cr, newbox.rect.x, newbox.rect.y, newbox.rect.width,
             newbox.rect.height);
         cairo_fill(cr);
@@ -402,8 +400,6 @@ static void process_image(const void *p, int size)
       cdm2 = 0;
     }
   }
-  cairo_surface_finish(csurface);
-  cairo_destroy(cr);
 }
 
 static int read_frame(void)
@@ -416,6 +412,7 @@ static int read_frame(void)
   if (-1 == xioctl(fd, VIDIOC_DQBUF, &buf)) {
     switch (errno) {
       case EAGAIN:
+        printf("EAGAIN\n");
         return 0;
       case EIO:
         /* Could ignore EIO, see spec. */
@@ -476,6 +473,11 @@ static void mainloop(void) {
   FIRST_X = WIDTH/2.0;
   FIRST_Y = HEIGHT/2.0 - 0.5 * FIRST_H;
   //set_button_callback(shell_surface, on_button);
+  cairo_surface_t *csurface;
+  csurface = cairo_image_surface_create_for_data((unsigned char *)shm_data,
+      CAIRO_FORMAT_RGB24, WIDTH, HEIGHT, 4*WIDTH);
+  cr = cairo_create(csurface);
+  cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
   //make_new_tld = 1;
   while (wl_display_dispatch(display) != -1) {
   //  printf("in wl_display_dispatch\n");
@@ -724,6 +726,8 @@ static void pointer_button(void *data,
     printf ("%d %d %d %d\n", FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
     doing_tld = 1;
     make_new_tld = 1;
+  } else if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
+    doing_tld = 0;
   }
 }
 
