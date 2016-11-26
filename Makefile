@@ -4,23 +4,24 @@ all: $(PROGS)
 
 LFLAGS = $(shell pkg-config --libs wayland-client) \
 				 $(shell pkg-config --libs cairo) \
-				 -lccv -lm -lpng -ljpeg
+				 -lccv -lm -lpng -ljpeg -lswscale -lavutil -lswresample \
+				 -lavformat -lavcodec -lpthread -ljack
 
 
 LIBS =
 
-SRCS = v4l2_wayland.c
+SRCS = v4l2_wayland.c muxing.c
 OBJS = $(SRCS:.c=.o)
-HDRS =
+HDRS = muxing.h
 
 .SUFFIXES:
 
 .SUFFIXES: .c
 
-%.o : %.c
+%.o : %.c ${HDRS}
 	$(CC) ${CFLAGS} -c $< -o $@
 
-v4l2_wayland: v4l2_wayland.c ${OBJS}
+v4l2_wayland: v4l2_wayland.c ${OBJS} 
 	${CC} -o $@ ${OBJS} ${LFLAGS}
 
 clean:

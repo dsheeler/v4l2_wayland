@@ -12,7 +12,7 @@
 #include <string.h>
 #include <assert.h>
 #include <poll.h>
-
+#include <pthread.h>
 #include <getopt.h>             /* getopt_long() */
 
 #include <fcntl.h>              /* low-level i/o */
@@ -24,11 +24,19 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 
+#include <libavcodec/avcodec.h>
+#include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
+#include <libswscale/swscale.h>
+
+#include <jack/ringbuffer.h>
 #include <linux/input.h>
 #include <ccv/ccv.h>
 #include <cairo/cairo.h>
 #include <wayland-client.h>
 #include <linux/videodev2.h>
+
+#include "muxing.h"
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
@@ -49,6 +57,12 @@ struct buffer {
 
 static int read_frame(void);
 
+output_frame                   out_frame;
+OutputStream                   video_st, audio_st;
+AVFormatContext                *oc;
+AVFrame                        *frame;
+static AVFrame                 *aframe;
+static struct SwsContext       *resize;
 static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
 static ccv_tld_t               *tld = 0;
 static struct wl_compositor    *compositor;
@@ -61,17 +75,17 @@ static struct wl_shm           *shm;
 static struct wl_surface       *surface;
 static struct wl_buffer        *buffer;
 static struct wl_callback      *frame_callback;
-static const int WIDTH = 1280;
-static const int HEIGHT = 720;
 void *shm_data;
+
 
 static const struct wl_registry_listener registry_listener;
 static const struct wl_pointer_listener pointer_listener;
 
+static cairo_surface_t  *csurface;
 static cairo_t          *cr;
 static int              mdown = 0, mdown_x, mdown_y;
 static int              m_x, m_y;
-static int FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
+static int              FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
 static int              doing_tld = 0;
 static int              make_new_tld = 0;
 static struct pollfd    fds[1];
@@ -155,7 +169,7 @@ static const struct wl_registry_listener registry_listener = {
 };
 
 static const uint32_t PIXEL_FORMAT_ID = WL_SHM_FORMAT_ARGB8888;
-  
+
 static int set_cloexec_or_close(int fd)
 {
   long flags;
@@ -328,6 +342,31 @@ void free_surface(struct wl_shell_surface *shell_surface)
   wl_surface_destroy(surface);
 }
 
+typedef struct _thread_info {
+  pthread_t thread_id;
+} disk_thread_info_t;
+
+jack_ringbuffer_t *ring_buf;
+pthread_mutex_t disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t data_ready = PTHREAD_COND_INITIALIZER;
+
+void *disk_thread (void *arg) {
+  static int out_done = 0;
+  int ret;
+  disk_thread_info_t *info = (disk_thread_info_t *)arg;
+  pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+  pthread_mutex_lock(&disk_thread_lock);
+  while(1) {
+    ret = write_video_frame(oc, &video_st);
+    if (ret == 1) break;
+    if (ret == 0) continue;
+    if (ret == -1) pthread_cond_wait(&data_ready, &disk_thread_lock);
+  }
+  av_write_trailer(oc);
+  pthread_mutex_unlock(&disk_thread_lock);
+  return 0;
+}
+
 static void YUV2RGB(const unsigned char y, const unsigned char u,const unsigned char v, unsigned char* r,
                     unsigned char* g, unsigned char* b)
 {
@@ -352,12 +391,13 @@ static void YUV2RGB(const unsigned char y, const unsigned char u,const unsigned 
 
 ccv_tld_t *new_tld(int x, int y, int w, int h) {
   ccv_rect_t box = ccv_rect(x, y, w, h);
-  ccv_read(shm_data, &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, HEIGHT, WIDTH, 4*WIDTH);
+  ccv_read(aframe->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, AHEIGHT, AWIDTH, 4*AWIDTH);
   return ccv_tld_new(cdm, box, ccv_tld_default_params);
 }
 
 static void process_image(const void *p, int size)
 {
+  static int first_call = 1;
   unsigned char y0, y1, u, v;
   unsigned char r, g, b;
   int n;
@@ -381,24 +421,53 @@ static void process_image(const void *p, int size)
     cairo_restore(cr);
   }
   if (doing_tld) {
+    int ret = sws_scale(resize, (uint8_t const * const *)frame->data, frame->linesize, 0, frame->height,
+    aframe->data, aframe->linesize);
     if (make_new_tld == 1) {
+        printf("%d %d %d %d\n", FIRST_X/SCALE_FACTOR, FIRST_Y/SCALE_FACTOR, FIRST_W/SCALE_FACTOR, FIRST_H/SCALE_FACTOR);
       if (FIRST_W > 0 && FIRST_H > 0) {
-        tld = new_tld(FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
+        tld = new_tld(FIRST_X/SCALE_FACTOR, FIRST_Y/SCALE_FACTOR, FIRST_W/SCALE_FACTOR, FIRST_H/SCALE_FACTOR);
       }
       make_new_tld = 0;
     } else {
-      ccv_read(shm_data, &cdm2, CCV_IO_ARGB_RAW | CCV_IO_GRAY, HEIGHT, WIDTH, 4*WIDTH);
+      ccv_read(aframe->data[0], &cdm2, CCV_IO_ARGB_RAW | CCV_IO_GRAY, AHEIGHT, AWIDTH, 4*AWIDTH);
       ccv_tld_info_t info;
       ccv_comp_t newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
       if (tld->found) {
         printf("FOUND\n");
-        cairo_rectangle(cr, newbox.rect.x, newbox.rect.y, newbox.rect.width,
-            newbox.rect.height);
+        cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
+        cairo_rectangle(cr, SCALE_FACTOR*newbox.rect.x, SCALE_FACTOR*newbox.rect.y, SCALE_FACTOR*newbox.rect.width,
+            SCALE_FACTOR*newbox.rect.height);
         cairo_fill(cr);
+        cdm = cdm2;
+        cdm2 = 0;
+      } else {
+        cdm = cdm2;
+        cdm2 = 0;
+        printf("NOT FOUND\n");
       }
-      cdm = cdm2;
-      cdm2 = 0;
     }
+  }
+  if (first_call) {
+    first_call = 0;
+    video_st.first_time = out_frame.ts;
+  }
+  memcpy(out_frame.data, shm_data, sizeof(out_frame.data));
+  if (jack_ringbuffer_write_space(ring_buf) >= sizeof(out_frame)) {
+    if (jack_ringbuffer_write(ring_buf, (void *)&out_frame, sizeof(out_frame)) <
+     sizeof(out_frame)) {
+      video_st.overruns++;
+      printf("overruns: %d\n", video_st.overruns);
+    } else {
+      printf("was able to write to ringbuffer\n");
+    }
+  } else {
+    video_st.overruns++;
+    printf("overruns: %d\n", video_st.overruns);
+  }
+  if (pthread_mutex_trylock (&disk_thread_lock) == 0) {
+    pthread_cond_signal (&data_ready);
+    pthread_mutex_unlock (&disk_thread_lock);
   }
 }
 
@@ -422,6 +491,7 @@ static int read_frame(void)
     }
   }
   assert(buf.index < n_buffers);
+  clock_gettime(CLOCK_MONOTONIC, &out_frame.ts);
   process_image(buffers[buf.index].start, buf.bytesused);
   if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
     errno_exit("VIDIOC_QBUF");
@@ -441,6 +511,8 @@ void set_button_callback(
 }
 
 static void mainloop(void) {
+  int ret;
+  disk_thread_info_t thread_info;
   if (compositor == NULL) {
     fprintf(stderr, "Can't find compositor\n");
     exit(1);
@@ -472,16 +544,40 @@ static void mainloop(void) {
   FIRST_H = HEIGHT/5.;
   FIRST_X = WIDTH/2.0;
   FIRST_Y = HEIGHT/2.0 - 0.5 * FIRST_H;
-  //set_button_callback(shell_surface, on_button);
-  cairo_surface_t *csurface;
+  resize = sws_getContext(WIDTH, HEIGHT, AV_PIX_FMT_RGB32, AWIDTH,
+   AHEIGHT, AV_PIX_FMT_RGB32, SWS_BICUBIC, NULL, NULL, NULL);
+  frame = av_frame_alloc();
+  frame->format = AV_PIX_FMT_RGB32;
+  frame->width = WIDTH;
+  frame->height = HEIGHT;
+  av_image_fill_arrays(frame->data, frame->linesize,
+   (const unsigned char *)shm_data, AV_PIX_FMT_RGB32, frame->width, frame->height, 1);
+  aframe = av_frame_alloc();
+  aframe->format = AV_PIX_FMT_RGB32;
+  aframe->width = AWIDTH;
+  aframe->height = AHEIGHT;
+  ret = av_image_alloc(aframe->data, aframe->linesize,
+   aframe->width, aframe->height, aframe->format, 1);
+  if (ret < 0) {
+    fprintf(stderr, "Could not allocate raw picture buffer\n");
+    exit(1);
+  }
   csurface = cairo_image_surface_create_for_data((unsigned char *)shm_data,
       CAIRO_FORMAT_RGB24, WIDTH, HEIGHT, 4*WIDTH);
   cr = cairo_create(csurface);
   cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
-  //make_new_tld = 1;
+  init_output();//make_new_tld = 1;
+  ring_buf = jack_ringbuffer_create(225*sizeof(out_frame));
+  memset(ring_buf->buf, 0, ring_buf->size);
+  pthread_create(&thread_info.thread_id, NULL, disk_thread, &thread_info);
   while (wl_display_dispatch(display) != -1) {
   //  printf("in wl_display_dispatch\n");
   }
+  av_write_trailer(oc);
+  /* Close each codec. */
+  close_stream(oc, &video_st);
+  avio_closep(&oc->pb);
+  avformat_free_context(oc);
   wl_display_disconnect(display);
   printf("disconnected from display\n");
 }
@@ -693,7 +789,7 @@ static void pointer_motion(void *data,
       FIRST_H = -FIRST_H;
     }
   } else {
-    FIRST_W = FIRST_H = 0;
+    //FIRST_W = FIRST_H = 0;
   }
 }
 
@@ -724,8 +820,8 @@ static void pointer_button(void *data,
       FIRST_H = -FIRST_H;
     }
     printf ("%d %d %d %d\n", FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
-    doing_tld = 1;
     make_new_tld = 1;
+    doing_tld = 1;
   } else if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
     doing_tld = 0;
   }
