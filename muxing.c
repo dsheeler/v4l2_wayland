@@ -82,10 +82,10 @@ static void add_stream(OutputStream *ost, AVFormatContext *oc,
         printf("case VIDEO\n");
         c->codec_id = codec_id;
 
-        c->bit_rate = STREAM_BIT_RATE;
+        c->bit_rate = stream_bitrate;
         /* Resolution must be a multiple of two. */
-        c->width    = WIDTH;
-        c->height   = HEIGHT;
+        c->width    = width;
+        c->height   = height;
         /* timebase: This is the fundamental unit of time (in seconds) in terms
          * of which frame timestamps are represented. For fixed-fps content,
          * timebase should be 1/framerate and timestamp increments should be
@@ -347,8 +347,10 @@ static void open_video(AVFormatContext *oc, AVCodec *codec, OutputStream *ost, A
         exit(1);
     }
     ost->frame->format = AV_PIX_FMT_RGB32;
-    ost->frame->width = WIDTH;
-    ost->frame->height = HEIGHT;
+    ost->frame->width = width;
+    ost->frame->height = height;
+    ost->out_frame.size = 4 * width * height;
+    ost->out_frame.data = calloc(1, ost->out_frame.size);
     av_image_fill_arrays(ost->frame->data, ost->frame->linesize,
      (const unsigned char *)ost->out_frame.data, ost->frame->format,
      ost->frame->width, ost->frame->height, 32);
@@ -405,12 +407,15 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame)
 {
   AVCodecContext *c = ost->enc;
   *ret_frame = NULL;
-  if (jack_ringbuffer_read_space(ring_buf) < sizeof(ost->out_frame)) {
+  int size = ost->out_frame.size + sizeof(struct timespec);
+  if (jack_ringbuffer_read_space(ring_buf) < size) {
     return -1;
   } else {
-    if (jack_ringbuffer_read(ring_buf, (char *)&ost->out_frame,
-          sizeof(ost->out_frame)) != sizeof(ost->out_frame)) {
-      printf("couldn't read all data we wanted from ring_buf\n");
+    if (jack_ringbuffer_read(ring_buf, (char *)ost->out_frame.data,
+     ost->out_frame.size) != ost->out_frame.size ||
+     jack_ringbuffer_read(ring_buf, (char *)&ost->out_frame.ts,
+     sizeof(struct timespec)) != sizeof(struct timespec)) {
+      printf("disk thread couldn't read all data we wanted from ring_buf\n");
     } else {
     printf("disk thread read a whole frame\n");
     double diff;
@@ -423,7 +428,7 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame)
     printf("difftime: %f frame_rate %d/%d\n", diff, c->time_base.num,
         c->time_base.den);
     ost->next_pts = (int) c->time_base.den * diff / c->time_base.num;
-    printf("diff*den: %f old pts %d new pts %d\n", 
+    printf("diff*den: %f old pts %d new pts %d\n",
         diff*c->time_base.den, ost->tmp_frame->pts, ost->next_pts);
     /* check if we want to generate more frames */
     if (av_compare_ts(ost->next_pts, c->time_base,
@@ -530,7 +535,9 @@ int init_output() {
   int i;
 
   av_register_all();
-  filename = "testington.webm";
+  filename = out_file_name;
+  printf("out_file_name: <%s>\n", out_file_name);
+  printf("filename: <%s>\n", filename);
   avformat_alloc_output_context2(&oc, NULL, NULL, filename);
   if (!oc) {
     printf("Could not deduce output format from file extension: using MPEG.\n");

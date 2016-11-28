@@ -44,12 +44,6 @@
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #define CLIPVALUE(v) ((v) < 255 ? (v) : 255)
 
-enum io_method {
-  IO_METHOD_READ,
-  IO_METHOD_MMAP,
-  IO_METHOD_USERPTR,
-};
-
 struct buffer {
   void   *start;
   size_t  length;
@@ -61,6 +55,13 @@ output_frame                   out_frame;
 OutputStream                   video_st, audio_st;
 AVFormatContext                *oc;
 AVFrame                        *frame;
+char                           *out_file_name;
+uint32_t                       width = 640;
+uint32_t                       height = 360;
+uint32_t                       ascale_factor = 2;
+uint32_t                       awidth;
+uint32_t                       aheight;
+uint32_t                       stream_bitrate = 10000;
 static AVFrame                 *aframe;
 static struct SwsContext       *resize;
 static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
@@ -90,12 +91,9 @@ static int              doing_tld = 0;
 static int              make_new_tld = 0;
 static struct pollfd    fds[1];
 static char            *dev_name;
-static enum io_method   io = IO_METHOD_MMAP;
 static int              fd = -1;
 struct buffer          *buffers;
 static unsigned int     n_buffers;
-static int              out_buf;
-static int              force_format;
 static int              frame_count = 200;
 static int              frame_number = 0;
 
@@ -103,6 +101,12 @@ static void errno_exit(const char *s)
 {
   fprintf(stderr, "%s error %d, %s\n", s, errno, strerror(errno));
   exit(EXIT_FAILURE);
+}
+
+static void set_ascale_factor(uint32_t factor) {
+  ascale_factor = factor;
+  awidth = width / ascale_factor;
+  aheight = height / ascale_factor;
 }
 
 static int xioctl(int fh, int request, void *arg)
@@ -233,7 +237,7 @@ static void paint_pixels() {
   int n;
   uint32_t *pixel = shm_data;
   fprintf(stderr, "Painting pixels\n");
-  for (n =0; n < WIDTH*HEIGHT; n++) {
+  for (n =0; n < width * height; n++) {
     *pixel++ = 0xffff00;
   }
 }
@@ -244,7 +248,7 @@ static void redraw(void *data, struct wl_callback *callback, uint32_t time)
 {
   wl_callback_destroy(frame_callback);
   wl_surface_damage(surface, 0, 0,
-      WIDTH, HEIGHT); 
+      width, height); 
   read_frame();
   frame_callback = wl_surface_frame(surface);
   wl_surface_attach(surface, buffer, 0, 0);
@@ -293,7 +297,7 @@ void free_buffer(struct wl_buffer *buffer)
 
 static void
 create_window() {
-  buffer = create_buffer(WIDTH, HEIGHT);
+  buffer = create_buffer(width, height);
   wl_surface_attach(surface, buffer, 0, 0);
   wl_surface_commit(surface);
 }
@@ -391,7 +395,7 @@ static void YUV2RGB(const unsigned char y, const unsigned char u,const unsigned 
 
 ccv_tld_t *new_tld(int x, int y, int w, int h) {
   ccv_rect_t box = ccv_rect(x, y, w, h);
-  ccv_read(aframe->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, AHEIGHT, AWIDTH, 4*AWIDTH);
+  ccv_read(aframe->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, aheight, awidth, 4*awidth);
   return ccv_tld_new(cdm, box, ccv_tld_default_params);
 }
 
@@ -424,20 +428,20 @@ static void process_image(const void *p, int size)
     int ret = sws_scale(resize, (uint8_t const * const *)frame->data, frame->linesize, 0, frame->height,
     aframe->data, aframe->linesize);
     if (make_new_tld == 1) {
-        printf("%d %d %d %d\n", FIRST_X/SCALE_FACTOR, FIRST_Y/SCALE_FACTOR, FIRST_W/SCALE_FACTOR, FIRST_H/SCALE_FACTOR);
+        printf("%d %d %d %d\n", FIRST_X/ascale_factor, FIRST_Y/ascale_factor, FIRST_W/ascale_factor, FIRST_H/ascale_factor);
       if (FIRST_W > 0 && FIRST_H > 0) {
-        tld = new_tld(FIRST_X/SCALE_FACTOR, FIRST_Y/SCALE_FACTOR, FIRST_W/SCALE_FACTOR, FIRST_H/SCALE_FACTOR);
+        tld = new_tld(FIRST_X/ascale_factor, FIRST_Y/ascale_factor, FIRST_W/ascale_factor, FIRST_H/ascale_factor);
       }
       make_new_tld = 0;
     } else {
-      ccv_read(aframe->data[0], &cdm2, CCV_IO_ARGB_RAW | CCV_IO_GRAY, AHEIGHT, AWIDTH, 4*AWIDTH);
+      ccv_read(aframe->data[0], &cdm2, CCV_IO_ARGB_RAW | CCV_IO_GRAY, aheight, awidth, 4*awidth);
       ccv_tld_info_t info;
       ccv_comp_t newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
       if (tld->found) {
         printf("FOUND\n");
         cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
-        cairo_rectangle(cr, SCALE_FACTOR*newbox.rect.x, SCALE_FACTOR*newbox.rect.y, SCALE_FACTOR*newbox.rect.width,
-            SCALE_FACTOR*newbox.rect.height);
+        cairo_rectangle(cr, ascale_factor*newbox.rect.x, ascale_factor*newbox.rect.y, ascale_factor*newbox.rect.width,
+            ascale_factor*newbox.rect.height);
         cairo_fill(cr);
         cdm = cdm2;
         cdm2 = 0;
@@ -452,10 +456,13 @@ static void process_image(const void *p, int size)
     first_call = 0;
     video_st.first_time = out_frame.ts;
   }
-  memcpy(out_frame.data, shm_data, sizeof(out_frame.data));
-  if (jack_ringbuffer_write_space(ring_buf) >= sizeof(out_frame)) {
-    if (jack_ringbuffer_write(ring_buf, (void *)&out_frame, sizeof(out_frame)) <
-     sizeof(out_frame)) {
+  int tsize = out_frame.size + sizeof(struct timespec);
+  //memcpy(out_frame.data, shm_data, out_frame.size);
+  if (jack_ringbuffer_write_space(ring_buf) >= tsize) {
+    if (jack_ringbuffer_write(ring_buf, (void *)shm_data, out_frame.size) <
+     out_frame.size ||
+     jack_ringbuffer_write(ring_buf, (void *)&out_frame.ts, sizeof(struct timespec)) <
+     sizeof(struct timespec)) {
       video_st.overruns++;
       printf("overruns: %d\n", video_st.overruns);
     } else {
@@ -540,22 +547,22 @@ static void mainloop(void) {
   wl_callback_add_listener(frame_callback, &frame_listener, NULL);
   create_window();
   ccv_enable_default_cache();
-  FIRST_W = WIDTH/5.;
-  FIRST_H = HEIGHT/5.;
-  FIRST_X = WIDTH/2.0;
-  FIRST_Y = HEIGHT/2.0 - 0.5 * FIRST_H;
-  resize = sws_getContext(WIDTH, HEIGHT, AV_PIX_FMT_RGB32, AWIDTH,
-   AHEIGHT, AV_PIX_FMT_RGB32, SWS_BICUBIC, NULL, NULL, NULL);
+  FIRST_W = width/5.;
+  FIRST_H = height/5.;
+  FIRST_X = width/2.0;
+  FIRST_Y = height/2.0 - 0.5 * FIRST_H;
+  resize = sws_getContext(width, height, AV_PIX_FMT_RGB32, awidth,
+   aheight, AV_PIX_FMT_RGB32, SWS_BICUBIC, NULL, NULL, NULL);
   frame = av_frame_alloc();
   frame->format = AV_PIX_FMT_RGB32;
-  frame->width = WIDTH;
-  frame->height = HEIGHT;
+  frame->width = width;
+  frame->height = height;
   av_image_fill_arrays(frame->data, frame->linesize,
    (const unsigned char *)shm_data, AV_PIX_FMT_RGB32, frame->width, frame->height, 1);
   aframe = av_frame_alloc();
   aframe->format = AV_PIX_FMT_RGB32;
-  aframe->width = AWIDTH;
-  aframe->height = AHEIGHT;
+  aframe->width = awidth;
+  aframe->height = aheight;
   ret = av_image_alloc(aframe->data, aframe->linesize,
    aframe->width, aframe->height, aframe->format, 1);
   if (ret < 0) {
@@ -563,11 +570,15 @@ static void mainloop(void) {
     exit(1);
   }
   csurface = cairo_image_surface_create_for_data((unsigned char *)shm_data,
-      CAIRO_FORMAT_RGB24, WIDTH, HEIGHT, 4*WIDTH);
+      CAIRO_FORMAT_RGB24, width, height, 4*width);
   cr = cairo_create(csurface);
   cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
   init_output();//make_new_tld = 1;
-  ring_buf = jack_ringbuffer_create(225*sizeof(out_frame));
+  out_frame.size = 4 * width * height;
+  out_frame.data = calloc(1, out_frame.size);
+  uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
+  printf("rb_size: %d\n", rb_size);
+  ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
   memset(ring_buf->buf, 0, ring_buf->size);
   pthread_create(&thread_info.thread_id, NULL, disk_thread, &thread_info);
   while (wl_display_dispatch(display) != -1) {
@@ -712,8 +723,8 @@ static void init_device(void)
   CLEAR(fmt);
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   fprintf(stderr, "Set format\r\n");
-  fmt.fmt.pix.width       = WIDTH; //replace
-  fmt.fmt.pix.height      = HEIGHT; //replace
+  fmt.fmt.pix.width       = width; //replace
+  fmt.fmt.pix.height      = height; //replace
   fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_BGR32; //replace
   fmt.fmt.pix.field       = V4L2_FIELD_ANY;
   if (-1 == xioctl(fd, VIDIOC_S_FMT, &fmt))
@@ -843,89 +854,83 @@ static void usage(FILE *fp, int argc, char **argv)
 {
   fprintf(fp,
       "Usage: %s [options]\n\n"
-      "Version 1.3\n"
       "Options:\n"
       "-d | --device name   Video device name [%s]\n"
       "-h | --help          Print this message\n"
-      "-m | --mmap          Use memory mapped buffers [default]\n"
-      "-r | --read          Use read() calls\n"
-      "-u | --userp         Use application allocated buffers\n"
-      "-o | --output        Outputs stream to stdout\n"
-      "-f | --format        Force format to 640x480 YUYV\n"
-      "-c | --count         Number of frames to grab [%i]\n"
+      "-o | --output        filename of video file output\n"
+      "-b | --bitrate       bit rate of video file output\n"
       "",
       argv[0], dev_name, frame_count);
 }
 
-static const char short_options[] = "d:hmruofc:";
+static const char short_options[] = "d:ho:b:w:g:f:";
 
 static const struct option
 long_options[] = {
   { "device", required_argument, NULL, 'd' },
   { "help",   no_argument,       NULL, 'h' },
-  { "mmap",   no_argument,       NULL, 'm' },
-  { "read",   no_argument,       NULL, 'r' },
-  { "userp",  no_argument,       NULL, 'u' },
-  { "output", no_argument,       NULL, 'o' },
-  { "format", no_argument,       NULL, 'f' },
-  { "count",  required_argument, NULL, 'c' },
+  { "output", required_argument, NULL, 'o' },
+  { "bitrate", required_argument, NULL, 'b' },
+  { "width", required_argument, NULL, 'w' },
+  { "height", required_argument, NULL, 'g' },
+  { "ascale_factor", required_argument, NULL, 'f' },
   { 0, 0, 0, 0 }
 };
 
 int main(int argc, char **argv)
 {
-        dev_name = "/dev/video0";
-        for (;;) {
-                int idx;
-                int c;
-                c = getopt_long(argc, argv,
-                                short_options, long_options, &idx);
-                if (-1 == c)
-                        break;
-                switch (c) {
-                case 0: /* getopt_long() flag */
-                        break;
-                case 'd':
-                        dev_name = optarg;
-                        break;
-                case 'h':
-                        usage(stdout, argc, argv);
-                        exit(EXIT_SUCCESS);
-                case 'm':
-                        io = IO_METHOD_MMAP;
-                        break;
-                case 'r':
-                        io = IO_METHOD_READ;
-                        break;
-                case 'u':
-                        io = IO_METHOD_USERPTR;
-                        break;
-                case 'o':
-                        out_buf++;
-                        break;
-                case 'f':
-                        force_format++;
-                        break;
-                case 'c':
-                        errno = 0;
-                        frame_count = strtol(optarg, NULL, 0);
-                        if (errno)
-                                errno_exit(optarg);
-                        break;
-                default:
-                        usage(stderr, argc, argv);
-                        exit(EXIT_FAILURE);
-                }
-        }
-        setup_wayland();
-        open_device();
-        init_device();
-        start_capturing();
-        mainloop();
-        stop_capturing();
-        uninit_device();
-        close_device();
-        cleanup_wayland();
-        fprintf(stderr, "\n");
-        return 0;
+  out_file_name = "testington.webm";
+  dev_name = "/dev/video0";
+  set_ascale_factor(ascale_factor);
+  for (;;) {
+    int idx;
+    int c;
+    c = getopt_long(argc, argv,
+        short_options, long_options, &idx);
+    if (-1 == c)
+      break;
+    switch (c) {
+      case 0: /* getopt_long() flag */
+        break;
+      case 'd':
+        dev_name = optarg;
+        break;
+      case 'o':
+        out_file_name = optarg;
+        printf("out_file_name: <%s>\n", out_file_name);
+        break;
+      case 'b':
+        stream_bitrate = atoi(optarg);
+        printf("bitrate: <%d>\n", stream_bitrate);
+        break;
+      case 'w':
+        width = atoi(optarg);
+        awidth = width / ascale_factor;
+        break;
+      case 'g':
+        height = atoi(optarg);
+        aheight = width / ascale_factor;
+        break;
+      case 'f':
+        set_ascale_factor(atoi(optarg));
+        break;
+      case 'h':
+        usage(stdout, argc, argv);
+        exit(EXIT_SUCCESS);
+      default:
+        usage(stderr, argc, argv);
+        exit(EXIT_FAILURE);
+    }
+  }
+  setup_wayland();
+  open_device();
+  init_device();
+  start_capturing();
+  mainloop();
+  stop_capturing();
+  uninit_device();
+  close_device();
+  cleanup_wayland();
+  fprintf(stderr, "\n");
+  return 0;
 }

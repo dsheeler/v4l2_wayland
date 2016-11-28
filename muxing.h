@@ -24,11 +24,10 @@
 
 #define WIDTH 640
 #define HEIGHT 360
-#define SCALE_FACTOR 2
+#define ASCALE_FACTOR 2
 #define AWIDTH 320
 #define AHEIGHT 180
 
-#define STREAM_BIT_RATE   200000
 #define STREAM_DURATION   30.0
 #define STREAM_FRAME_RATE 30 /* 25 images/s */
 #define STREAM_PIX_FMT    AV_PIX_FMT_RGB32 /* default pix_fmt */
@@ -36,7 +35,8 @@
 #define SCALE_FLAGS SWS_BICUBIC
 
 typedef struct output_frame {
-  uint32_t data[WIDTH * HEIGHT];
+  uint32_t *data;
+  uint32_t size;
   struct timespec ts;
 } output_frame;
 
@@ -65,4 +65,12 @@ extern OutputStream video_st, audio_st;
 extern AVFormatContext *oc;
 extern AVFrame *frame;
 extern jack_ringbuffer_t *ring_buf;
+extern char *out_file_name;
+extern uint32_t stream_bitrate;
+extern uint32_t ascale_factor;
+extern uint32_t width;
+extern uint32_t height;
+extern uint32_t awidth;
+extern uint32_t aheight;
+
 #endif
