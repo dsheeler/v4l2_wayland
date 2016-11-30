@@ -96,7 +96,7 @@ static void add_stream(OutputStream *ost, AVFormatContext *oc,
         ost->st->time_base = (AVRational){ 1, STREAM_FRAME_RATE };
         c->time_base       = ost->st->time_base;
 
-        c->gop_size      = 12; /* emit one intra frame every twelve frames at most */
+        c->gop_size      = 16; /* emit one intra frame every twelve frames at most */
         c->pix_fmt       = AV_PIX_FMT_YUV420P;
         if (c->codec_id == AV_CODEC_ID_MPEG2VIDEO) {
             /* just for testing, we also add B-frames */
@@ -242,7 +242,7 @@ int get_audio_frame(OutputStream *ost, AVFrame **ret_frame)
  */
 int write_audio_frame(AVFormatContext *oc, OutputStream *ost) {
   AVCodecContext *c;
-  AVPacket pkt = { 0 }; // data and size must be 0;
+  AVPacket pkt;
   AVFrame *frame;
   int ret;
   int got_packet;
@@ -298,12 +298,12 @@ int write_audio_frame(AVFormatContext *oc, OutputStream *ost) {
     ost->samples_count += dst_nb_samples;
 
     av_init_packet(&pkt);
-    ret = avcodec_encode_audio2(c, &pkt, frame, &got_packet);
+    ret = avcodec_send_frame(c, frame);
     if (ret < 0) {
       fprintf(stderr, "Error encoding audio frame: %s\n", av_err2str(ret));
       exit(1);
     }
-    if (got_packet) {
+    while(avcodec_receive_packet(c, &pkt) >= 0) {
       ret = write_frame(oc, &c->time_base, ost->st, &pkt);
       if (ret < 0) {
         fprintf(stderr, "Error while writing audio frame: %s\n",
@@ -458,43 +458,40 @@ int write_video_frame(AVFormatContext *oc, OutputStream *ost)
   AVCodecContext *c;
   AVFrame *tframe;
   int got_packet = 0;
-  AVPacket pkt = { 0 };
+  AVPacket pkt;
   c = ost->enc;
   ret = get_video_frame(ost, &tframe);
   if (ret < 0) {
     return -1;
   } else if (ret == 1) {
-    do {
-      av_init_packet(&pkt);
-      /* encode the image */
-      ret = avcodec_encode_video2(c, &pkt, tframe, &got_packet);
-      if (ret < 0) {
-        fprintf(stderr, "Error encoding video frame: %s\n", av_err2str(ret));
-        exit(1);
-      }
-      if (got_packet) {
-        ret = write_frame(oc, &c->time_base, ost->st, &pkt);
-      }
-      if (ret < 0) {
-        fprintf(stderr, "Error while writing video frame: %s\n", av_err2str(ret));
-        exit(1);
-      }
-    } while (got_packet);
-    return 1;
-  } else {
     av_init_packet(&pkt);
-    /* encode the image */
-    ret = avcodec_encode_video2(c, &pkt, tframe, &got_packet);
+    ret = avcodec_send_frame(c, tframe);
     if (ret < 0) {
       fprintf(stderr, "Error encoding video frame: %s\n", av_err2str(ret));
       exit(1);
     }
-    if (got_packet) {
+    while (avcodec_receive_packet(c, &pkt) >= 0) {
       ret = write_frame(oc, &c->time_base, ost->st, &pkt);
+      if (ret < 0) {
+        fprintf(stderr, "Error while writing video frame: %s\n", av_err2str(ret));
+        exit(1);
+      }
     }
+    return 1;
+  } else {
+    av_init_packet(&pkt);
+    /* encode the image */
+    ret = avcodec_send_frame(c, tframe);
     if (ret < 0) {
-      fprintf(stderr, "Error while writing video frame: %s\n", av_err2str(ret));
+      fprintf(stderr, "Error encoding video frame: %s\n", av_err2str(ret));
       exit(1);
+    }
+    while (avcodec_receive_packet(c, &pkt) >= 0) {
+      ret = write_frame(oc, &c->time_base, ost->st, &pkt);
+      if (ret < 0) {
+        fprintf(stderr, "Error while writing video frame: %s\n", av_err2str(ret));
+        exit(1);
+      }
     }
     return 0;
   }
