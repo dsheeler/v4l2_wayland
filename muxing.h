@@ -68,4 +68,6 @@ extern uint32_t height;
 extern uint32_t awidth;
 extern uint32_t aheight;
 extern volatile int can_capture;
+extern int recording_started;
+extern int recording_stopped;
 #endif

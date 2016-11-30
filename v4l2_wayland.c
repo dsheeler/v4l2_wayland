@@ -50,6 +50,10 @@ struct buffer {
   size_t  length;
 };
 
+typedef struct _thread_info {
+  pthread_t thread_id;
+} disk_thread_info_t;
+
 static int read_frame(void);
 
 output_frame                   out_frame;
@@ -69,6 +73,7 @@ static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
 static ccv_tld_t               *tld = 0;
 static struct wl_compositor    *compositor;
 static struct wl_display       *display;
+static struct wl_keyboard      *keyboard;
 static struct wl_pointer       *pointer;
 static struct wl_seat          *seat;
 static struct wl_shell         *shell;
@@ -77,11 +82,14 @@ static struct wl_shm           *shm;
 static struct wl_surface       *surface;
 static struct wl_buffer        *buffer;
 static struct wl_callback      *frame_callback;
+int                             recording_started = 0;
+int                             recording_stopped = 0;
 static int                      audio_done = 0, video_done = 0,
                                 trailer_written = 0;
 void *shm_data;
 
 static const struct wl_registry_listener registry_listener;
+static const struct wl_keyboard_listener keyboard_listener;
 static const struct wl_pointer_listener pointer_listener;
 
 static cairo_surface_t    *csurface;
@@ -98,6 +106,8 @@ struct buffer            *buffers;
 static unsigned int       n_buffers;
 static int                frame_count = 200;
 static int                frame_number = 0;
+static disk_thread_info_t video_thread_info;
+static disk_thread_info_t audio_thread_info;
 
 volatile int              can_process;
 volatile int              can_capture;
@@ -110,8 +120,8 @@ jack_nframes_t            nframes;
 const size_t              sample_size = sizeof(jack_default_audio_sample_t);
 pthread_mutex_t           audio_disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t            audio_data_ready = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t           disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t            data_ready = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t           video_disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t            video_data_ready = PTHREAD_COND_INITIALIZER;
 long                      jack_overruns = 0;
 
 static void errno_exit(const char *s)
@@ -178,6 +188,8 @@ static void registry_global(void *data,
         &wl_seat_interface, min(version, 2));
     pointer = wl_seat_get_pointer(seat);
     wl_pointer_add_listener(pointer, &pointer_listener, NULL);
+    keyboard = wl_seat_get_keyboard(seat);
+    wl_keyboard_add_listener(keyboard, &keyboard_listener, NULL);
   }
 }
 
@@ -363,10 +375,6 @@ void free_surface(struct wl_shell_surface *shell_surface)
   wl_surface_destroy(surface);
 }
 
-typedef struct _thread_info {
-  pthread_t thread_id;
-} disk_thread_info_t;
-
 void *audio_disk_thread(void *arg) {
   int ret;
   disk_thread_info_t *info = (disk_thread_info_t *)arg;
@@ -389,12 +397,12 @@ void *audio_disk_thread(void *arg) {
   return 0;
 }
 
-void *disk_thread (void *arg) {
+void *video_disk_thread (void *arg) {
   static int out_done = 0;
   int ret;
   disk_thread_info_t *info = (disk_thread_info_t *)arg;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-  pthread_mutex_lock(&disk_thread_lock);
+  pthread_mutex_lock(&video_disk_thread_lock);
   while(1) {
     ret = write_video_frame(oc, &video_st);
     if (ret == 1) {
@@ -402,13 +410,13 @@ void *disk_thread (void *arg) {
       break;
     }
     if (ret == 0) continue;
-    if (ret == -1) pthread_cond_wait(&data_ready, &disk_thread_lock);
+    if (ret == -1) pthread_cond_wait(&video_data_ready, &video_disk_thread_lock);
   }
   if (audio_done && video_done && !trailer_written) {
     av_write_trailer(oc);
     trailer_written = 1;
   }
-  pthread_mutex_unlock(&disk_thread_lock);
+  pthread_mutex_unlock(&video_disk_thread_lock);
   return 0;
 }
 
@@ -494,6 +502,7 @@ static void process_image(const void *p, int size)
       }
     }
   }
+  if (!recording_started || recording_stopped) return;
   if (first_call) {
     first_call = 0;
     video_st.first_time = out_frame.ts;
@@ -514,9 +523,9 @@ static void process_image(const void *p, int size)
     video_st.overruns++;
     printf("overruns: %d\n", video_st.overruns);
   }
-  if (pthread_mutex_trylock (&disk_thread_lock) == 0) {
-    pthread_cond_signal (&data_ready);
-    pthread_mutex_unlock (&disk_thread_lock);
+  if (pthread_mutex_trylock (&video_disk_thread_lock) == 0) {
+    pthread_cond_signal (&video_data_ready);
+    pthread_mutex_unlock (&video_disk_thread_lock);
   }
 }
 
@@ -617,11 +626,17 @@ void setup_jack() {
   }
   can_process = 1;
 }
+void start_recording_threads() {
+  recording_started = 1;
+  printf("start_recording\n");
+  pthread_create(&audio_thread_info.thread_id, NULL, audio_disk_thread,
+   &audio_thread_info);
+  pthread_create(&video_thread_info.thread_id, NULL, video_disk_thread,
+   &video_thread_info);
+}
 
 static void mainloop(void) {
   int ret;
-  disk_thread_info_t thread_info;
-  disk_thread_info_t audio_thread_info;
   if (compositor == NULL) {
     fprintf(stderr, "Can't find compositor\n");
     exit(1);
@@ -683,9 +698,6 @@ static void mainloop(void) {
   video_ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
   memset(video_ring_buf->buf, 0, video_ring_buf->size);
   setup_jack();
-  pthread_create(&audio_thread_info.thread_id, NULL, audio_disk_thread,
-   &audio_thread_info);
-  pthread_create(&thread_info.thread_id, NULL, disk_thread, &thread_info);
   while (wl_display_dispatch(display) != -1) {
   //  printf("in wl_display_dispatch\n");
   }
@@ -876,6 +888,57 @@ void hello_free_cursor(void)
 {
   wl_pointer_set_user_data(pointer, NULL);
 }
+
+static void
+keyboard_handle_keymap(void *data, struct wl_keyboard *keyboard,
+ uint32_t format, int fd, uint32_t size)
+{
+}
+
+static void
+keyboard_handle_enter(void *data, struct wl_keyboard *keyboard,
+ uint32_t serial, struct wl_surface *surface,
+ struct wl_array *keys)
+{
+}
+
+static void
+keyboard_handle_leave(void *data, struct wl_keyboard *keyboard,
+ uint32_t serial, struct wl_surface *surface)
+{
+}
+
+static void
+keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
+ uint32_t serial, uint32_t time, uint32_t key,
+ uint32_t state)
+{
+  static int first_r = 1;
+  if (key == KEY_R && state == 1 && (first_r == 1)) {
+    first_r = -1;
+    start_recording_threads();
+  } else if (key == KEY_R && state == 1 && (first_r == -1)) {
+    first_r = 0;
+    recording_stopped = 1;
+  }
+
+}
+
+static void
+keyboard_handle_modifiers(void *data, struct wl_keyboard *keyboard,
+ uint32_t serial, uint32_t mods_depressed,
+ uint32_t mods_latched, uint32_t mods_locked,
+ uint32_t group)
+{
+}
+
+static const struct wl_keyboard_listener keyboard_listener = {
+  keyboard_handle_keymap,
+  keyboard_handle_enter,
+  keyboard_handle_leave,
+  keyboard_handle_key,
+  keyboard_handle_modifiers,
+};
 
 static void pointer_enter(void *data,
     struct wl_pointer *wl_pointer,

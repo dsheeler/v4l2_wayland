@@ -212,8 +212,7 @@ int get_audio_frame(OutputStream *ost, AVFrame **ret_frame)
   *ret_frame = frame;
 
   /* check if we want to generate more frames */
-  if (av_compare_ts(ost->next_pts, ost->enc->time_base,
-        STREAM_DURATION, (AVRational){ 1, 1 }) >= 0) {
+  if (recording_stopped) {
     printf("audio done\n");
     ret_frame = NULL;
     return 1;
@@ -389,8 +388,13 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame)
   AVCodecContext *c = ost->enc;
   *ret_frame = NULL;
   int size = ost->out_frame.size + sizeof(struct timespec);
-  if (jack_ringbuffer_read_space(video_ring_buf) < size) {
-    return -1;
+  int space = jack_ringbuffer_read_space(video_ring_buf);
+  if (space < size) {
+    if (recording_stopped) {
+      return 1;
+    } else {
+      return -1;
+    }
   } else {
     if (jack_ringbuffer_read(video_ring_buf, (char *)ost->out_frame.data,
      ost->out_frame.size) != ost->out_frame.size ||
@@ -398,46 +402,45 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame)
      sizeof(struct timespec)) != sizeof(struct timespec)) {
       printf("disk thread couldn't read all data we wanted from video_ring_buf\n");
     } else {
-    printf("disk thread read a whole frame\n");
-    double diff;
-    struct timespec *now;
-    can_capture = 1;
-    now = &ost->out_frame.ts;
-    printf("now %d %d last %d %d\n", now->tv_sec, now->tv_nsec,
-        ost->first_time.tv_sec, ost->first_time.tv_nsec);
-    diff = now->tv_sec + 1e-9*now->tv_nsec - (ost->first_time.tv_sec +
-        1e-9*ost->first_time.tv_nsec);
-    printf("difftime: %f frame_rate %d/%d\n", diff, c->time_base.num,
-        c->time_base.den);
-    ost->next_pts = (int) c->time_base.den * diff / c->time_base.num;
-    printf("diff*den: %f old pts %d new pts %d\n",
-        diff*c->time_base.den, ost->tmp_frame->pts, ost->next_pts);
-    /* check if we want to generate more frames */
-    if (av_compare_ts(ost->next_pts, c->time_base,
-          STREAM_DURATION, (AVRational){ 1, 1 }) >= 0) {
-      printf("we done\n");
-      return 1;
-    }
-    /* as we only generate a YUV420P picture, we must convert it
-     * to the codec pixel format if needed */
-    if (!ost->sws_ctx) {
-      ost->sws_ctx = sws_getContext(c->width, c->height,
-          AV_PIX_FMT_RGB32, c->width, c->height, c->pix_fmt,
-          SCALE_FLAGS, NULL, NULL, NULL);
+      printf("disk thread read a whole frame\n");
+      double diff;
+      struct timespec *now;
+      can_capture = 1;
+      now = &ost->out_frame.ts;
+      printf("now %d %d last %d %d\n", now->tv_sec, now->tv_nsec,
+          ost->first_time.tv_sec, ost->first_time.tv_nsec);
+      diff = now->tv_sec + 1e-9*now->tv_nsec - (ost->first_time.tv_sec +
+          1e-9*ost->first_time.tv_nsec);
+      printf("difftime: %f frame_rate %d/%d\n", diff, c->time_base.num,
+          c->time_base.den);
+      ost->next_pts = (int) c->time_base.den * diff / c->time_base.num;
+      printf("diff*den: %f old pts %d new pts %d\n",
+          diff*c->time_base.den, ost->tmp_frame->pts, ost->next_pts);
+      /* check if we want to generate more frames */
+      /*if (recording_stopped) {
+        printf("we done\n");
+        return 1;
+      }*/
+      /* as we only generate a YUV420P picture, we must convert it
+       * to the codec pixel format if needed */
       if (!ost->sws_ctx) {
-        fprintf(stderr,
-            "Could not initialize the conversion context\n");
-        exit(1);
+        ost->sws_ctx = sws_getContext(c->width, c->height,
+            AV_PIX_FMT_RGB32, c->width, c->height, c->pix_fmt,
+            SCALE_FLAGS, NULL, NULL, NULL);
+        if (!ost->sws_ctx) {
+          fprintf(stderr,
+              "Could not initialize the conversion context\n");
+          exit(1);
+        }
       }
-    }
-    sws_scale(ost->sws_ctx,
-        (const uint8_t * const *)ost->frame->data,
-        ost->frame->linesize,
-        0, c->height, ost->tmp_frame->data, ost->tmp_frame->linesize);
-    ost->tmp_frame->pts = ost->frame->pts = ost->next_pts;
-    ost->last_time = *now;
-    *ret_frame = ost->tmp_frame;
-    return 0;
+      sws_scale(ost->sws_ctx,
+          (const uint8_t * const *)ost->frame->data,
+          ost->frame->linesize,
+          0, c->height, ost->tmp_frame->data, ost->tmp_frame->linesize);
+      ost->tmp_frame->pts = ost->frame->pts = ost->next_pts;
+      ost->last_time = *now;
+      *ret_frame = ost->tmp_frame;
+      return 0;
     }
   }
 }
