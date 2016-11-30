@@ -29,6 +29,7 @@
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 
+#include <jack/jack.h>
 #include <jack/ringbuffer.h>
 #include <linux/input.h>
 #include <ccv/ccv.h>
@@ -76,26 +77,42 @@ static struct wl_shm           *shm;
 static struct wl_surface       *surface;
 static struct wl_buffer        *buffer;
 static struct wl_callback      *frame_callback;
+static int                      audio_done = 0, video_done = 0,
+                                trailer_written = 0;
 void *shm_data;
-
 
 static const struct wl_registry_listener registry_listener;
 static const struct wl_pointer_listener pointer_listener;
 
-static cairo_surface_t  *csurface;
-static cairo_t          *cr;
-static int              mdown = 0, mdown_x, mdown_y;
-static int              m_x, m_y;
-static int              FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
-static int              doing_tld = 0;
-static int              make_new_tld = 0;
-static struct pollfd    fds[1];
-static char            *dev_name;
-static int              fd = -1;
-struct buffer          *buffers;
-static unsigned int     n_buffers;
-static int              frame_count = 200;
-static int              frame_number = 0;
+static cairo_surface_t    *csurface;
+static cairo_t            *cr;
+static int                mdown = 0, mdown_x, mdown_y;
+static int                m_x, m_y;
+static int                FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
+static int                doing_tld = 0;
+static int                make_new_tld = 0;
+static struct pollfd      fds[1];
+static char              *dev_name;
+static int                fd = -1;
+struct buffer            *buffers;
+static unsigned int       n_buffers;
+static int                frame_count = 200;
+static int                frame_number = 0;
+
+volatile int              can_process;
+volatile int              can_capture;
+jack_client_t            *client;
+jack_ringbuffer_t        *video_ring_buf, *audio_ring_buf;
+unsigned int              nports = 2;
+jack_port_t             **ports;
+jack_default_audio_sample_t **in;
+jack_nframes_t            nframes;
+const size_t              sample_size = sizeof(jack_default_audio_sample_t);
+pthread_mutex_t           audio_disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t            audio_data_ready = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t           disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t            data_ready = PTHREAD_COND_INITIALIZER;
+long                      jack_overruns = 0;
 
 static void errno_exit(const char *s)
 {
@@ -350,9 +367,27 @@ typedef struct _thread_info {
   pthread_t thread_id;
 } disk_thread_info_t;
 
-jack_ringbuffer_t *ring_buf;
-pthread_mutex_t disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t data_ready = PTHREAD_COND_INITIALIZER;
+void *audio_disk_thread(void *arg) {
+  int ret;
+  disk_thread_info_t *info = (disk_thread_info_t *)arg;
+  pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+  pthread_mutex_lock(&audio_disk_thread_lock);
+  while(1) {
+    ret = write_audio_frame(oc, &audio_st);
+    if (ret == 1) {
+      audio_done = 1;
+      break;
+    }
+    if (ret == 0) continue;
+    if (ret == -1) pthread_cond_wait(&audio_data_ready, &audio_disk_thread_lock);
+  }
+  if (audio_done && video_done && !trailer_written) {
+    av_write_trailer(oc);
+    trailer_written = 1;
+  }
+  pthread_mutex_unlock(&audio_disk_thread_lock);
+  return 0;
+}
 
 void *disk_thread (void *arg) {
   static int out_done = 0;
@@ -362,11 +397,17 @@ void *disk_thread (void *arg) {
   pthread_mutex_lock(&disk_thread_lock);
   while(1) {
     ret = write_video_frame(oc, &video_st);
-    if (ret == 1) break;
+    if (ret == 1) {
+      video_done = 1;
+      break;
+    }
     if (ret == 0) continue;
     if (ret == -1) pthread_cond_wait(&data_ready, &disk_thread_lock);
   }
-  av_write_trailer(oc);
+  if (audio_done && video_done && !trailer_written) {
+    av_write_trailer(oc);
+    trailer_written = 1;
+  }
   pthread_mutex_unlock(&disk_thread_lock);
   return 0;
 }
@@ -407,6 +448,7 @@ static void process_image(const void *p, int size)
   int n;
   uint32_t *pixel = shm_data;
   unsigned char *ptr = (unsigned char*) p;
+  if (video_done) return;
   for (n = 0; n < size; n += 4) {
     y0 = (unsigned char)ptr[n + 0];
     u = (unsigned char)ptr[n + 1];
@@ -458,10 +500,10 @@ static void process_image(const void *p, int size)
   }
   int tsize = out_frame.size + sizeof(struct timespec);
   //memcpy(out_frame.data, shm_data, out_frame.size);
-  if (jack_ringbuffer_write_space(ring_buf) >= tsize) {
-    if (jack_ringbuffer_write(ring_buf, (void *)shm_data, out_frame.size) <
+  if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
+    if (jack_ringbuffer_write(video_ring_buf, (void *)shm_data, out_frame.size) <
      out_frame.size ||
-     jack_ringbuffer_write(ring_buf, (void *)&out_frame.ts, sizeof(struct timespec)) <
+     jack_ringbuffer_write(video_ring_buf, (void *)&out_frame.ts, sizeof(struct timespec)) <
      sizeof(struct timespec)) {
       video_st.overruns++;
       printf("overruns: %d\n", video_st.overruns);
@@ -517,9 +559,69 @@ void set_button_callback(
   //wl_surface_set_user_data(surface, callback);
 }
 
+int process(jack_nframes_t nframes, void *arg) {
+  int chn;
+  size_t i;
+  if ((!can_process) || (!can_capture) || (audio_done)) return 0;
+  for (chn = 0; chn < nports; chn++)
+    in[chn] = jack_port_get_buffer(ports[chn], nframes);
+  for (i = 0; i < nframes; i++) {
+    for (chn = 0; chn < nports; chn++) {
+      if (jack_ringbuffer_write (audio_ring_buf, (void *) (in[chn]+i),
+       sample_size) < sample_size) {
+        printf("jack overrun: %d\n", ++jack_overruns);
+      }
+    }
+  }
+  if (pthread_mutex_trylock (&audio_disk_thread_lock) == 0) {
+    pthread_cond_signal (&audio_data_ready);
+    pthread_mutex_unlock (&audio_disk_thread_lock);
+  }
+  return 0;
+}
+
+void jack_shutdown (void *arg) {
+  printf("JACK shutdown\n");
+  abort();
+}
+
+void setup_jack() {
+  unsigned int i;
+  size_t in_size;
+  can_process = 0;
+  if ((client = jack_client_open("v4l2_wayland", JackNoStartServer, NULL)) == 0) {
+    printf("jack server not running?\n");
+    exit(1);
+  }
+  jack_set_process_callback(client, process, NULL);
+  jack_on_shutdown(client, jack_shutdown, NULL);
+  if (jack_activate(client)) {
+    printf("cannot activate jack client\n");
+  }
+  ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * nports);
+  in_size =  nports * sizeof (jack_default_audio_sample_t *);
+  in = (jack_default_audio_sample_t **) malloc (in_size);
+  audio_ring_buf = jack_ringbuffer_create (nports * sample_size *
+   16384);
+  memset(in, 0, in_size);
+  memset(audio_ring_buf->buf, 0, audio_ring_buf->size);
+  for (i = 0; i < nports; i++) {
+    char name[64];
+    sprintf(name, "input%d", i + 1);
+    if ((ports[i] = jack_port_register (client, name, JACK_DEFAULT_AUDIO_TYPE,
+     JackPortIsInput, 0)) == 0) {
+      printf("cannot register input port \"%s\"!\n", name);
+      jack_client_close(client);
+      exit(1);
+    }
+  }
+  can_process = 1;
+}
+
 static void mainloop(void) {
   int ret;
   disk_thread_info_t thread_info;
+  disk_thread_info_t audio_thread_info;
   if (compositor == NULL) {
     fprintf(stderr, "Can't find compositor\n");
     exit(1);
@@ -578,8 +680,11 @@ static void mainloop(void) {
   out_frame.data = calloc(1, out_frame.size);
   uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
   printf("rb_size: %d\n", rb_size);
-  ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
-  memset(ring_buf->buf, 0, ring_buf->size);
+  video_ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
+  memset(video_ring_buf->buf, 0, video_ring_buf->size);
+  setup_jack();
+  pthread_create(&audio_thread_info.thread_id, NULL, audio_disk_thread,
+   &audio_thread_info);
   pthread_create(&thread_info.thread_id, NULL, disk_thread, &thread_info);
   while (wl_display_dispatch(display) != -1) {
   //  printf("in wl_display_dispatch\n");

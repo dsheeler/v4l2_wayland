@@ -16,19 +16,13 @@
 #include <libavcodec/avcodec.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
+#include <jack/jack.h>
 #include <jack/ringbuffer.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 
-
-#define WIDTH 640
-#define HEIGHT 360
-#define ASCALE_FACTOR 2
-#define AWIDTH 320
-#define AHEIGHT 180
-
-#define STREAM_DURATION   30.0
+#define STREAM_DURATION  10.0 
 #define STREAM_FRAME_RATE 30 /* 25 images/s */
 #define STREAM_PIX_FMT    AV_PIX_FMT_RGB32 /* default pix_fmt */
 
@@ -59,12 +53,13 @@ typedef struct OutputStream {
 } OutputStream;
 
 int write_video_frame(AVFormatContext *oc, OutputStream *ost);
+int write_audio_frame(AVFormatContext *oc, OutputStream *ost);
 int init_output();
 void close_stream(AVFormatContext *oc, OutputStream *ost);
 extern OutputStream video_st, audio_st;
 extern AVFormatContext *oc;
 extern AVFrame *frame;
-extern jack_ringbuffer_t *ring_buf;
+extern jack_ringbuffer_t *video_ring_buf, *audio_ring_buf;
 extern char *out_file_name;
 extern uint32_t stream_bitrate;
 extern uint32_t ascale_factor;
@@ -72,5 +67,5 @@ extern uint32_t width;
 extern uint32_t height;
 extern uint32_t awidth;
 extern uint32_t aheight;
-
+extern volatile int can_capture;
 #endif
