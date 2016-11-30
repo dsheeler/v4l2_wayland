@@ -13,13 +13,16 @@ static void log_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt)
 
 static int write_frame(AVFormatContext *fmt_ctx, const AVRational *time_base, AVStream *st, AVPacket *pkt)
 {
-    /* rescale output packet timestamp values from codec to stream timebase */
-    av_packet_rescale_ts(pkt, *time_base, st->time_base);
-    pkt->stream_index = st->index;
-
-    /* Write the compressed frame to the media file. */
-    log_packet(fmt_ctx, pkt);
-    return av_interleaved_write_frame(fmt_ctx, pkt);
+  pthread_mutex_lock(&av_thread_lock);
+  int ret;
+  /* rescale output packet timestamp values from codec to stream timebase */
+  av_packet_rescale_ts(pkt, *time_base, st->time_base);
+  pkt->stream_index = st->index;
+  /* Write the compressed frame to the media file. */
+  log_packet(fmt_ctx, pkt);
+  ret = av_interleaved_write_frame(fmt_ctx, pkt);
+  pthread_mutex_unlock(&av_thread_lock);
+  return ret;
 }
 
 /* Add an output stream. */

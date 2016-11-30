@@ -118,6 +118,7 @@ jack_port_t             **ports;
 jack_default_audio_sample_t **in;
 jack_nframes_t            nframes;
 const size_t              sample_size = sizeof(jack_default_audio_sample_t);
+pthread_mutex_t           av_thread_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t           audio_disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t            audio_data_ready = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t           video_disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;

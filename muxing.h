@@ -70,4 +70,5 @@ extern uint32_t aheight;
 extern volatile int can_capture;
 extern int recording_started;
 extern int recording_stopped;
+extern pthread_mutex_t av_thread_lock;
 #endif
