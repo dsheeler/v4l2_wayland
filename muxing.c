@@ -408,7 +408,7 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame)
       printf("disk thread read a whole frame\n");
       double diff;
       struct timespec *now;
-      can_capture = 1;
+      //can_capture = 1;
       now = &ost->out_frame.ts;
       printf("now %d %d last %d %d\n", now->tv_sec, now->tv_nsec,
           ost->first_time.tv_sec, ost->first_time.tv_nsec);

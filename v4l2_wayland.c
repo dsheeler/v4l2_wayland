@@ -31,6 +31,7 @@
 
 #include <jack/jack.h>
 #include <jack/ringbuffer.h>
+#include <jack/midiport.h>
 #include <linux/input.h>
 #include <ccv/ccv.h>
 #include <cairo/cairo.h>
@@ -53,6 +54,14 @@ struct buffer {
 typedef struct _thread_info {
   pthread_t thread_id;
 } disk_thread_info_t;
+
+struct midi_message {
+  jack_nframes_t time;
+  int len; /*Length of MIDI message in bytes.*/
+  unsigned char data[3];
+};
+
+#define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
 
 static int read_frame(void);
 
@@ -112,9 +121,9 @@ static disk_thread_info_t audio_thread_info;
 volatile int              can_process;
 volatile int              can_capture;
 jack_client_t            *client;
-jack_ringbuffer_t        *video_ring_buf, *audio_ring_buf;
+jack_ringbuffer_t        *video_ring_buf, *audio_ring_buf, *midi_ring_buf;
 unsigned int              nports = 2;
-jack_port_t             **ports;
+jack_port_t             **in_ports, **out_ports, *midi_port;
 jack_default_audio_sample_t **in;
 jack_nframes_t            nframes;
 const size_t              sample_size = sizeof(jack_default_audio_sample_t);
@@ -443,6 +452,37 @@ static void YUV2RGB(const unsigned char y, const unsigned char u,const unsigned 
   *b = CLIPVALUE(b2);
 }
 
+void queue_message(struct midi_message *ev) {
+  int written;
+  if (jack_ringbuffer_write_space(midi_ring_buf) < sizeof(*ev)) {
+    fprintf(stderr, "Not enough space in the ringbuffer, NOTE LOST.");
+    return;
+  }
+  written = jack_ringbuffer_write(midi_ring_buf, (char *)ev, sizeof(*ev));
+  if (written != sizeof(*ev))
+    fprintf(stderr, "jack_ringbuffer_write failed, NOTE LOST.");
+}
+
+void queue_new_message(int b0, int b1, int b2) {
+  struct midi_message ev;
+  if (b1 == -1) {
+    ev.len = 1;
+    ev.data[0] = b0;
+  } else if (b2 == -1) {
+    ev.len = 2;
+    ev.data[0] = b0;
+    ev.data[1] = b1;
+  } else {
+    ev.len = 3;
+    ev.data[0] = b0;
+    ev.data[1] = b1;
+    ev.data[2] = b2;
+  }
+  ev.time = jack_frame_time(client);
+  queue_message(&ev);
+}
+
+
 ccv_tld_t *new_tld(int x, int y, int w, int h) {
   ccv_rect_t box = ccv_rect(x, y, w, h);
   ccv_read(aframe->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, aheight, awidth, 4*awidth);
@@ -452,6 +492,8 @@ ccv_tld_t *new_tld(int x, int y, int w, int h) {
 static void process_image(const void *p, int size)
 {
   static int first_call = 1;
+  static uint16_t pitchbend;
+  static int note = -1;
   unsigned char y0, y1, u, v;
   unsigned char r, g, b;
   int n;
@@ -482,6 +524,9 @@ static void process_image(const void *p, int size)
         printf("%d %d %d %d\n", FIRST_X/ascale_factor, FIRST_Y/ascale_factor, FIRST_W/ascale_factor, FIRST_H/ascale_factor);
       if (FIRST_W > 0 && FIRST_H > 0) {
         tld = new_tld(FIRST_X/ascale_factor, FIRST_Y/ascale_factor, FIRST_W/ascale_factor, FIRST_H/ascale_factor);
+      } else {
+        tld = NULL;
+        doing_tld = 0;
       }
       make_new_tld = 0;
     } else {
@@ -490,6 +535,10 @@ static void process_image(const void *p, int size)
       ccv_comp_t newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
       if (tld->found) {
         printf("FOUND\n");
+        pitchbend = 16383 * (1 - (float) ascale_factor * (float)newbox.rect.y /
+         (float)height);
+        printf("pitchbend: %hu\n", pitchbend);
+        queue_new_message(0xe0, pitchbend & 0x7f, (pitchbend >> 7) & 0x7f);
         cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
         cairo_rectangle(cr, ascale_factor*newbox.rect.x, ascale_factor*newbox.rect.y, ascale_factor*newbox.rect.width,
             ascale_factor*newbox.rect.height);
@@ -507,9 +556,9 @@ static void process_image(const void *p, int size)
   if (first_call) {
     first_call = 0;
     video_st.first_time = out_frame.ts;
+    can_capture = 1;
   }
   int tsize = out_frame.size + sizeof(struct timespec);
-  //memcpy(out_frame.data, shm_data, out_frame.size);
   if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
     if (jack_ringbuffer_write(video_ring_buf, (void *)shm_data, out_frame.size) <
      out_frame.size ||
@@ -569,12 +618,54 @@ void set_button_callback(
   //wl_surface_set_user_data(surface, callback);
 }
 
+void process_midi_output(jack_nframes_t nframes) {
+  int read, t;
+  unsigned char *buffer;
+  void *port_buffer;
+  jack_nframes_t last_frame_time;
+  struct midi_message ev;
+  last_frame_time = jack_last_frame_time(client);
+  port_buffer = jack_port_get_buffer(midi_port, nframes);
+  if (port_buffer == NULL) {
+    return;
+  }
+  jack_midi_clear_buffer(port_buffer);
+  while (jack_ringbuffer_read_space(midi_ring_buf)) {
+    read = jack_ringbuffer_peek(midi_ring_buf, (char *)&ev, sizeof(ev));
+    if (read != sizeof(ev)) {
+      jack_ringbuffer_read_advance(midi_ring_buf, read);
+      continue;
+    }
+    t = ev.time + nframes - last_frame_time;
+    /* If computed time is too much into
+     * the future, we'll need
+     *       to send it later. */
+    if (t >= (int)nframes)
+      break;
+    /* If computed time is < 0, we
+     * missed a cycle because of xrun.
+     * */
+    if (t < 0)
+      t = 0;
+    jack_ringbuffer_read_advance(midi_ring_buf, sizeof(ev));
+    buffer = jack_midi_event_reserve(port_buffer, t, ev.len);
+    memcpy(buffer, ev.data, ev.len);
+  }
+}
+
+static void signal_handler(int sig) {
+  jack_client_close(client);
+  fprintf(stderr, "signal received, exiting ...\n");
+  exit(0);
+}
+
 int process(jack_nframes_t nframes, void *arg) {
   int chn;
   size_t i;
+  process_midi_output(nframes);
   if ((!can_process) || (!can_capture) || (audio_done)) return 0;
   for (chn = 0; chn < nports; chn++)
-    in[chn] = jack_port_get_buffer(ports[chn], nframes);
+    in[chn] = jack_port_get_buffer(in_ports[chn], nframes);
   for (i = 0; i < nframes; i++) {
     for (chn = 0; chn < nports; chn++) {
       if (jack_ringbuffer_write (audio_ring_buf, (void *) (in[chn]+i),
@@ -608,23 +699,34 @@ void setup_jack() {
   if (jack_activate(client)) {
     printf("cannot activate jack client\n");
   }
-  ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * nports);
+  in_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * nports);
+  out_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * nports);
   in_size =  nports * sizeof (jack_default_audio_sample_t *);
   in = (jack_default_audio_sample_t **) malloc (in_size);
   audio_ring_buf = jack_ringbuffer_create (nports * sample_size *
    16384);
   memset(in, 0, in_size);
   memset(audio_ring_buf->buf, 0, audio_ring_buf->size);
+  midi_ring_buf = jack_ringbuffer_create(MIDI_RB_SIZE);
   for (i = 0; i < nports; i++) {
     char name[64];
     sprintf(name, "input%d", i + 1);
-    if ((ports[i] = jack_port_register (client, name, JACK_DEFAULT_AUDIO_TYPE,
+    if ((in_ports[i] = jack_port_register (client, name, JACK_DEFAULT_AUDIO_TYPE,
      JackPortIsInput, 0)) == 0) {
       printf("cannot register input port \"%s\"!\n", name);
       jack_client_close(client);
       exit(1);
     }
+    sprintf(name, "output%d", i + 1);
+    if ((out_ports[i] = jack_port_register (client, name, JACK_DEFAULT_AUDIO_TYPE,
+     JackPortIsOutput, 0)) == 0) {
+      printf("cannot register output port \"%s\"!\n", name);
+      jack_client_close(client);
+      exit(1);
+    }
   }
+  midi_port = jack_port_register(client, "output_midi",
+   JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
   can_process = 1;
 }
 void start_recording_threads() {
@@ -978,7 +1080,7 @@ static void pointer_button(void *data,
     uint32_t time, uint32_t button, uint32_t state)
 {
   void (*callback)(uint32_t);
-
+  static int note = -1;
   if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
     mdown = 1;
     mdown_x = m_x;
@@ -987,6 +1089,11 @@ static void pointer_button(void *data,
     FIRST_Y = mdown_y;
     FIRST_W = 0;
     FIRST_H = 0;
+    if (note > -1) {
+      queue_new_message(0x80, note, 0);
+    }
+    note = (int)(128 * mdown_x / width);
+    queue_new_message(0x90, note, 64);
   } else if (button == BTN_LEFT && state != WL_POINTER_BUTTON_STATE_PRESSED) {
     mdown = 0;
     FIRST_W = m_x - mdown_x;
@@ -1003,6 +1110,9 @@ static void pointer_button(void *data,
     make_new_tld = 1;
     doing_tld = 1;
   } else if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
+    if (note > -1) {
+      queue_new_message(0x80, note, 0);
+    }
     doing_tld = 0;
   }
 }

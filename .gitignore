@@ -1,3 +1,6 @@
+a.out
+*.webm
+*.avi
 v4l2_wayland
 *.swp
 *.o
