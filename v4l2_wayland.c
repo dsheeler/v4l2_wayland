@@ -161,7 +161,6 @@ void setup_wayland() {
     fprintf(stderr, "Can't connect to display\n");
     exit(1);
   }
-  printf("connected to display\n");
   registry = wl_display_get_registry(display);
   wl_registry_add_listener(registry, &registry_listener, NULL);
   wl_display_roundtrip(display);
@@ -182,7 +181,6 @@ static void registry_global(void *data,
     struct wl_registry *registry, uint32_t name,
     const char *interface, uint32_t version)
 {
- printf("Got a registry event for %s id %d\n", interface, name);
  if (strcmp(interface, wl_compositor_interface.name) == 0)
     compositor = wl_registry_bind(registry, name,
         &wl_compositor_interface, min(version, 4));
@@ -274,7 +272,6 @@ int os_create_anonymous_file(off_t size)
 static void paint_pixels() {
   int n;
   uint32_t *pixel = shm_data;
-  fprintf(stderr, "Painting pixels\n");
   for (n =0; n < width * height; n++) {
     *pixel++ = 0xffff00;
   }
@@ -399,7 +396,6 @@ void *audio_disk_thread(void *arg) {
     if (ret == -1) pthread_cond_wait(&audio_data_ready, &audio_disk_thread_lock);
   }
   if (audio_done && video_done && !trailer_written) {
-    printf("WRITING_TRAILER\n");
     av_write_trailer(oc);
     trailer_written = 1;
   }
@@ -423,7 +419,6 @@ void *video_disk_thread (void *arg) {
     if (ret == -1) pthread_cond_wait(&video_data_ready, &video_disk_thread_lock);
   }
   if (audio_done && video_done && !trailer_written) {
-    printf("WRITING TRAILER\n");
     av_write_trailer(oc);
     trailer_written = 1;
   }
@@ -483,7 +478,6 @@ static void process_image(const void *p, int size)
     int ret = sws_scale(resize, (uint8_t const * const *)frame->data, frame->linesize, 0, frame->height,
     aframe->data, aframe->linesize);
     if (make_new_tld == 1) {
-        printf("%d %d %d %d\n", FIRST_X/ascale_factor, FIRST_Y/ascale_factor, FIRST_W/ascale_factor, FIRST_H/ascale_factor);
       if (FIRST_W > 0 && FIRST_H > 0) {
         tld = new_tld(FIRST_X/ascale_factor, FIRST_Y/ascale_factor, FIRST_W/ascale_factor, FIRST_H/ascale_factor);
       } else {
@@ -650,6 +644,13 @@ static void signal_handler(int sig) {
   exit(0);
 }
 
+void setup_signal_handler() {
+  signal(SIGQUIT, signal_handler);
+  signal(SIGTERM, signal_handler);
+  signal(SIGHUP, signal_handler);
+  signal(SIGINT, signal_handler);
+}
+
 int process(jack_nframes_t nframes, void *arg) {
   int chn;
   size_t i;
@@ -793,19 +794,17 @@ static void mainloop(void) {
      x_delta * (i + 1) * width, height/2.5, width/(nsound_shapes*3),
      30, 100, 80, 0.5);
   }
-  init_output();//make_new_tld = 1;
+  init_output();
   out_frame.size = 4 * width * height;
   out_frame.data = calloc(1, out_frame.size);
   uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
-  printf("rb_size: %d\n", rb_size);
   video_ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
   memset(video_ring_buf->buf, 0, video_ring_buf->size);
   setup_jack();
+  setup_signal_handler();
   while (wl_display_dispatch(display) != -1) {
-  //  printf("in wl_display_dispatch\n");
   }
-  av_write_trailer(oc);
-  /* Close each codec. */
+  close_stream(oc, &audio_st);
   close_stream(oc, &video_st);
   avio_closep(&oc->pb);
   avformat_free_context(oc);
@@ -942,7 +941,6 @@ static void init_device(void)
   }
   CLEAR(fmt);
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  fprintf(stderr, "Set format\r\n");
   fmt.fmt.pix.width       = width; //replace
   fmt.fmt.pix.height      = height; //replace
   fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_BGR32; //replace
@@ -1062,6 +1060,7 @@ static void pointer_leave(void *data,
 static void pointer_motion(void *data,
     struct wl_pointer *wl_pointer, uint32_t time,
     wl_fixed_t surface_x, wl_fixed_t surface_y) {
+  int i;
   m_x = wl_fixed_to_int(surface_x);
   m_y = wl_fixed_to_int(surface_y);
   if (mdown) {
@@ -1075,6 +1074,16 @@ static void pointer_motion(void *data,
       FIRST_Y = mdown_y + FIRST_H;
       FIRST_H = -FIRST_H;
     }
+  } else {
+    for (i = 0; i < nsound_shapes; i++) {
+      if (sound_shapes[i].mdown) {
+        sound_shapes[i].x = m_x - sound_shapes[i].mdown_x
+         + sound_shapes[i].down_x;
+        sound_shapes[i].y = m_y - sound_shapes[i].mdown_y
+         + sound_shapes[i].down_y;
+        break;
+      }
+    }
   }
 }
 
@@ -1082,6 +1091,23 @@ static void pointer_button(void *data,
     struct wl_pointer *wl_pointer, uint32_t serial,
     uint32_t time, uint32_t button, uint32_t state)
 {
+  int i;
+  if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
+    for (i = 0; i < nsound_shapes; i++) {
+      if (sound_shape_in(&sound_shapes[i], m_x, m_y)) {
+        sound_shapes[i].mdown = 1;
+        sound_shapes[i].mdown_x = m_x;
+        sound_shapes[i].mdown_y = m_y;
+        sound_shapes[i].down_x = sound_shapes[i].x;
+        sound_shapes[i].down_y = sound_shapes[i].y;
+        break;
+      }
+    }
+  } else if (button == BTN_LEFT && state != WL_POINTER_BUTTON_STATE_PRESSED) {
+    for (i = 0; i < nsound_shapes; i++) {
+      sound_shapes[i].mdown = 0;
+    }
+  }
   if (!shift_pressed && button == BTN_RIGHT
    && state == WL_POINTER_BUTTON_STATE_PRESSED) {
     mdown = 1;
@@ -1104,7 +1130,6 @@ static void pointer_button(void *data,
       FIRST_Y = mdown_y + FIRST_H;
       FIRST_H = -FIRST_H;
     }
-    printf ("%d %d %d %d\n", FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
     make_new_tld = 1;
     doing_tld = 1;
   }
@@ -1174,11 +1199,9 @@ int main(int argc, char **argv)
         break;
       case 'o':
         out_file_name = optarg;
-        printf("out_file_name: <%s>\n", out_file_name);
         break;
       case 'b':
         stream_bitrate = atoi(optarg);
-        printf("bitrate: <%d>\n", stream_bitrate);
         break;
       case 'w':
         width = atoi(optarg);

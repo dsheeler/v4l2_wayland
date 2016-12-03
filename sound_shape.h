@@ -21,6 +21,11 @@ typedef struct {
   uint8_t midi_note;
   color normal;
   color playing;
+  uint8_t mdown;
+  double mdown_x;
+  double mdown_y;
+  double down_x;
+  double down_y;
 } sound_shape;
 
 int sound_shape_init(sound_shape *ss, uint8_t midi_note,

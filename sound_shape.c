@@ -16,6 +16,7 @@ int sound_shape_init(sound_shape *ss, uint8_t midi_note,
   ss->playing.g = 240/255.;
   ss->playing.b = 180/255.;
   ss->playing.a = a;
+  ss->mdown = 0;
   return 0;
 }
 
