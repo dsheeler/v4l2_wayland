@@ -91,6 +91,7 @@ int                             recording_started = 0;
 int                             recording_stopped = 0;
 static int                      audio_done = 0, video_done = 0,
                                 trailer_written = 0;
+static int                      shift_pressed = 0;
 void *shm_data;
 
 static const struct wl_registry_listener registry_listener;
@@ -518,6 +519,12 @@ static void process_image(const void *p, int size)
       } else {
         cdm = cdm2;
         cdm2 = 0;
+      }
+    }
+  } else {
+    for (i = 0; i < nsound_shapes; i++) {
+      if (sound_shapes[i].on) {
+        sound_shape_off(&sound_shapes[i]);
       }
     }
   }
@@ -1026,6 +1033,11 @@ keyboard_handle_modifiers(void *data, struct wl_keyboard *keyboard,
  uint32_t mods_latched, uint32_t mods_locked,
  uint32_t group)
 {
+  if (!shift_pressed && mods_depressed & 1) {
+    shift_pressed = 1;
+  } else if (shift_pressed && ((mods_depressed & 1) == 0)) {
+    shift_pressed = 0;
+  }
 }
 
 static const struct wl_keyboard_listener keyboard_listener = {
@@ -1063,8 +1075,6 @@ static void pointer_motion(void *data,
       FIRST_Y = mdown_y + FIRST_H;
       FIRST_H = -FIRST_H;
     }
-  } else {
-    //FIRST_W = FIRST_H = 0;
   }
 }
 
@@ -1072,8 +1082,8 @@ static void pointer_button(void *data,
     struct wl_pointer *wl_pointer, uint32_t serial,
     uint32_t time, uint32_t button, uint32_t state)
 {
-  void (*callback)(uint32_t);
-  if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
+  if (!shift_pressed && button == BTN_RIGHT
+   && state == WL_POINTER_BUTTON_STATE_PRESSED) {
     mdown = 1;
     mdown_x = m_x;
     mdown_y = m_y;
@@ -1081,7 +1091,8 @@ static void pointer_button(void *data,
     FIRST_Y = mdown_y;
     FIRST_W = 0;
     FIRST_H = 0;
-  } else if (button == BTN_LEFT && state != WL_POINTER_BUTTON_STATE_PRESSED) {
+  } else if (!shift_pressed && button == BTN_RIGHT
+   && state != WL_POINTER_BUTTON_STATE_PRESSED) {
     mdown = 0;
     FIRST_W = m_x - mdown_x;
     FIRST_H = m_y - mdown_y;
@@ -1096,8 +1107,11 @@ static void pointer_button(void *data,
     printf ("%d %d %d %d\n", FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
     make_new_tld = 1;
     doing_tld = 1;
-  } else if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-    doing_tld = 0;
+  }
+  if (doing_tld && shift_pressed) {
+    if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
+      doing_tld = 0;
+    }
   }
 }
 
