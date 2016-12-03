@@ -39,6 +39,8 @@
 #include <linux/videodev2.h>
 
 #include "muxing.h"
+#include "sound_shape.h"
+#include "midi.h"
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
@@ -54,12 +56,6 @@ struct buffer {
 typedef struct _thread_info {
   pthread_t thread_id;
 } disk_thread_info_t;
-
-struct midi_message {
-  jack_nframes_t time;
-  int len; /*Length of MIDI message in bytes.*/
-  unsigned char data[3];
-};
 
 #define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
 
@@ -117,6 +113,8 @@ static int                frame_count = 200;
 static int                frame_number = 0;
 static disk_thread_info_t video_thread_info;
 static disk_thread_info_t audio_thread_info;
+int nsound_shapes = 8;
+static sound_shape        sound_shapes[8];
 
 volatile int              can_process;
 volatile int              can_capture;
@@ -400,6 +398,7 @@ void *audio_disk_thread(void *arg) {
     if (ret == -1) pthread_cond_wait(&audio_data_ready, &audio_disk_thread_lock);
   }
   if (audio_done && video_done && !trailer_written) {
+    printf("WRITING_TRAILER\n");
     av_write_trailer(oc);
     trailer_written = 1;
   }
@@ -423,6 +422,7 @@ void *video_disk_thread (void *arg) {
     if (ret == -1) pthread_cond_wait(&video_data_ready, &video_disk_thread_lock);
   }
   if (audio_done && video_done && !trailer_written) {
+    printf("WRITING TRAILER\n");
     av_write_trailer(oc);
     trailer_written = 1;
   }
@@ -452,37 +452,6 @@ static void YUV2RGB(const unsigned char y, const unsigned char u,const unsigned 
   *b = CLIPVALUE(b2);
 }
 
-void queue_message(struct midi_message *ev) {
-  int written;
-  if (jack_ringbuffer_write_space(midi_ring_buf) < sizeof(*ev)) {
-    fprintf(stderr, "Not enough space in the ringbuffer, NOTE LOST.");
-    return;
-  }
-  written = jack_ringbuffer_write(midi_ring_buf, (char *)ev, sizeof(*ev));
-  if (written != sizeof(*ev))
-    fprintf(stderr, "jack_ringbuffer_write failed, NOTE LOST.");
-}
-
-void queue_new_message(int b0, int b1, int b2) {
-  struct midi_message ev;
-  if (b1 == -1) {
-    ev.len = 1;
-    ev.data[0] = b0;
-  } else if (b2 == -1) {
-    ev.len = 2;
-    ev.data[0] = b0;
-    ev.data[1] = b1;
-  } else {
-    ev.len = 3;
-    ev.data[0] = b0;
-    ev.data[1] = b1;
-    ev.data[2] = b2;
-  }
-  ev.time = jack_frame_time(client);
-  queue_message(&ev);
-}
-
-
 ccv_tld_t *new_tld(int x, int y, int w, int h) {
   ccv_rect_t box = ccv_rect(x, y, w, h);
   ccv_read(aframe->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, aheight, awidth, 4*awidth);
@@ -492,8 +461,7 @@ ccv_tld_t *new_tld(int x, int y, int w, int h) {
 static void process_image(const void *p, int size)
 {
   static int first_call = 1;
-  static uint16_t pitchbend;
-  static int note = -1;
+  int i;
   unsigned char y0, y1, u, v;
   unsigned char r, g, b;
   int n;
@@ -509,13 +477,6 @@ static void process_image(const void *p, int size)
     *pixel++ = r << 16 | g << 8 | b;
     YUV2RGB(y1, u, v, &r, &g, &b);
     *pixel++ = r << 16 | g << 8 | b;
-  }
-  if (mdown) {
-    cairo_save(cr);
-    cairo_set_source_rgba(cr, 0.5, 0., 0., 0.5);
-    cairo_rectangle(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
-    cairo_fill(cr);
-    cairo_restore(cr);
   }
   if (doing_tld) {
     int ret = sws_scale(resize, (uint8_t const * const *)frame->data, frame->linesize, 0, frame->height,
@@ -534,22 +495,46 @@ static void process_image(const void *p, int size)
       ccv_tld_info_t info;
       ccv_comp_t newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
       if (tld->found) {
-        printf("FOUND\n");
-        pitchbend = 16383 * (1 - (float) ascale_factor * (float)newbox.rect.y /
-         (float)height);
-        printf("pitchbend: %hu\n", pitchbend);
-        queue_new_message(0xe0, pitchbend & 0x7f, (pitchbend >> 7) & 0x7f);
+        for (i = 0; i < nsound_shapes; i++) {
+          if (sound_shape_in(&sound_shapes[i],
+           ascale_factor*newbox.rect.x + 0.5*ascale_factor*newbox.rect.width,
+           ascale_factor*newbox.rect.y + 0.5*ascale_factor*newbox.rect.height)) {
+            if (!sound_shapes[i].on) {
+              sound_shape_on(&sound_shapes[i]);
+            }
+          } else {
+            if (sound_shapes[i].on) {
+              sound_shape_off(&sound_shapes[i]);
+            }
+          }
+        }
         cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
-        cairo_rectangle(cr, ascale_factor*newbox.rect.x, ascale_factor*newbox.rect.y, ascale_factor*newbox.rect.width,
-            ascale_factor*newbox.rect.height);
+        cairo_rectangle(cr, ascale_factor*newbox.rect.x,
+         ascale_factor*newbox.rect.y, ascale_factor*newbox.rect.width,
+         ascale_factor*newbox.rect.height);
         cairo_fill(cr);
         cdm = cdm2;
         cdm2 = 0;
       } else {
         cdm = cdm2;
         cdm2 = 0;
-        printf("NOT FOUND\n");
       }
+    }
+  }
+  if (mdown) {
+    cairo_save(cr);
+    cairo_set_source_rgba(cr, 0.5, 0., 0., 0.5);
+    cairo_rectangle(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
+    cairo_fill(cr);
+    cairo_restore(cr);
+  }
+  for (i = 0; i < nsound_shapes; i++) {
+    sound_shape_render(&sound_shapes[i], cr);
+  }
+  if (recording_stopped) {
+    if (pthread_mutex_trylock (&video_disk_thread_lock) == 0) {
+      pthread_cond_signal (&video_data_ready);
+      pthread_mutex_unlock (&video_disk_thread_lock);
     }
   }
   if (!recording_started || recording_stopped) return;
@@ -589,7 +574,6 @@ static int read_frame(void)
   if (-1 == xioctl(fd, VIDIOC_DQBUF, &buf)) {
     switch (errno) {
       case EAGAIN:
-        printf("EAGAIN\n");
         return 0;
       case EIO:
         /* Could ignore EIO, see spec. */
@@ -662,7 +646,7 @@ static void signal_handler(int sig) {
 int process(jack_nframes_t nframes, void *arg) {
   int chn;
   size_t i;
-  process_midi_output(nframes);
+  if (can_process) process_midi_output(nframes);
   if ((!can_process) || (!can_capture) || (audio_done)) return 0;
   for (chn = 0; chn < nports; chn++)
     in[chn] = jack_port_get_buffer(in_ports[chn], nframes);
@@ -740,6 +724,7 @@ void start_recording_threads() {
 
 static void mainloop(void) {
   int ret;
+  int i;
   if (compositor == NULL) {
     fprintf(stderr, "Can't find compositor\n");
     exit(1);
@@ -793,6 +778,14 @@ static void mainloop(void) {
       CAIRO_FORMAT_RGB24, width, height, 4*width);
   cr = cairo_create(csurface);
   cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
+  uint8_t base_midi_note = 64;
+  uint8_t aeolian[] = { 0, 2, 4, 5, 7, 9, 11, 12 };
+  double x_delta = 1. / (nsound_shapes + 1);
+  for (i = 0; i < nsound_shapes; i++) {
+    sound_shape_init(&sound_shapes[i], base_midi_note + aeolian[i], 
+     x_delta * (i + 1) * width, height/2.5, width/(nsound_shapes*3),
+     30, 100, 80, 0.5);
+  }
   init_output();//make_new_tld = 1;
   out_frame.size = 4 * width * height;
   out_frame.data = calloc(1, out_frame.size);
@@ -1080,7 +1073,6 @@ static void pointer_button(void *data,
     uint32_t time, uint32_t button, uint32_t state)
 {
   void (*callback)(uint32_t);
-  static int note = -1;
   if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
     mdown = 1;
     mdown_x = m_x;
@@ -1089,11 +1081,6 @@ static void pointer_button(void *data,
     FIRST_Y = mdown_y;
     FIRST_W = 0;
     FIRST_H = 0;
-    if (note > -1) {
-      queue_new_message(0x80, note, 0);
-    }
-    note = (int)(128 * mdown_x / width);
-    queue_new_message(0x90, note, 64);
   } else if (button == BTN_LEFT && state != WL_POINTER_BUTTON_STATE_PRESSED) {
     mdown = 0;
     FIRST_W = m_x - mdown_x;
@@ -1110,9 +1097,6 @@ static void pointer_button(void *data,
     make_new_tld = 1;
     doing_tld = 1;
   } else if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-    if (note > -1) {
-      queue_new_message(0x80, note, 0);
-    }
     doing_tld = 0;
   }
 }

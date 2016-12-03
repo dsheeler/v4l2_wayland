@@ -10,9 +10,9 @@ LFLAGS = $(shell pkg-config --libs wayland-client) \
 
 LIBS =
 
-SRCS = v4l2_wayland.c muxing.c
+SRCS = v4l2_wayland.c muxing.c sound_shape.c midi.c
 OBJS = $(SRCS:.c=.o)
-HDRS = muxing.h
+HDRS = muxing.h sound_shape.h midi.h
 
 .SUFFIXES:
 
@@ -21,7 +21,7 @@ HDRS = muxing.h
 %.o : %.c ${HDRS}
 	$(CC) ${CFLAGS} -c $< -o $@
 
-v4l2_wayland: v4l2_wayland.c ${OBJS} 
+v4l2_wayland: v4l2_wayland.c ${OBJS}
 	${CC} -o $@ ${OBJS} ${LFLAGS}
 
 clean:

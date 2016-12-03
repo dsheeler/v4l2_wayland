@@ -96,7 +96,7 @@ static void add_stream(OutputStream *ost, AVFormatContext *oc,
         ost->st->time_base = (AVRational){ 1, STREAM_FRAME_RATE };
         c->time_base       = ost->st->time_base;
 
-        c->gop_size      = 16; /* emit one intra frame every twelve frames at most */
+        c->gop_size      = 12; /* emit one intra frame every twelve frames at most */
         c->pix_fmt       = AV_PIX_FMT_YUV420P;
         if (c->codec_id == AV_CODEC_ID_MPEG2VIDEO) {
             /* just for testing, we also add B-frames */
@@ -462,6 +462,9 @@ int write_video_frame(AVFormatContext *oc, OutputStream *ost)
   c = ost->enc;
   ret = get_video_frame(ost, &tframe);
   if (ret < 0) {
+    if(recording_stopped) {
+      return 1;
+    }
     return -1;
   } else if (ret == 1) {
     av_init_packet(&pkt);
