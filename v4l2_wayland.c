@@ -14,6 +14,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include <getopt.h>             /* getopt_long() */
+#include <math.h>
 
 #include <fcntl.h>              /* low-level i/o */
 #include <unistd.h>
@@ -721,6 +722,7 @@ void setup_jack() {
    JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
   can_process = 1;
 }
+
 void start_recording_threads() {
   recording_started = 1;
   printf("start_recording\n");
@@ -729,6 +731,9 @@ void start_recording_threads() {
   pthread_create(&video_thread_info.thread_id, NULL, video_disk_thread,
    &video_thread_info);
 }
+
+char *note_names[] = {"A", "A#", "B", "C", "C#", "D", "D#", "E",
+ "F", "F#", "G", "G#"};
 
 static void mainloop(void) {
   int ret;
@@ -783,14 +788,25 @@ static void mainloop(void) {
     exit(1);
   }
   csurface = cairo_image_surface_create_for_data((unsigned char *)shm_data,
-      CAIRO_FORMAT_RGB24, width, height, 4*width);
+   CAIRO_FORMAT_RGB24, width, height, 4*width);
   cr = cairo_create(csurface);
   cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
   uint8_t base_midi_note = 64;
   uint8_t aeolian[] = { 0, 2, 4, 5, 7, 9, 11, 12 };
   double x_delta = 1. / (nsound_shapes + 1);
+  char label[NCHAR];
+  double freq;
+  uint8_t midi_note;
+  int note_names_idx, note_octave_num;
   for (i = 0; i < nsound_shapes; i++) {
-    sound_shape_init(&sound_shapes[i], base_midi_note + aeolian[i], 
+    midi_note = base_midi_note + aeolian[i];
+    note_octave_num = (midi_note - 21) / 12;
+    note_names_idx = (midi_note - 21) % 12;
+    freq = 440.0 * pow(2.0, (midi_note - 69.0) / 12.0);
+    memset(label, '\0', NCHAR * sizeof(char));
+    sprintf(label, "%d\n%.1f\n%s%d", i+1, freq, note_names[note_names_idx],
+     note_octave_num);
+    sound_shape_init(&sound_shapes[i], label, midi_note,
      x_delta * (i + 1) * width, height/2.5, width/(nsound_shapes*3),
      30, 100, 80, 0.5);
   }

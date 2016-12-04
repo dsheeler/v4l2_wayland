@@ -2,9 +2,13 @@
 #define _SOUND_SHAPE_H (1)
 
 #include <cairo/cairo.h>
+#include <pango/pangocairo.h>
 #include <math.h>
+#include <string.h>
 #include <stdint.h>
 #include "midi.h"
+
+#define NCHAR 32
 
 typedef struct {
   double r;
@@ -17,6 +21,7 @@ typedef struct {
   double x;
   double y;
   double r;
+  char label[NCHAR];
   uint8_t on;
   uint8_t midi_note;
   color normal;
@@ -28,8 +33,8 @@ typedef struct {
   double down_y;
 } sound_shape;
 
-int sound_shape_init(sound_shape *ss, uint8_t midi_note,
- double x, double y, double r,
+int sound_shape_init(sound_shape *ss, char *label,
+ uint8_t midi_note, double x, double y, double r,
  int red, int g, int b, double a);
 int sound_shape_render(sound_shape *ss, cairo_t *cr);
 int sound_shape_in(sound_shape *ss, double x, double y);
