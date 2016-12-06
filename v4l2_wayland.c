@@ -448,6 +448,25 @@ ccv_tld_t *new_tld(int x, int y, int w, int h) {
   return ccv_tld_new(cdm, box, ccv_tld_default_params);
 }
 
+static void render_detection_box(cairo_t *cr, int x, int y, int w, int h) {
+  cairo_save(cr);
+  cairo_set_source_rgba(cr, 0., 0., 1, 0.5);
+  cairo_rectangle(cr, x, y, w, h);
+  cairo_stroke(cr);
+  cairo_arc(cr, 0.5 * w + x, 0.5 * h + y, min(w, h) * 0.06, 0, 2 * M_PI);
+  cairo_stroke(cr);
+  cairo_arc(cr, 0.5 * w + x, 0.5 * h + y, min(w, h) * 0.25, 0, 2 * M_PI);
+  cairo_stroke(cr);
+  cairo_arc(cr, 0.5 * w + x, 0.5 * h + y, min(w, h) * 0.5, 0, 2 * M_PI);
+  cairo_stroke(cr);
+  cairo_move_to(cr, x, 0.5 * h + y);
+  cairo_line_to(cr, x + w, 0.5 * h + y);
+  cairo_move_to(cr, 0.5 * w + x, y);
+  cairo_line_to(cr, 0.5 * w + x, h + y);
+  cairo_stroke(cr);
+  cairo_restore(cr);
+}
+
 static void process_image(const void *p, const int size, int do_tld) {
   static int first_call = 1;
   static unsigned char save_buf[8192*4608];
@@ -505,13 +524,13 @@ static void process_image(const void *p, const int size, int do_tld) {
       }
     }
     if (newbox.rect.width && newbox.rect.height &&
-     made_first_tld && tld->found) {
+        made_first_tld && tld->found) {
       for (i = 0; i < nsound_shapes; i++) {
         if (sound_shape_in(&sound_shapes[i],
-         ascale_factor_x*newbox.rect.x + 
-         0.5*ascale_factor_x*newbox.rect.width,
-         ascale_factor_y*newbox.rect.y +
-         0.5*ascale_factor_y*newbox.rect.height)) {
+              ascale_factor_x*newbox.rect.x +
+              0.5*ascale_factor_x*newbox.rect.width,
+              ascale_factor_y*newbox.rect.y +
+              0.5*ascale_factor_y*newbox.rect.height)) {
           if (!sound_shapes[i].on) {
             sound_shape_on(&sound_shapes[i]);
           }
@@ -522,14 +541,9 @@ static void process_image(const void *p, const int size, int do_tld) {
         }
       }
     }
-    printf("newbox: %d, %d, %d, %d\n", newbox.rect.x, newbox.rect.y,
-        newbox.rect.width, newbox.rect.height);
-    printf("scalex / y: %f, %f\n", ascale_factor_x, ascale_factor_y);
-    cairo_set_source_rgba(cr, 0., 0., 1, 0.5);
-      cairo_rectangle(cr, ascale_factor_x*newbox.rect.x,
-       ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
-       ascale_factor_y*newbox.rect.height);
-      cairo_fill(cr);
+    render_detection_box(cr, ascale_factor_x*newbox.rect.x,
+        ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
+        ascale_factor_y*newbox.rect.height);
   } else {
     tld = NULL;
     made_first_tld = 0;
@@ -544,11 +558,7 @@ static void process_image(const void *p, const int size, int do_tld) {
     }
   }
   if (mdown) {
-    cairo_save(cr);
-    cairo_set_source_rgba(cr, 0., 0., 1, 0.5);
-    cairo_rectangle(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
-    cairo_fill(cr);
-    cairo_restore(cr);
+    render_detection_box(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
   }
   for (i = 0; i < nsound_shapes; i++) {
     sound_shape_render(&sound_shapes[i], cr);
@@ -1180,14 +1190,6 @@ static void pointer_button(void *data,
   } else if (!shift_pressed && button == BTN_RIGHT
    && state != WL_POINTER_BUTTON_STATE_PRESSED) {
     mdown = 0;
-    /*FIRST_W = m_x - mdown_x;
-    FIRST_H = m_y - mdown_y;
-    if (FIRST_W < 20 * ascale_factor_x) {
-      FIRST_W = 20 * ascale_factor_x;
-    }
-    if (FIRST_H < 20 * ascale_factor_y) {
-      FIRST_H = 20 * ascale_factor_y;
-    }*/
     make_new_tld = 1;
     doing_tld = 1;
   }
