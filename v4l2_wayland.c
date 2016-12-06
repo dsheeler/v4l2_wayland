@@ -69,9 +69,10 @@ AVFrame                        *frame;
 char                           *out_file_name;
 uint32_t                       width = 640;
 uint32_t                       height = 360;
-uint32_t                       ascale_factor = 2;
-uint32_t                       awidth;
-uint32_t                       aheight;
+uint32_t                       awidth = 260;
+uint32_t                       aheight = 148;
+double                         ascale_factor_x;
+double                         ascale_factor_y;
 uint32_t                       stream_bitrate = 10000;
 static AVFrame                 *aframe;
 static struct SwsContext       *resize;
@@ -138,12 +139,6 @@ static void errno_exit(const char *s)
 {
   fprintf(stderr, "%s error %d, %s\n", s, errno, strerror(errno));
   exit(EXIT_FAILURE);
-}
-
-static void set_ascale_factor(uint32_t factor) {
-  ascale_factor = factor;
-  awidth = width / ascale_factor;
-  aheight = height / ascale_factor;
 }
 
 static int xioctl(int fh, int request, void *arg)
@@ -283,13 +278,11 @@ static const struct wl_callback_listener frame_listener;
 static void redraw(void *data, struct wl_callback *callback, uint32_t time)
 {
   wl_callback_destroy(frame_callback);
-  wl_surface_damage(surface, 0, 0,
-      width, height); 
+  wl_surface_damage(surface, 0, 0, width, height); 
   read_frame();
   frame_callback = wl_surface_frame(surface);
   wl_surface_attach(surface, buffer, 0, 0);
-  wl_callback_add_listener(frame_callback,
-      &frame_listener, NULL);
+  wl_callback_add_listener(frame_callback, &frame_listener, NULL);
   wl_surface_commit(surface);
 }
 static const struct
@@ -455,9 +448,12 @@ ccv_tld_t *new_tld(int x, int y, int w, int h) {
   return ccv_tld_new(cdm, box, ccv_tld_default_params);
 }
 
-static void process_image(const void *p, int size)
-{
+static void process_image(const void *p, const int size, int do_tld) {
   static int first_call = 1;
+  static unsigned char save_buf[8192*4608];
+  static int save_size = 0;
+  static ccv_comp_t newbox;
+  static int made_first_tld = 0;
   int i;
   unsigned char y0, y1, u, v;
   unsigned char r, g, b;
@@ -465,7 +461,13 @@ static void process_image(const void *p, int size)
   uint32_t *pixel = shm_data;
   unsigned char *ptr = (unsigned char*) p;
   if (video_done) return;
-  for (n = 0; n < size; n += 4) {
+  if (size == 0) {
+    ptr = save_buf;
+  } else {
+    save_size = size;
+    memcpy(save_buf, p, size);
+  }
+  for (n = 0; n < save_size; n += 4) {
     y0 = (unsigned char)ptr[n + 0];
     u = (unsigned char)ptr[n + 1];
     y1 = (unsigned char)ptr[n + 2];
@@ -476,47 +478,65 @@ static void process_image(const void *p, int size)
     *pixel++ = r << 16 | g << 8 | b;
   }
   if (doing_tld) {
-    int ret = sws_scale(resize, (uint8_t const * const *)frame->data, frame->linesize, 0, frame->height,
-    aframe->data, aframe->linesize);
-    if (make_new_tld == 1) {
-      if (FIRST_W > 0 && FIRST_H > 0) {
-        tld = new_tld(FIRST_X/ascale_factor, FIRST_Y/ascale_factor, FIRST_W/ascale_factor, FIRST_H/ascale_factor);
-      } else {
-        tld = NULL;
-        doing_tld = 0;
-      }
-      make_new_tld = 0;
-    } else {
-      ccv_read(aframe->data[0], &cdm2, CCV_IO_ARGB_RAW | CCV_IO_GRAY, aheight, awidth, 4*awidth);
-      ccv_tld_info_t info;
-      ccv_comp_t newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
-      if (tld->found) {
-        for (i = 0; i < nsound_shapes; i++) {
-          if (sound_shape_in(&sound_shapes[i],
-           ascale_factor*newbox.rect.x + 0.5*ascale_factor*newbox.rect.width,
-           ascale_factor*newbox.rect.y + 0.5*ascale_factor*newbox.rect.height)) {
-            if (!sound_shapes[i].on) {
-              sound_shape_on(&sound_shapes[i]);
-            }
-          } else {
-            if (sound_shapes[i].on) {
-              sound_shape_off(&sound_shapes[i]);
-            }
-          }
+    if (do_tld) {
+      int ret = sws_scale(resize, (uint8_t const * const *)frame->data, frame->linesize, 0, frame->height,
+          aframe->data, aframe->linesize);
+      if (make_new_tld == 1) {
+        if (FIRST_W > 0 && FIRST_H > 0) {
+          tld = new_tld(FIRST_X/ascale_factor_x, FIRST_Y/ascale_factor_y, FIRST_W/ascale_factor_x, FIRST_H/ascale_factor_y);
+        } else {
+          tld = NULL;
+          doing_tld = 0;
+          made_first_tld = 0;
+          newbox.rect.x = 0;
+          newbox.rect.y = 0;
+          newbox.rect.width = 0;
+          newbox.rect.height = 0;
+          return;
         }
-        cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
-        cairo_rectangle(cr, ascale_factor*newbox.rect.x,
-         ascale_factor*newbox.rect.y, ascale_factor*newbox.rect.width,
-         ascale_factor*newbox.rect.height);
-        cairo_fill(cr);
-        cdm = cdm2;
-        cdm2 = 0;
+        made_first_tld = 1;
+        make_new_tld = 0;
       } else {
+        ccv_read(aframe->data[0], &cdm2, CCV_IO_ARGB_RAW | CCV_IO_GRAY, aheight, awidth, 4*awidth);
+        ccv_tld_info_t info;
+        newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
         cdm = cdm2;
         cdm2 = 0;
       }
     }
+    if (newbox.rect.width && newbox.rect.height &&
+     made_first_tld && tld->found) {
+      for (i = 0; i < nsound_shapes; i++) {
+        if (sound_shape_in(&sound_shapes[i],
+         ascale_factor_x*newbox.rect.x + 
+         0.5*ascale_factor_x*newbox.rect.width,
+         ascale_factor_y*newbox.rect.y +
+         0.5*ascale_factor_y*newbox.rect.height)) {
+          if (!sound_shapes[i].on) {
+            sound_shape_on(&sound_shapes[i]);
+          }
+        } else {
+          if (sound_shapes[i].on) {
+            sound_shape_off(&sound_shapes[i]);
+          }
+        }
+      }
+    }
+    printf("newbox: %d, %d, %d, %d\n", newbox.rect.x, newbox.rect.y,
+        newbox.rect.width, newbox.rect.height);
+    printf("scalex / y: %f, %f\n", ascale_factor_x, ascale_factor_y);
+    cairo_set_source_rgba(cr, 0., 0., 1, 0.5);
+      cairo_rectangle(cr, ascale_factor_x*newbox.rect.x,
+       ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
+       ascale_factor_y*newbox.rect.height);
+      cairo_fill(cr);
   } else {
+    tld = NULL;
+    made_first_tld = 0;
+    newbox.rect.x = 0;
+    newbox.rect.y = 0;
+    newbox.rect.width = 0;
+    newbox.rect.height = 0;
     for (i = 0; i < nsound_shapes; i++) {
       if (sound_shapes[i].on) {
         sound_shape_off(&sound_shapes[i]);
@@ -525,7 +545,7 @@ static void process_image(const void *p, int size)
   }
   if (mdown) {
     cairo_save(cr);
-    cairo_set_source_rgba(cr, 0.5, 0., 0., 0.5);
+    cairo_set_source_rgba(cr, 0., 0., 1, 0.5);
     cairo_rectangle(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
     cairo_fill(cr);
     cairo_restore(cr);
@@ -548,17 +568,17 @@ static void process_image(const void *p, int size)
   int tsize = out_frame.size + sizeof(struct timespec);
   if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
     if (jack_ringbuffer_write(video_ring_buf, (void *)shm_data, out_frame.size) <
-     out_frame.size ||
-     jack_ringbuffer_write(video_ring_buf, (void *)&out_frame.ts, sizeof(struct timespec)) <
-     sizeof(struct timespec)) {
+        out_frame.size ||
+        jack_ringbuffer_write(video_ring_buf, (void *)&out_frame.ts, sizeof(struct timespec)) <
+        sizeof(struct timespec)) {
       video_st.overruns++;
-      printf("overruns: %d\n", video_st.overruns);
+      printf("VIDEO OVERRUNS: %d\n", video_st.overruns);
     } else {
       printf("was able to write to ringbuffer\n");
     }
   } else {
     video_st.overruns++;
-    printf("overruns: %d\n", video_st.overruns);
+    printf("VIDEO OVERRUNS: %d\n", video_st.overruns);
   }
   if (pthread_mutex_trylock (&video_disk_thread_lock) == 0) {
     pthread_cond_signal (&video_data_ready);
@@ -570,13 +590,15 @@ static int read_frame(void)
 {
   struct v4l2_buffer buf;
   unsigned int i;
+  int eagain = 0;
   CLEAR(buf);
   buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   buf.memory = V4L2_MEMORY_MMAP;
   if (-1 == xioctl(fd, VIDIOC_DQBUF, &buf)) {
     switch (errno) {
       case EAGAIN:
-        return 0;
+        eagain = 1;
+        break;
       case EIO:
         /* Could ignore EIO, see spec. */
         /* fall through */
@@ -586,9 +608,11 @@ static int read_frame(void)
   }
   assert(buf.index < n_buffers);
   clock_gettime(CLOCK_MONOTONIC, &out_frame.ts);
-  process_image(buffers[buf.index].start, buf.bytesused);
-  if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
-    errno_exit("VIDIOC_QBUF");
+  process_image(buffers[buf.index].start, buf.bytesused, !eagain);
+  if (!eagain) {
+    if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
+      errno_exit("VIDIOC_QBUF");
+  }
   return 1;
 }
 
@@ -769,6 +793,9 @@ static void mainloop(void) {
   FIRST_H = height/5.;
   FIRST_X = width/2.0;
   FIRST_Y = height/2.0 - 0.5 * FIRST_H;
+  printf("width, awidth: %d, %d, %f\n", width, awidth, (1.0*width)/(1.0*awidth));
+  ascale_factor_x = (1.0*width) / awidth;
+  ascale_factor_y = ((double)height) / aheight;
   resize = sws_getContext(width, height, AV_PIX_FMT_RGB32, awidth,
    aheight, AV_PIX_FMT_RGB32, SWS_BICUBIC, NULL, NULL, NULL);
   frame = av_frame_alloc();
@@ -1083,22 +1110,39 @@ static void pointer_motion(void *data,
     FIRST_W = m_x - mdown_x;
     FIRST_H = m_y - mdown_y;
     if (FIRST_W < 0) {
-      FIRST_X = mdown_x + FIRST_W;
-      FIRST_W = -FIRST_W;
+      if (FIRST_W > - 20 * ascale_factor_x) {
+        FIRST_W = 20 * ascale_factor_x;
+      } else {
+        FIRST_W = -FIRST_W;
+      }
+      FIRST_X = mdown_x - FIRST_W;
+    } else if (FIRST_W >= 0) {
+      if (FIRST_W < 20 * ascale_factor_x) {
+        FIRST_W = 20 * ascale_factor_x;
+      }
+      FIRST_X = mdown_x;
     }
     if (FIRST_H < 0) {
-      FIRST_Y = mdown_y + FIRST_H;
-      FIRST_H = -FIRST_H;
-    }
-  } else {
-    for (i = 0; i < nsound_shapes; i++) {
-      if (sound_shapes[i].mdown) {
-        sound_shapes[i].x = m_x - sound_shapes[i].mdown_x
-         + sound_shapes[i].down_x;
-        sound_shapes[i].y = m_y - sound_shapes[i].mdown_y
-         + sound_shapes[i].down_y;
-        break;
+      if (FIRST_H > - 20 * ascale_factor_y) {
+        FIRST_H = 20 * ascale_factor_y;
+      } else {
+        FIRST_H = -FIRST_H;
       }
+      FIRST_Y = mdown_y - FIRST_H;
+    } else if (FIRST_W >= 0) {
+      if (FIRST_H < 20 * ascale_factor_y) {
+        FIRST_H = 20 * ascale_factor_y;
+      }
+      FIRST_Y = mdown_y;
+    }
+  }
+  for (i = 0; i < nsound_shapes; i++) {
+    if (sound_shapes[i].mdown) {
+      sound_shapes[i].x = m_x - sound_shapes[i].mdown_x
+       + sound_shapes[i].down_x;
+      sound_shapes[i].y = m_y - sound_shapes[i].mdown_y
+       + sound_shapes[i].down_y;
+      break;
     }
   }
 }
@@ -1131,21 +1175,19 @@ static void pointer_button(void *data,
     mdown_y = m_y;
     FIRST_X = mdown_x;
     FIRST_Y = mdown_y;
-    FIRST_W = 0;
-    FIRST_H = 0;
+    FIRST_W = 20 * ascale_factor_x;
+    FIRST_H = 20 * ascale_factor_y;
   } else if (!shift_pressed && button == BTN_RIGHT
    && state != WL_POINTER_BUTTON_STATE_PRESSED) {
     mdown = 0;
-    FIRST_W = m_x - mdown_x;
+    /*FIRST_W = m_x - mdown_x;
     FIRST_H = m_y - mdown_y;
-    if (FIRST_W < 0) {
-      FIRST_X = mdown_x + FIRST_W;
-      FIRST_W = -FIRST_W;
+    if (FIRST_W < 20 * ascale_factor_x) {
+      FIRST_W = 20 * ascale_factor_x;
     }
-    if (FIRST_H < 0) {
-      FIRST_Y = mdown_y + FIRST_H;
-      FIRST_H = -FIRST_H;
-    }
+    if (FIRST_H < 20 * ascale_factor_y) {
+      FIRST_H = 20 * ascale_factor_y;
+    }*/
     make_new_tld = 1;
     doing_tld = 1;
   }
@@ -1181,7 +1223,7 @@ static void usage(FILE *fp, int argc, char **argv)
       argv[0], dev_name, frame_count);
 }
 
-static const char short_options[] = "d:ho:b:w:g:f:";
+static const char short_options[] = "d:ho:b:w:g:x:y:";
 
 static const struct option
 long_options[] = {
@@ -1191,7 +1233,8 @@ long_options[] = {
   { "bitrate", required_argument, NULL, 'b' },
   { "width", required_argument, NULL, 'w' },
   { "height", required_argument, NULL, 'g' },
-  { "ascale_factor", required_argument, NULL, 'f' },
+  { "tld_width", required_argument, NULL, 'x' },
+  { "tld_height", required_argument, NULL, 'y' },
   { 0, 0, 0, 0 }
 };
 
@@ -1199,7 +1242,6 @@ int main(int argc, char **argv)
 {
   out_file_name = "testington.webm";
   dev_name = "/dev/video0";
-  set_ascale_factor(ascale_factor);
   for (;;) {
     int idx;
     int c;
@@ -1221,14 +1263,19 @@ int main(int argc, char **argv)
         break;
       case 'w':
         width = atoi(optarg);
-        awidth = width / ascale_factor;
+        ascale_factor_x = ((double)width) / awidth;
         break;
       case 'g':
         height = atoi(optarg);
-        aheight = width / ascale_factor;
+        ascale_factor_y = ((double)height) / aheight;
         break;
-      case 'f':
-        set_ascale_factor(atoi(optarg));
+      case 'x':
+        awidth = atoi(optarg);
+        ascale_factor_x = ((double)width) / awidth;
+        break;
+      case 'y':
+        aheight = atoi(optarg);
+        ascale_factor_y = ((double)height) / aheight;
         break;
       case 'h':
         usage(stdout, argc, argv);

@@ -22,7 +22,7 @@
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 
-#define STREAM_FRAME_RATE 60 /* 25 images/s */
+#define STREAM_FRAME_RATE 120 /* 25 images/s */
 #define STREAM_PIX_FMT    AV_PIX_FMT_RGB32 /* default pix_fmt */
 
 #define SCALE_FLAGS SWS_BICUBIC
@@ -61,7 +61,8 @@ extern AVFrame *frame;
 extern jack_ringbuffer_t *video_ring_buf, *audio_ring_buf;
 extern char *out_file_name;
 extern uint32_t stream_bitrate;
-extern uint32_t ascale_factor;
+extern double ascale_factor_x;
+extern double ascale_factor_y;
 extern uint32_t width;
 extern uint32_t height;
 extern uint32_t awidth;
