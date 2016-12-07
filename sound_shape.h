@@ -21,6 +21,7 @@ typedef struct {
   double x;
   double y;
   double r;
+  uint64_t z;
   char label[NCHAR];
   uint8_t on;
   uint8_t midi_note;
@@ -40,5 +41,7 @@ int sound_shape_render(sound_shape *ss, cairo_t *cr);
 int sound_shape_in(sound_shape *ss, double x, double y);
 int sound_shape_on(sound_shape *ss);
 int sound_shape_off(sound_shape *ss);
+
+extern uint64_t next_z;
 
 #endif

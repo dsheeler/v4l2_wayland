@@ -6,6 +6,7 @@ int sound_shape_init(sound_shape *ss, char *label,
   ss->x = x;
   ss->y = y;
   ss->r = r;
+  ss->z = next_z++;
   strncpy(ss->label, label, NCHAR);
   ss->midi_note = midi_note;
   ss->normal.r = red/255.;

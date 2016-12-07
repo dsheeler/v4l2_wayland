@@ -61,6 +61,8 @@ typedef struct _thread_info {
 #define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
 
 static int read_frame(void);
+static void isort(void *base, size_t nmemb, size_t size,
+ int (*compar)(const void *, const void *));
 
 output_frame                   out_frame;
 OutputStream                   video_st, audio_st;
@@ -104,6 +106,7 @@ static cairo_surface_t    *csurface;
 static cairo_t            *cr;
 static int                mdown = 0, mdown_x, mdown_y;
 static int                m_x, m_y;
+uint64_t                  next_z = 0;
 static int                FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
 static int                doing_tld = 0;
 static int                make_new_tld = 0;
@@ -471,6 +474,12 @@ static void render_detection_box(cairo_t *cr, int x, int y, int w, int h) {
   cairo_restore(cr);
 }
 
+static int cmp_z_order(const void *p1, const void *p2) {
+  if (((const sound_shape *)p1)->z > ((const sound_shape *)p2)->z) return 1;
+  if (((const sound_shape *)p1)->z == ((const sound_shape *)p2)->z) return 0;
+  if (((const sound_shape *)p1)->z < ((const sound_shape *)p2)->z) return -1;
+}
+
 static void process_image(const void *p, const int size, int do_tld) {
   static int first_call = 1;
   static unsigned char save_buf[8192*4608];
@@ -558,7 +567,8 @@ static void process_image(const void *p, const int size, int do_tld) {
       }
     }
   }
-  for (i = nsound_shapes-1; -1 < i; i--) {
+  isort(sound_shapes, nsound_shapes, sizeof(sound_shape), cmp_z_order);
+  for (i = 0; i < nsound_shapes; i++) {
     sound_shape_render(&sound_shapes[i], cr);
   }
   if (mdown) {
@@ -1116,6 +1126,22 @@ static void pointer_leave(void *data,
     struct wl_pointer *wl_pointer, uint32_t serial,
     struct wl_surface *wl_surface) { }
 
+static void isort(void *base, size_t nmemb, size_t size,
+ int (*compar)(const void *, const void *)) {
+  int c, d;
+  char temp[size];
+  for (c = 1 ; c <= nmemb - 1; c++) {
+    d = c;
+    while ( d > 0 && (compar((void *)((char *)base)+d*size,
+     (void *)((char *)base)+(d-1)*size) < 0)) {
+      memcpy(temp, ((char *)base)+d*size, size);
+      memcpy(((char *)base)+d*size, ((char *)base)+(d-1)*size, size);
+      memcpy(((char *)base)+(d-1)*size, temp, size);
+      d--;
+    }
+  }
+}
+
 static void pointer_motion(void *data,
     struct wl_pointer *wl_pointer, uint32_t time,
     wl_fixed_t surface_x, wl_fixed_t surface_y) {
@@ -1152,7 +1178,8 @@ static void pointer_motion(void *data,
       FIRST_Y = mdown_y;
     }
   }
-  for (i = 0; i < nsound_shapes; i++) {
+  isort(sound_shapes, nsound_shapes, sizeof(sound_shape), cmp_z_order);
+  for (i = nsound_shapes-1; i > -1; i--) {
     if (sound_shapes[i].mdown) {
       sound_shapes[i].x = m_x - sound_shapes[i].mdown_x
        + sound_shapes[i].down_x;
@@ -1169,13 +1196,15 @@ static void pointer_button(void *data,
 {
   int i;
   if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-    for (i = 0; i < nsound_shapes; i++) {
+    isort(sound_shapes, nsound_shapes, sizeof(sound_shape), cmp_z_order);
+    for (i = nsound_shapes-1; i > -1; i--) {
       if (sound_shape_in(&sound_shapes[i], m_x, m_y)) {
         sound_shapes[i].mdown = 1;
         sound_shapes[i].mdown_x = m_x;
         sound_shapes[i].mdown_y = m_y;
         sound_shapes[i].down_x = sound_shapes[i].x;
         sound_shapes[i].down_y = sound_shapes[i].y;
+        sound_shapes[i].z = next_z++;
         break;
       }
     }
