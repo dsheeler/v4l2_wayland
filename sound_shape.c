@@ -22,19 +22,20 @@ int sound_shape_init(sound_shape *ss, char *label,
 }
 
 static void sound_shape_render_label(sound_shape *ss, cairo_t *cr) {
-#define FONT "Agave 18"
   PangoLayout *layout;
   PangoFontDescription *desc;
   int width, height;
+  char font[32];
+  sprintf(font, "Agave %d", (int)ceil(0.3 * ss->r));
   layout = pango_cairo_create_layout(cr);
   pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
   pango_layout_set_text(layout, ss->label, -1);
-  desc = pango_font_description_from_string(FONT);
+  desc = pango_font_description_from_string(font);
   pango_layout_set_font_description(layout, desc);
   pango_font_description_free(desc);
   cairo_save(cr);
-  ss->on ? cairo_set_source_rgba(cr, 0.15, 0.15, 0.15, ss->playing.a) :
-   cairo_set_source_rgba(cr, 0.85, 0.85, 0.85, ss->normal.a);
+  ss->on ? cairo_set_source_rgba(cr, 0., 0., 0., ss->playing.a) :
+   cairo_set_source_rgba(cr, 1., 1., 1., ss->normal.a);
   pango_layout_get_size(layout, &width, &height);
   cairo_translate(cr, ss->x - 0.5*width/PANGO_SCALE, ss->y
    - 0.5*height/PANGO_SCALE);
@@ -50,7 +51,9 @@ int sound_shape_render(sound_shape *ss, cairo_t *cr) {
   cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
   cairo_translate(cr, ss->x, ss->y);
   cairo_arc(cr, 0, 0, ss->r, 0, 2 * M_PI);
-  cairo_fill(cr);
+  cairo_fill_preserve(cr);
+  cairo_set_source_rgba(cr, 0.5*c->r, 0.5*c->g, 0.5*c->b, 0.75);
+  cairo_stroke(cr);
   cairo_restore(cr);
   sound_shape_render_label(ss, cr);
   return 0;

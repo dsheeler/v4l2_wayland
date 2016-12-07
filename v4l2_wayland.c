@@ -449,20 +449,24 @@ ccv_tld_t *new_tld(int x, int y, int w, int h) {
 }
 
 static void render_detection_box(cairo_t *cr, int x, int y, int w, int h) {
+  double minimum = min(w, h);
+  double r = 0.1 * minimum;
   cairo_save(cr);
-  cairo_set_source_rgba(cr, 0., 0., 1, 0.5);
-  cairo_rectangle(cr, x, y, w, h);
-  cairo_stroke(cr);
-  cairo_arc(cr, 0.5 * w + x, 0.5 * h + y, min(w, h) * 0.06, 0, 2 * M_PI);
-  cairo_stroke(cr);
-  cairo_arc(cr, 0.5 * w + x, 0.5 * h + y, min(w, h) * 0.25, 0, 2 * M_PI);
-  cairo_stroke(cr);
-  cairo_arc(cr, 0.5 * w + x, 0.5 * h + y, min(w, h) * 0.5, 0, 2 * M_PI);
-  cairo_stroke(cr);
+  cairo_set_source_rgba(cr, 0.2, 0., 0.2, 0.75);
   cairo_move_to(cr, x, 0.5 * h + y);
   cairo_line_to(cr, x + w, 0.5 * h + y);
   cairo_move_to(cr, 0.5 * w + x, y);
   cairo_line_to(cr, 0.5 * w + x, h + y);
+  cairo_stroke(cr);
+  cairo_new_sub_path(cr);
+  cairo_arc(cr, x + r, y + r, r, M_PI, 1.5 * M_PI);
+  cairo_arc(cr, x + w - r, y + r, r, 1.5 * M_PI, 2. * M_PI);
+  cairo_arc(cr, x + w - r, y + h - r, r, 0, 0.5 * M_PI);
+  cairo_arc(cr, x + r, y + h - r, r, 0.5 * M_PI, M_PI);
+  cairo_close_path(cr);
+  cairo_set_source_rgba(cr, 0.2, 0., 0.2, 0.25);
+  cairo_fill_preserve(cr);
+  cairo_set_source_rgba(cr, 0.2, 0., 0.2, 0.75);
   cairo_stroke(cr);
   cairo_restore(cr);
 }
@@ -541,9 +545,6 @@ static void process_image(const void *p, const int size, int do_tld) {
         }
       }
     }
-    render_detection_box(cr, ascale_factor_x*newbox.rect.x,
-        ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
-        ascale_factor_y*newbox.rect.height);
   } else {
     tld = NULL;
     made_first_tld = 0;
@@ -557,11 +558,16 @@ static void process_image(const void *p, const int size, int do_tld) {
       }
     }
   }
+  for (i = nsound_shapes-1; -1 < i; i--) {
+    sound_shape_render(&sound_shapes[i], cr);
+  }
   if (mdown) {
     render_detection_box(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
   }
-  for (i = 0; i < nsound_shapes; i++) {
-    sound_shape_render(&sound_shapes[i], cr);
+  if (doing_tld) {
+    render_detection_box(cr, ascale_factor_x*newbox.rect.x,
+     ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
+     ascale_factor_y*newbox.rect.height);
   }
   if (recording_stopped) {
     if (pthread_mutex_trylock (&video_disk_thread_lock) == 0) {
