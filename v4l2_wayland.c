@@ -504,7 +504,7 @@ static void process_image(const void *p, const int size, int do_tld) {
   static int save_size = 0;
   static ccv_comp_t newbox;
   static int made_first_tld = 0;
-  int i;
+  int nij, i,j;
   unsigned char y0, y1, u, v;
   unsigned char r, g, b;
   int n;
@@ -518,14 +518,17 @@ static void process_image(const void *p, const int size, int do_tld) {
     memcpy(save_buf, p, size);
   }
   for (n = 0; n < save_size; n += 4) {
+    nij = (int) n / 2;
+    i = nij%width;
+    j = nij/width;
     y0 = (unsigned char)ptr[n + 0];
     u = (unsigned char)ptr[n + 1];
     y1 = (unsigned char)ptr[n + 2];
     v = (unsigned char)ptr[n + 3];
     YUV2RGB(y0, u, v, &r, &g, &b);
-    *pixel++ = r << 16 | g << 8 | b;
+    pixel[width - 1 - i + j*width] = r << 16 | g << 8 | b;
     YUV2RGB(y1, u, v, &r, &g, &b);
-    *pixel++ = r << 16 | g << 8 | b;
+    pixel[width - 1 - (i+1) + j*width] = r << 16 | g << 8 | b;
   }
   if (doing_tld) {
     if (do_tld) {
