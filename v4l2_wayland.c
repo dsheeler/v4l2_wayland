@@ -37,7 +37,6 @@
 #include <ccv/ccv.h>
 #include <cairo/cairo.h>
 #include <wayland-client.h>
-#include <wayland-cursor.h>
 #include <linux/videodev2.h>
 
 #include "muxing.h"
@@ -92,9 +91,6 @@ static struct wl_shm           *shm;
 static struct wl_surface       *surface;
 static struct wl_buffer        *buffer;
 static struct wl_callback      *frame_callback;
-static struct wl_cursor_theme  *cursor_theme;
-static struct wl_cursor        *default_cursor;
-static struct wl_surface       *cursor_surface;
 int                             recording_started = 0;
 int                             recording_stopped = 0;
 static int                      audio_done = 0, video_done = 0,
@@ -190,8 +186,6 @@ static void registry_global(void *data,
   else if (strcmp(interface, wl_shm_interface.name) == 0) {
     shm = wl_registry_bind(registry, name,
     &wl_shm_interface, min(version, 1));
-    cursor_theme = wl_cursor_theme_load("Breeze_Red", 32, shm);
-    default_cursor = wl_cursor_theme_get_cursor(cursor_theme, "left_ptr");
   } else if (strcmp(interface, wl_shell_interface.name) == 0)
     shell = wl_registry_bind(registry, name,
         &wl_shell_interface, min(version, 1));
@@ -839,13 +833,6 @@ static void mainloop(void) {
   } else {
     fprintf(stderr, "Created shell surface\n");
   }
-  cursor_surface = wl_compositor_create_surface(compositor);
-  if (cursor_surface == NULL) {
-    fprintf(stderr, "Can't create cursor_surface\n");
-    exit(1);
-  } else {
-    fprintf(stderr, "Created surface\n");
-  }
   wl_shell_surface_set_toplevel(shell_surface);
   wl_shell_surface_add_listener(shell_surface,
       &shell_surface_listener, NULL);
@@ -1092,11 +1079,6 @@ static void open_device(void)
   }
 }
 
-void hello_free_cursor(void)
-{
-  wl_pointer_set_user_data(pointer, NULL);
-}
-
 static void
 keyboard_handle_keymap(void *data, struct wl_keyboard *keyboard,
  uint32_t format, int fd, uint32_t size)
@@ -1158,16 +1140,6 @@ static const struct wl_keyboard_listener keyboard_listener = {
 static void pointer_enter(void *data, struct wl_pointer *pointer,
  uint32_t serial, struct wl_surface *surface,
  wl_fixed_t sx, wl_fixed_t sy) {
-  struct wl_buffer *buffer;
-  struct wl_cursor_image *image;
-  image = default_cursor->images[0];
-  buffer = wl_cursor_image_get_buffer(image);
-  wl_pointer_set_cursor(pointer, serial, cursor_surface, image->hotspot_x,
-   image->hotspot_y);
-  wl_surface_attach(cursor_surface, buffer, 0, 0);
-  wl_surface_damage(cursor_surface, 0, 0,
-   image->width, image->height);
-  wl_surface_commit(cursor_surface);
 }
 
 static void pointer_leave(void *data,
