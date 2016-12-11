@@ -3,6 +3,7 @@ PROGS = v4l2_wayland
 all: $(PROGS)
 
 LFLAGS = $(shell pkg-config --libs wayland-client) \
+				 $(shell pkg-config --libs wayland-cursor) \
 				 $(shell pkg-config --libs cairo) \
 				 $(shell pkg-config --libs pangocairo) \
 				 -lccv -lm -lpng -ljpeg -lswscale -lavutil -lswresample \

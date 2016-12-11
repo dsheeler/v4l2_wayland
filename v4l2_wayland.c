@@ -37,6 +37,7 @@
 #include <ccv/ccv.h>
 #include <cairo/cairo.h>
 #include <wayland-client.h>
+#include <wayland-cursor.h>
 #include <linux/videodev2.h>
 
 #include "muxing.h"
@@ -91,6 +92,9 @@ static struct wl_shm           *shm;
 static struct wl_surface       *surface;
 static struct wl_buffer        *buffer;
 static struct wl_callback      *frame_callback;
+static struct wl_cursor_theme  *cursor_theme;
+static struct wl_cursor        *default_cursor;
+static struct wl_surface       *cursor_surface;
 int                             recording_started = 0;
 int                             recording_stopped = 0;
 static int                      audio_done = 0, video_done = 0,
@@ -102,7 +106,7 @@ static const struct wl_registry_listener registry_listener;
 static const struct wl_keyboard_listener keyboard_listener;
 static const struct wl_pointer_listener pointer_listener;
 
-static cairo_surface_t    *csurface;
+static cairo_surface_t    *csurface, *pointer_surface;
 static cairo_t            *cr;
 static int                mdown = 0, mdown_x, mdown_y;
 static int                m_x, m_y;
@@ -183,10 +187,12 @@ static void registry_global(void *data,
  if (strcmp(interface, wl_compositor_interface.name) == 0)
     compositor = wl_registry_bind(registry, name,
         &wl_compositor_interface, min(version, 4));
-  else if (strcmp(interface, wl_shm_interface.name) == 0)
+  else if (strcmp(interface, wl_shm_interface.name) == 0) {
     shm = wl_registry_bind(registry, name,
-        &wl_shm_interface, min(version, 1));
-  else if (strcmp(interface, wl_shell_interface.name) == 0)
+    &wl_shm_interface, min(version, 1));
+    cursor_theme = wl_cursor_theme_load("Breeze_Red", 32, shm);
+    default_cursor = wl_cursor_theme_get_cursor(cursor_theme, "left_ptr");
+  } else if (strcmp(interface, wl_shell_interface.name) == 0)
     shell = wl_registry_bind(registry, name,
         &wl_shell_interface, min(version, 1));
   else if (strcmp(interface, wl_seat_interface.name) == 0) {
@@ -480,6 +486,18 @@ static int cmp_z_order(const void *p1, const void *p2) {
   if (((const sound_shape *)p1)->z < ((const sound_shape *)p2)->z) return -1;
 }
 
+static void render_pointer(cairo_t *cr, double x, double y) {
+  double l = 10.;
+  cairo_save(cr);
+  cairo_set_source_rgba(cr, 1, 0, 0.1, 0.75);
+  cairo_move_to(cr, x - l, y);
+  cairo_line_to(cr, x + l, y);
+  cairo_move_to(cr, x, y - l);
+  cairo_line_to(cr, x, y + l);
+  cairo_stroke(cr);
+  cairo_restore(cr);
+}
+
 static void process_image(const void *p, const int size, int do_tld) {
   static int first_call = 1;
   static unsigned char save_buf[8192*4608];
@@ -574,6 +592,7 @@ static void process_image(const void *p, const int size, int do_tld) {
   if (mdown) {
     render_detection_box(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
   }
+  render_pointer(cr, m_x, m_y);
   if (doing_tld) {
     render_detection_box(cr, ascale_factor_x*newbox.rect.x,
      ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
@@ -588,27 +607,22 @@ static void process_image(const void *p, const int size, int do_tld) {
   if (!recording_started || recording_stopped) return;
   if (first_call) {
     first_call = 0;
-    video_st.first_time = out_frame.ts;
+    audio_st.first_time = video_st.first_time = out_frame.ts;
     can_capture = 1;
   }
   int tsize = out_frame.size + sizeof(struct timespec);
+  int write_failed = 0;
   if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
-    if (jack_ringbuffer_write(video_ring_buf, (void *)shm_data, out_frame.size) <
-        out_frame.size ||
-        jack_ringbuffer_write(video_ring_buf, (void *)&out_frame.ts, sizeof(struct timespec)) <
-        sizeof(struct timespec)) {
-      video_st.overruns++;
-      printf("VIDEO OVERRUNS: %d\n", video_st.overruns);
-    } else {
-      printf("was able to write to ringbuffer\n");
+    jack_ringbuffer_write(video_ring_buf, (void *)shm_data,
+     out_frame.size);
+    jack_ringbuffer_write(video_ring_buf, (void *)&out_frame.ts,
+     sizeof(struct timespec));
+    if (pthread_mutex_trylock (&video_disk_thread_lock) == 0) {
+      pthread_cond_signal (&video_data_ready);
+      pthread_mutex_unlock (&video_disk_thread_lock);
     }
-  } else {
-    video_st.overruns++;
+  } else {video_st.overruns++;
     printf("VIDEO OVERRUNS: %d\n", video_st.overruns);
-  }
-  if (pthread_mutex_trylock (&video_disk_thread_lock) == 0) {
-    pthread_cond_signal (&video_data_ready);
-    pthread_mutex_unlock (&video_disk_thread_lock);
   }
 }
 
@@ -705,8 +719,20 @@ void setup_signal_handler() {
 int process(jack_nframes_t nframes, void *arg) {
   int chn;
   size_t i;
+  static int first_call = 1;
   if (can_process) process_midi_output(nframes);
   if ((!can_process) || (!can_capture) || (audio_done)) return 0;
+  if (first_call) {
+    clock_gettime(CLOCK_MONOTONIC, &audio_st.first_time_audio);
+    struct timespec *ts = &audio_st.first_time_audio;
+    double diff;
+    diff = ts->tv_sec + 1e-9*ts->tv_nsec - (audio_st.first_time.tv_sec +
+     1e-9*audio_st.first_time.tv_nsec);
+    printf("audio diff %f\n", diff);
+    audio_st.samples_count = -audio_st.enc->time_base.den * diff /
+     audio_st.enc->time_base.num;
+    first_call = 0;
+  }
   for (chn = 0; chn < nports; chn++)
     in[chn] = jack_port_get_buffer(in_ports[chn], nframes);
   for (i = 0; i < nframes; i++) {
@@ -807,6 +833,13 @@ static void mainloop(void) {
     exit(1);
   } else {
     fprintf(stderr, "Created shell surface\n");
+  }
+  cursor_surface = wl_compositor_create_surface(compositor);
+  if (cursor_surface == NULL) {
+    fprintf(stderr, "Can't create cursor_surface\n");
+    exit(1);
+  } else {
+    fprintf(stderr, "Created surface\n");
   }
   wl_shell_surface_set_toplevel(shell_surface);
   wl_shell_surface_add_listener(shell_surface,
@@ -1115,11 +1148,19 @@ static const struct wl_keyboard_listener keyboard_listener = {
   keyboard_handle_modifiers,
 };
 
-static void pointer_enter(void *data,
-    struct wl_pointer *wl_pointer,
-    uint32_t serial, struct wl_surface *surface,
-    wl_fixed_t surface_x, wl_fixed_t surface_y)
-{
+static void pointer_enter(void *data, struct wl_pointer *pointer,
+ uint32_t serial, struct wl_surface *surface,
+ wl_fixed_t sx, wl_fixed_t sy) {
+  struct wl_buffer *buffer;
+  struct wl_cursor_image *image;
+  image = default_cursor->images[0];
+  buffer = wl_cursor_image_get_buffer(image);
+  wl_pointer_set_cursor(pointer, serial, cursor_surface, image->hotspot_x,
+   image->hotspot_y);
+  wl_surface_attach(cursor_surface, buffer, 0, 0);
+  wl_surface_damage(cursor_surface, 0, 0,
+   image->width, image->height);
+  wl_surface_commit(cursor_surface);
 }
 
 static void pointer_leave(void *data,

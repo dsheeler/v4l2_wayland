@@ -40,6 +40,7 @@ typedef struct OutputStream {
     /* pts of the next frame that will be generated */
     int64_t next_pts;
     struct timespec first_time;
+    struct timespec first_time_audio;
     struct timespec last_time;
     int samples_count;
     int64_t overruns;
