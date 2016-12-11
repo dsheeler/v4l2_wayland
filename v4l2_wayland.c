@@ -457,25 +457,27 @@ ccv_tld_t *new_tld(int x, int y, int w, int h) {
   return ccv_tld_new(cdm, box, ccv_tld_default_params);
 }
 
-static void render_detection_box(cairo_t *cr, int x, int y, int w, int h) {
+static void render_detection_box(cairo_t *cr, int initializing,
+ int x, int y, int w, int h) {
   double minimum = min(w, h);
   double r = 0.1 * minimum;
   cairo_save(cr);
-  cairo_set_source_rgba(cr, 0.2, 0., 0.2, 0.75);
-  cairo_move_to(cr, x, 0.5 * h + y);
-  cairo_line_to(cr, x + w, 0.5 * h + y);
-  cairo_move_to(cr, 0.5 * w + x, y);
-  cairo_line_to(cr, 0.5 * w + x, h + y);
-  cairo_stroke(cr);
   cairo_new_sub_path(cr);
   cairo_arc(cr, x + r, y + r, r, M_PI, 1.5 * M_PI);
   cairo_arc(cr, x + w - r, y + r, r, 1.5 * M_PI, 2. * M_PI);
   cairo_arc(cr, x + w - r, y + h - r, r, 0, 0.5 * M_PI);
   cairo_arc(cr, x + r, y + h - r, r, 0.5 * M_PI, M_PI);
   cairo_close_path(cr);
-  cairo_set_source_rgba(cr, 0.2, 0., 0.2, 0.25);
+  if (initializing) cairo_set_source_rgba(cr, 0.85, 0.85, 0., 0.25);
+  else cairo_set_source_rgba(cr, 0.2, 0., 0.2, 0.25);
   cairo_fill_preserve(cr);
-  cairo_set_source_rgba(cr, 0.2, 0., 0.2, 0.75);
+  if (initializing) cairo_set_source_rgba(cr, 0.85, 0.85, 0., 0.75);
+  else cairo_set_source_rgba(cr, 0.2, 0., 0.2, 0.75);
+  cairo_stroke(cr);
+  cairo_move_to(cr, x, 0.5 * h + y);
+  cairo_line_to(cr, x + w, 0.5 * h + y);
+  cairo_move_to(cr, 0.5 * w + x, y);
+  cairo_line_to(cr, 0.5 * w + x, h + y);
   cairo_stroke(cr);
   cairo_restore(cr);
 }
@@ -593,11 +595,11 @@ static void process_image(const void *p, const int size, int do_tld) {
     sound_shape_render(&sound_shapes[i], cr);
   }
   if (mdown) {
-    render_detection_box(cr, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
+    render_detection_box(cr, 1, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
   }
   render_pointer(cr, m_x, m_y);
   if (doing_tld) {
-    render_detection_box(cr, ascale_factor_x*newbox.rect.x,
+    render_detection_box(cr, 0, ascale_factor_x*newbox.rect.x,
      ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
      ascale_factor_y*newbox.rect.height);
   }
@@ -1120,7 +1122,9 @@ keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
  uint32_t state)
 {
   static int first_r = 1;
-  if (key == KEY_R && state == 1 && (first_r == 1)) {
+  if (key == KEY_Q && state == 1 && (first_r != -1)) {
+    exit(0);
+  } else if (key == KEY_R && state == 1 && (first_r == 1)) {
     first_r = -1;
     start_recording_threads();
   } else if (key == KEY_R && state == 1 && (first_r == -1)) {
