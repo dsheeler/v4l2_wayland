@@ -42,6 +42,7 @@
 #include "muxing.h"
 #include "sound_shape.h"
 #include "midi.h"
+#include "v4l2_wayland.h"
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
@@ -54,18 +55,13 @@ struct buffer {
   size_t  length;
 };
 
-typedef struct _thread_info {
-  pthread_t thread_id;
-} disk_thread_info_t;
-
 #define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
 
-static int read_frame(void);
+static int read_frame(dingle_dots_t *dd);
 static void isort(void *base, size_t nmemb, size_t size,
  int (*compar)(const void *, const void *));
 
 output_frame                   out_frame;
-OutputStream                   video_st, audio_st;
 AVFormatContext                *oc;
 AVFrame                        *frame;
 char                           *out_file_name;
@@ -75,7 +71,7 @@ uint32_t                       awidth = 260;
 uint32_t                       aheight = 148;
 double                         ascale_factor_x;
 double                         ascale_factor_y;
-uint32_t                       stream_bitrate = 10000;
+uint32_t                       stream_bitrate = 400000;
 static AVFrame                 *aframe;
 static struct SwsContext       *resize;
 static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
@@ -117,8 +113,6 @@ struct buffer            *buffers;
 static unsigned int       n_buffers;
 static int                frame_count = 200;
 static int                frame_number = 0;
-static disk_thread_info_t video_thread_info;
-static disk_thread_info_t audio_thread_info;
 int nsound_shapes = 8;
 static sound_shape        sound_shapes[8];
 
@@ -132,10 +126,6 @@ jack_default_audio_sample_t **in;
 jack_nframes_t            nframes;
 const size_t              sample_size = sizeof(jack_default_audio_sample_t);
 pthread_mutex_t           av_thread_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t           audio_disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t            audio_data_ready = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t           video_disk_thread_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t            video_data_ready = PTHREAD_COND_INITIALIZER;
 long                      jack_overruns = 0;
 
 static void errno_exit(const char *s)
@@ -153,7 +143,7 @@ static int xioctl(int fh, int request, void *arg)
   return r;
 }
 
-void setup_wayland() {
+void setup_wayland(dingle_dots_t *dd) {
   struct wl_registry *registry;
   display = wl_display_connect(NULL);
   if (display == NULL) {
@@ -161,7 +151,7 @@ void setup_wayland() {
     exit(1);
   }
   registry = wl_display_get_registry(display);
-  wl_registry_add_listener(registry, &registry_listener, NULL);
+  wl_registry_add_listener(registry, &registry_listener, dd);
   wl_display_roundtrip(display);
   wl_registry_destroy(registry);
 }
@@ -180,22 +170,23 @@ static void registry_global(void *data,
     struct wl_registry *registry, uint32_t name,
     const char *interface, uint32_t version)
 {
- if (strcmp(interface, wl_compositor_interface.name) == 0)
+  dingle_dots_t *dd = (dingle_dots_t *)data;
+  if (strcmp(interface, wl_compositor_interface.name) == 0)
     compositor = wl_registry_bind(registry, name,
-        &wl_compositor_interface, min(version, 4));
+     &wl_compositor_interface, min(version, 4));
   else if (strcmp(interface, wl_shm_interface.name) == 0) {
     shm = wl_registry_bind(registry, name,
-    &wl_shm_interface, min(version, 1));
+     &wl_shm_interface, min(version, 1));
   } else if (strcmp(interface, wl_shell_interface.name) == 0)
     shell = wl_registry_bind(registry, name,
-        &wl_shell_interface, min(version, 1));
+     &wl_shell_interface, min(version, 1));
   else if (strcmp(interface, wl_seat_interface.name) == 0) {
     seat = wl_registry_bind(registry, name,
-        &wl_seat_interface, min(version, 2));
+     &wl_seat_interface, min(version, 2));
     pointer = wl_seat_get_pointer(seat);
     wl_pointer_add_listener(pointer, &pointer_listener, NULL);
     keyboard = wl_seat_get_keyboard(seat);
-    wl_keyboard_add_listener(keyboard, &keyboard_listener, NULL);
+    wl_keyboard_add_listener(keyboard, &keyboard_listener, dd);
   }
 }
 
@@ -280,12 +271,13 @@ static const struct wl_callback_listener frame_listener;
 
 static void redraw(void *data, struct wl_callback *callback, uint32_t time)
 {
+  dingle_dots_t *dd = (dingle_dots_t *)data;
   wl_callback_destroy(frame_callback);
   wl_surface_damage(surface, 0, 0, width, height); 
-  read_frame();
+  read_frame(dd);
   frame_callback = wl_surface_frame(surface);
   wl_surface_attach(surface, buffer, 0, 0);
-  wl_callback_add_listener(frame_callback, &frame_listener, NULL);
+  wl_callback_add_listener(frame_callback, &frame_listener, dd);
   wl_surface_commit(surface);
 }
 static const struct
@@ -380,46 +372,48 @@ void free_surface(struct wl_shell_surface *shell_surface)
 
 void *audio_disk_thread(void *arg) {
   int ret;
-  disk_thread_info_t *info = (disk_thread_info_t *)arg;
+  dingle_dots_t *dd = (dingle_dots_t *)arg;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-  pthread_mutex_lock(&audio_disk_thread_lock);
+  pthread_mutex_lock(&dd->audio_thread_info->lock);
   while(1) {
-    ret = write_audio_frame(oc, &audio_st);
+    ret = write_audio_frame(dd, oc, dd->audio_thread_info->stream);
     if (ret == 1) {
       audio_done = 1;
       break;
     }
     if (ret == 0) continue;
-    if (ret == -1) pthread_cond_wait(&audio_data_ready, &audio_disk_thread_lock);
+    if (ret == -1) pthread_cond_wait(&dd->audio_thread_info->data_ready,
+     &dd->audio_thread_info->lock);
   }
   if (audio_done && video_done && !trailer_written) {
     av_write_trailer(oc);
     trailer_written = 1;
   }
-  pthread_mutex_unlock(&audio_disk_thread_lock);
+  pthread_mutex_unlock(&dd->audio_thread_info->lock);
   return 0;
 }
 
 void *video_disk_thread (void *arg) {
   static int out_done = 0;
   int ret;
-  disk_thread_info_t *info = (disk_thread_info_t *)arg;
+  dingle_dots_t *dd = (dingle_dots_t *)arg;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-  pthread_mutex_lock(&video_disk_thread_lock);
+  pthread_mutex_lock(&dd->video_thread_info->lock);
   while(1) {
-    ret = write_video_frame(oc, &video_st);
+    ret = write_video_frame(oc, dd->video_thread_info->stream);
     if (ret == 1) {
       video_done = 1;
       break;
     }
     if (ret == 0) continue;
-    if (ret == -1) pthread_cond_wait(&video_data_ready, &video_disk_thread_lock);
+    if (ret == -1) pthread_cond_wait(&dd->video_thread_info->data_ready,
+     &dd->video_thread_info->lock);
   }
   if (audio_done && video_done && !trailer_written) {
     av_write_trailer(oc);
     trailer_written = 1;
   }
-  pthread_mutex_unlock(&video_disk_thread_lock);
+  pthread_mutex_unlock(&dd->video_thread_info->lock);
   return 0;
 }
 
@@ -494,7 +488,9 @@ static void render_pointer(cairo_t *cr, double x, double y) {
   cairo_restore(cr);
 }
 
-static void process_image(const void *p, const int size, int do_tld) {
+static void process_image(const void *p, const int size, int do_tld,
+ void *arg) {
+  dingle_dots_t *dd = (dingle_dots_t *)arg;
   static int first_call = 1;
   static unsigned char save_buf[8192*4608];
   static int save_size = 0;
@@ -598,15 +594,16 @@ static void process_image(const void *p, const int size, int do_tld) {
      ascale_factor_y*newbox.rect.height);
   }
   if (recording_stopped) {
-    if (pthread_mutex_trylock (&video_disk_thread_lock) == 0) {
-      pthread_cond_signal (&video_data_ready);
-      pthread_mutex_unlock (&video_disk_thread_lock);
+    if (pthread_mutex_trylock(&dd->video_thread_info->lock) == 0) {
+      pthread_cond_signal(&dd->video_thread_info->data_ready);
+      pthread_mutex_unlock(&dd->video_thread_info->lock);
     }
   }
   if (!recording_started || recording_stopped) return;
   if (first_call) {
     first_call = 0;
-    audio_st.first_time = video_st.first_time = out_frame.ts;
+    printf("can_capturei %d\n", dd->video_thread_info->stream);
+    dd->video_thread_info->stream->first_time = out_frame.ts;
     can_capture = 1;
   }
   int tsize = out_frame.size + sizeof(struct timespec);
@@ -616,17 +613,17 @@ static void process_image(const void *p, const int size, int do_tld) {
      out_frame.size);
     jack_ringbuffer_write(video_ring_buf, (void *)&out_frame.ts,
      sizeof(struct timespec));
-    if (pthread_mutex_trylock (&video_disk_thread_lock) == 0) {
-      pthread_cond_signal (&video_data_ready);
-      pthread_mutex_unlock (&video_disk_thread_lock);
+    if (pthread_mutex_trylock(&dd->video_thread_info->lock) == 0) {
+      pthread_cond_signal(&dd->video_thread_info->data_ready);
+      pthread_mutex_unlock(&dd->video_thread_info->lock);
     }
-  } else {video_st.overruns++;
-    printf("VIDEO OVERRUNS: %d\n", video_st.overruns);
+  } else {
+    dd->video_thread_info->stream->overruns++;
+    printf("VIDEO OVERRUNS: %d\n", dd->video_thread_info->stream->overruns);
   }
 }
 
-static int read_frame(void)
-{
+static int read_frame(dingle_dots_t *dd) {
   struct v4l2_buffer buf;
   unsigned int i;
   int eagain = 0;
@@ -647,7 +644,7 @@ static int read_frame(void)
   }
   assert(buf.index < n_buffers);
   clock_gettime(CLOCK_MONOTONIC, &out_frame.ts);
-  process_image(buffers[buf.index].start, buf.bytesused, !eagain);
+  process_image(buffers[buf.index].start, buf.bytesused, !eagain, dd);
   if (!eagain) {
     if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
       errno_exit("VIDIOC_QBUF");
@@ -716,20 +713,22 @@ void setup_signal_handler() {
 }
 
 int process(jack_nframes_t nframes, void *arg) {
+  dingle_dots_t *dd = (dingle_dots_t *)arg;
   int chn;
   size_t i;
   static int first_call = 1;
   if (can_process) process_midi_output(nframes);
   if ((!can_process) || (!can_capture) || (audio_done)) return 0;
   if (first_call) {
-    clock_gettime(CLOCK_MONOTONIC, &audio_st.first_time_audio);
-    struct timespec *ts = &audio_st.first_time_audio;
+    struct timespec *ats = &dd->audio_thread_info->stream->first_time;
+    struct timespec *vts = &dd->video_thread_info->stream->first_time;
+    clock_gettime(CLOCK_MONOTONIC, ats);
     double diff;
-    diff = ts->tv_sec + 1e-9*ts->tv_nsec - (audio_st.first_time.tv_sec +
-     1e-9*audio_st.first_time.tv_nsec);
-    printf("audio diff %f\n", diff);
-    audio_st.samples_count = -audio_st.enc->time_base.den * diff /
-     audio_st.enc->time_base.num;
+    diff = ats->tv_sec + 1e-9*ats->tv_nsec - (vts->tv_sec +
+     1e-9*vts->tv_nsec);
+    dd->audio_thread_info->stream->samples_count =
+     dd->audio_thread_info->stream->enc->time_base.den * diff /
+     dd->audio_thread_info->stream->enc->time_base.num;
     first_call = 0;
   }
   for (chn = 0; chn < nports; chn++)
@@ -742,9 +741,9 @@ int process(jack_nframes_t nframes, void *arg) {
       }
     }
   }
-  if (pthread_mutex_trylock (&audio_disk_thread_lock) == 0) {
-    pthread_cond_signal (&audio_data_ready);
-    pthread_mutex_unlock (&audio_disk_thread_lock);
+  if (pthread_mutex_trylock (&dd->audio_thread_info->lock) == 0) {
+    pthread_cond_signal (&dd->audio_thread_info->data_ready);
+    pthread_mutex_unlock (&dd->audio_thread_info->lock);
   }
   return 0;
 }
@@ -754,7 +753,7 @@ void jack_shutdown (void *arg) {
   abort();
 }
 
-void setup_jack() {
+void setup_jack(dingle_dots_t *dd) {
   unsigned int i;
   size_t in_size;
   can_process = 0;
@@ -762,7 +761,7 @@ void setup_jack() {
     printf("jack server not running?\n");
     exit(1);
   }
-  jack_set_process_callback(client, process, NULL);
+  jack_set_process_callback(client, process, dd);
   jack_on_shutdown(client, jack_shutdown, NULL);
   if (jack_activate(client)) {
     printf("cannot activate jack client\n");
@@ -798,19 +797,19 @@ void setup_jack() {
   can_process = 1;
 }
 
-void start_recording_threads() {
+void start_recording_threads(dingle_dots_t *dd) {
   recording_started = 1;
   printf("start_recording\n");
-  pthread_create(&audio_thread_info.thread_id, NULL, audio_disk_thread,
-   &audio_thread_info);
-  pthread_create(&video_thread_info.thread_id, NULL, video_disk_thread,
-   &video_thread_info);
+  pthread_create(&dd->audio_thread_info->thread_id, NULL, audio_disk_thread,
+   dd);
+  pthread_create(&dd->video_thread_info->thread_id, NULL, video_disk_thread,
+   dd);
 }
 
 char *note_names[] = {"A", "A#", "B", "C", "C#", "D", "D#", "E",
  "F", "F#", "G", "G#"};
 
-static void mainloop(void) {
+static void mainloop(dingle_dots_t *dd) {
   int ret;
   int i;
   if (compositor == NULL) {
@@ -837,7 +836,7 @@ static void mainloop(void) {
   wl_shell_surface_add_listener(shell_surface,
       &shell_surface_listener, NULL);
   frame_callback = wl_surface_frame(surface);
-  wl_callback_add_listener(frame_callback, &frame_listener, NULL);
+  wl_callback_add_listener(frame_callback, &frame_listener, dd);
   create_window();
   ccv_enable_default_cache();
   FIRST_W = width/5.;
@@ -888,18 +887,18 @@ static void mainloop(void) {
      x_delta * (i + 1) * width, height/2.5, width/(nsound_shapes*3),
      30, 100, 80, 0.5);
   }
-  init_output();
+  init_output(dd);
   out_frame.size = 4 * width * height;
   out_frame.data = calloc(1, out_frame.size);
   uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
   video_ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
   memset(video_ring_buf->buf, 0, video_ring_buf->size);
-  setup_jack();
+  setup_jack(dd);
   setup_signal_handler();
   while (wl_display_dispatch(display) != -1) {
   }
-  close_stream(oc, &audio_st);
-  close_stream(oc, &video_st);
+  close_stream(oc, dd->audio_thread_info->stream);
+  close_stream(oc, dd->video_thread_info->stream);
   avio_closep(&oc->pb);
   avformat_free_context(oc);
   wl_display_disconnect(display);
@@ -1103,12 +1102,13 @@ keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
  uint32_t serial, uint32_t time, uint32_t key,
  uint32_t state)
 {
+  dingle_dots_t *dd = (dingle_dots_t *)data;
   static int first_r = 1;
   if (key == KEY_Q && state == 1 && (first_r != -1)) {
     exit(0);
   } else if (key == KEY_R && state == 1 && (first_r == 1)) {
     first_r = -1;
-    start_recording_threads();
+    start_recording_threads(dd);
   } else if (key == KEY_R && state == 1 && (first_r == -1)) {
     first_r = 0;
     recording_stopped = 1;
@@ -1295,8 +1295,19 @@ long_options[] = {
   { 0, 0, 0, 0 }
 };
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
+  disk_thread_info_t video_thread_info;
+  disk_thread_info_t audio_thread_info;
+  OutputStream video_st, audio_st;
+  dingle_dots_t dingle_dots;
+  dingle_dots.audio_thread_info = &audio_thread_info;
+  dingle_dots.video_thread_info = &video_thread_info;
+  dingle_dots.audio_thread_info->stream = &audio_st;
+  dingle_dots.video_thread_info->stream = &video_st;
+  pthread_mutex_init(&video_thread_info.lock, NULL);
+  pthread_mutex_init(&audio_thread_info.lock, NULL);
+  pthread_cond_init(&video_thread_info.data_ready, NULL);
+  pthread_cond_init(&audio_thread_info.data_ready, NULL);
   out_file_name = "testington.webm";
   dev_name = "/dev/video0";
   for (;;) {
@@ -1342,11 +1353,11 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
   }
-  setup_wayland();
+  setup_wayland(&dingle_dots);
   open_device();
   init_device();
   start_capturing();
-  mainloop();
+  mainloop(&dingle_dots);
   stop_capturing();
   uninit_device();
   close_device();

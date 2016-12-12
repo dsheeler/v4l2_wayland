@@ -22,41 +22,18 @@
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 
+#include "v4l2_wayland.h"
+
 #define STREAM_FRAME_RATE 120 /* 25 images/s */
 #define STREAM_PIX_FMT    AV_PIX_FMT_RGB32 /* default pix_fmt */
 
 #define SCALE_FLAGS SWS_BICUBIC
 
-typedef struct output_frame {
-  uint32_t *data;
-  uint32_t size;
-  struct timespec ts;
-} output_frame;
-
-// a wrapper around a single output AVStream
-typedef struct OutputStream {
-    AVStream *st;
-    AVCodecContext *enc;
-    /* pts of the next frame that will be generated */
-    int64_t next_pts;
-    struct timespec first_time;
-    struct timespec first_time_audio;
-    struct timespec last_time;
-    int samples_count;
-    int64_t overruns;
-    output_frame out_frame;
-    AVFrame *frame;
-    AVFrame *tmp_frame;
-    float t, tincr, tincr2;
-    struct SwsContext *sws_ctx;
-    struct SwrContext *swr_ctx;
-} OutputStream;
-
 int write_video_frame(AVFormatContext *oc, OutputStream *ost);
-int write_audio_frame(AVFormatContext *oc, OutputStream *ost);
+int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
+ OutputStream *ost);
 int init_output();
 void close_stream(AVFormatContext *oc, OutputStream *ost);
-extern OutputStream video_st, audio_st;
 extern AVFormatContext *oc;
 extern AVFrame *frame;
 extern jack_ringbuffer_t *video_ring_buf, *audio_ring_buf;

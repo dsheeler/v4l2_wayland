@@ -1,4 +1,5 @@
 #include "muxing.h"
+#include "v4l2_wayland.h"
 
 static void log_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt)
 {
@@ -198,7 +199,8 @@ int get_audio_frame(OutputStream *ost, AVFrame **ret_frame) {
  * encode one audio frame and send it to the muxer
  * return 1 when encoding is finished, 0 otherwise
  */
-int write_audio_frame(AVFormatContext *oc, OutputStream *ost) {
+int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
+ OutputStream *ost) {
   AVCodecContext *c;
   AVPacket pkt;
   AVFrame *frame;
@@ -225,13 +227,7 @@ int write_audio_frame(AVFormatContext *oc, OutputStream *ost) {
       exit(1);
     }
     frame = ost->frame;
-    double diff;
-    struct timespec *now;
-    now = &video_st.out_frame.ts;
-    diff = now->tv_sec + 1e-9*now->tv_nsec - (ost->first_time.tv_sec +
-     1e-9*ost->first_time.tv_nsec);
     ost->samples_count += dst_nb_samples;
-    printf("video time : %f\n", diff);
     printf("audio time: %f\n", ost->samples_count / (double) c->sample_rate);
     frame->pts = av_rescale_q(ost->samples_count,
      (AVRational){1, c->sample_rate}, c->time_base);
@@ -432,7 +428,7 @@ void close_stream(AVFormatContext *oc, OutputStream *ost)
 /**************************************************************/
 /* media file output */
 
-int init_output() {
+int init_output(dingle_dots_t *dd) {
   const char *filename;
   AVOutputFormat *fmt;
   AVCodec *audio_codec, *video_codec;
@@ -441,11 +437,8 @@ int init_output() {
   int encode_video = 0, encode_audio = 0;
   AVDictionary *opt = NULL;
   int i;
-
   av_register_all();
   filename = out_file_name;
-  printf("out_file_name: <%s>\n", out_file_name);
-  printf("filename: <%s>\n", filename);
   avformat_alloc_output_context2(&oc, NULL, NULL, filename);
   if (!oc) {
     printf("Could not deduce output format from file extension: using MPEG.\n");
@@ -454,23 +447,19 @@ int init_output() {
   if (!oc)
     return 1;
   fmt = oc->oformat;
-  /* Add the audio and video streams using the default format codecs
-   * and initialize the codecs. */
-  add_stream(&video_st, oc, &video_codec, fmt->video_codec);
+  add_stream(dd->video_thread_info->stream, oc,
+   &video_codec, fmt->video_codec);
   have_video = 1;
   encode_video = 1;
   if (fmt->audio_codec != AV_CODEC_ID_NONE) {
-    add_stream(&audio_st, oc, &audio_codec, fmt->audio_codec);
+    add_stream(dd->audio_thread_info->stream, oc,
+     &audio_codec, fmt->audio_codec);
     have_audio = 1;
     encode_audio = 1;
   }
-
-  /* Now that all the parameters are set, we can open the audio and
-   * video codecs and allocate the necessary encode buffers. */
-  open_video(oc, video_codec, &video_st, opt);
-  open_audio(oc, audio_codec, &audio_st, opt);
+  open_video(oc, video_codec, dd->video_thread_info->stream, opt);
+  open_audio(oc, audio_codec, dd->audio_thread_info->stream, opt);
   av_dump_format(oc, 0, filename, 1);
-  /* open the output file, if needed */
   if (!(fmt->flags & AVFMT_NOFILE)) {
     ret = avio_open(&oc->pb, filename, AVIO_FLAG_WRITE);
     if (ret < 0) {
