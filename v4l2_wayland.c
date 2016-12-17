@@ -61,6 +61,7 @@ static void isort(void *base, size_t nmemb, size_t size,
  int (*compar)(const void *, const void *));
 
 output_frame                   out_frame;
+OutputStream                   video_st;
 AVFormatContext                *oc;
 AVFrame                        *frame;
 char                           *out_file_name;
@@ -470,9 +471,11 @@ static void render_detection_box(cairo_t *cr, int initializing,
 }
 
 static int cmp_z_order(const void *p1, const void *p2) {
-  if (((const sound_shape *)p1)->z > ((const sound_shape *)p2)->z) return 1;
-  if (((const sound_shape *)p1)->z == ((const sound_shape *)p2)->z) return 0;
-  if (((const sound_shape *)p1)->z < ((const sound_shape *)p2)->z) return -1;
+  int ret;
+  if (((const sound_shape *)p1)->z > ((const sound_shape *)p2)->z) ret = 1;
+  if (((const sound_shape *)p1)->z == ((const sound_shape *)p2)->z) ret = 0;
+  if (((const sound_shape *)p1)->z < ((const sound_shape *)p2)->z) ret = -1;
+  return ret;
 }
 
 static void render_pointer(cairo_t *cr, double x, double y) {
@@ -619,8 +622,8 @@ static void process_image(const void *p, const int size, int do_tld,
       pthread_mutex_unlock(&dd->video_thread_info->lock);
     }
   } else {
-    dd->video_thread_info->stream->overruns++;
-    printf("VIDEO OVERRUNS: %d\n", dd->video_thread_info->stream->overruns);
+    //dd->video_thread_info->stream->overruns++;
+    //printf("VIDEO OVERRUNS: %d\n", dd->video_thread_info->stream->overruns);
   }
 }
 
@@ -856,6 +859,7 @@ int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys) {
     }
   }
   printf("dd_init\n");
+  return 0;
 }
 
 static void mainloop(dingle_dots_t *dd) {
@@ -1319,7 +1323,7 @@ static void usage(FILE *fp, int argc, char **argv)
       "-o | --output        filename of video file output\n"
       "-b | --bitrate       bit rate of video file output\n"
       "",
-      argv[0], dev_name, frame_count);
+      argv[0], dev_name);
 }
 
 static const char short_options[] = "d:ho:b:w:g:x:y:";
@@ -1340,7 +1344,9 @@ long_options[] = {
 int main(int argc, char **argv) {
   disk_thread_info_t video_thread_info;
   disk_thread_info_t audio_thread_info;
-  OutputStream video_st, audio_st;
+  OutputStream  audio_st;
+  /*mysteriously, this does not work... video_st global variable does work.
+  OutputStream video_st;*/
   dingle_dots_t dingle_dots;
   dingle_dots.audio_thread_info = &audio_thread_info;
   dingle_dots.video_thread_info = &video_thread_info;

@@ -9,7 +9,7 @@ LFLAGS = $(shell pkg-config --libs wayland-client) \
 				 -lccv -lm -lpng -ljpeg -lswscale -lavutil -lswresample \
 				 -lavformat -lavcodec -lpthread -ljack
 LIBS =
-CFLAGS = $(shell pkg-config --cflags pangocairo)
+CFLAGS = -Wall -g $(shell pkg-config --cflags pangocairo)
 SRCS = v4l2_wayland.c muxing.c sound_shape.c midi.c
 OBJS = $(SRCS:.c=.o)
 HDRS = muxing.h sound_shape.h midi.h

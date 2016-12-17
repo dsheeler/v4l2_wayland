@@ -1,6 +1,7 @@
 #include "muxing.h"
 #include "v4l2_wayland.h"
 
+extern OutputStream video_st;
 static void log_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt)
 {
   AVRational *time_base = &fmt_ctx->streams[pkt->stream_index]->time_base;
@@ -305,7 +306,13 @@ static void open_video(AVFormatContext *oc, AVCodec *codec, OutputStream *ost, A
      * picture is needed too. It is then converted to the required
      * output format. */
     ost->tmp_frame = NULL;
-    ost->tmp_frame = alloc_picture(AV_PIX_FMT_YUV420P, c->width, c->height);
+    ost->tmp_frame = av_frame_alloc();
+    ost->tmp_frame->width = width;
+    ost->tmp_frame->height = height;
+    ost->tmp_frame->format = AV_PIX_FMT_YUV420P;
+    av_image_alloc(ost->tmp_frame->data, ost->tmp_frame->linesize,
+     ost->tmp_frame->width, ost->tmp_frame->height, ost->tmp_frame->format, 1);
+    //ost->tmp_frame = alloc_picture(AV_PIX_FMT_YUV420P, c->width, c->height);
     if (!ost->tmp_frame) {
         fprintf(stderr, "Could not allocate temporary picture\n");
         exit(1);
@@ -461,6 +468,7 @@ int init_output(dingle_dots_t *dd) {
     encode_audio = 1;
   }
   open_video(oc, video_codec, dd->video_thread_info->stream, opt);
+  //open_video(oc, video_codec, &video_st, opt);
   open_audio(oc, audio_codec, dd->audio_thread_info->stream, opt);
   av_dump_format(oc, 0, filename, 1);
   if (!(fmt->flags & AVFMT_NOFILE)) {
