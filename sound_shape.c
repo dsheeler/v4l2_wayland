@@ -1,22 +1,20 @@
 #include "sound_shape.h"
 
+uint8_t major[] = { 0, 2, 4, 5, 7, 9, 11, 12 };
+uint8_t minor[] = { 0, 2, 3, 5, 7, 8, 10, 12 };
+
 int sound_shape_init(sound_shape *ss, char *label,
  uint8_t midi_note, double x, double y, double r,
- int red, int g, int b, double a) {
+ color *c) {
+  ss->active = 0;
   ss->x = x;
   ss->y = y;
   ss->r = r;
   ss->z = next_z++;
   strncpy(ss->label, label, NCHAR);
   ss->midi_note = midi_note;
-  ss->normal.r = red/255.;
-  ss->normal.g = g/255.;
-  ss->normal.b = b/255.;
-  ss->normal.a = a;
-  ss->playing.r = 30/255.;
-  ss->playing.g = 240/255.;
-  ss->playing.b = 180/255.;
-  ss->playing.a = a;
+  ss->normal = color_copy(c);
+  ss->playing = color_lighten(c, 0.5);
   ss->on = 0;
   ss->mdown = 0;
   return 0;
@@ -60,6 +58,16 @@ int sound_shape_render(sound_shape *ss, cairo_t *cr) {
   return 0;
 }
 
+int sound_shape_activate(sound_shape *ss) {
+  ss->active = 1;
+  return 0;
+}
+
+int sound_shape_deactivate(sound_shape *ss) {
+  ss->active = 0;
+  return 0;
+}
+
 int sound_shape_in(sound_shape *ss, double x, double y) {
   if (sqrt(pow((x - ss->x), 2) + pow(y - ss->y, 2)) <= ss->r) {
     return 1;
@@ -80,3 +88,82 @@ int sound_shape_off(sound_shape *ss) {
   return 0;
 }
 
+int color_init(color *c, double r, double g, double b, double a) {
+  c->r = r;
+  c->g = g;
+  c->b = b;
+  c->a = a;
+}
+
+color color_copy(color *in) {
+  color out;
+  out.r = in->r;
+  out.g = in->g;
+  out.b = in->b;
+  out.a = in->a;
+  return out;
+}
+
+struct hsva rgb2hsv(color *c) {
+  struct hsva out;
+  double max = fmax(fmax(c->r, c->g), c->b);
+  double min = fmin(fmin(c->r, c->g), c->b);
+  double h, s, v;
+  double r, g, b;
+  r = c->r;
+  g = c->g;
+  b = c->b;
+  h = s = v = max;
+  double d = max - min;
+  s = max == 0 ? 0 : d / max;
+  if(max == min){
+    h = 0; // achromatic
+  } else {
+    if (r == max) {
+      h = (g - b) / d + (g < b ? 6 : 0);
+    } else if (g == max) {
+      h = (b - r) / d + 2;
+    } else if (b == max) {
+      h = (r - g) / d + 4;
+    }
+    h /= 6;
+  }
+  out.h = h;
+  out.s = s;
+  out.v = v;
+  out.a = c->a;
+  return out;
+}
+
+color hsv2rgb(struct hsva *in) {
+  color out;
+  double r, g, b;
+  double h, s, v;
+  h = in->h;
+  s = in->s;
+  v = in->v;
+  int i = (int)floor(h * 6);
+  double f = h * 6 - i;
+  double p = v * (1 - s);
+  double q = v * (1 - f * s);
+  double t = v * (1 - (1 - f) * s);
+  switch(i % 6){
+    case 0: r = v, g = t, b = p; break;
+    case 1: r = q, g = v, b = p; break;
+    case 2: r = p, g = v, b = t; break;
+    case 3: r = p, g = q, b = v; break;
+    case 4: r = t, g = p, b = v; break;
+    case 5: r = v, g = p, b = q; break;
+  }
+  color_init(&out, r, g, b, in->a);
+  return out;
+}
+
+color color_lighten(color *in, double mag) {
+  color out;
+  struct hsva lighter;
+  lighter = rgb2hsv(in);
+  lighter.v = lighter.v + (1 - lighter.v) * mag;
+  out = hsv2rgb(&lighter);
+  return out;
+}

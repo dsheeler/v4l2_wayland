@@ -2,6 +2,7 @@
 #define _V4L2_WAYLAND_H (1)
 
 #include <pthread.h>
+#include "sound_shape.h"
 
 typedef struct output_frame {
   uint32_t *data;
@@ -35,6 +36,10 @@ typedef struct disk_thread_info {
 typedef struct {
   disk_thread_info_t *audio_thread_info;
   disk_thread_info_t *video_thread_info;
+  sound_shape sound_shapes[MAX_NSOUND_SHAPES];
 } dingle_dots_t;
 
+int midi_scale_init(midi_scale_t *scale, uint8_t *notes, uint8_t nb_notes);
+int midi_key_init(midi_key_t *key, uint8_t base_note, midi_scale_t *scale);
+int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys);
 #endif

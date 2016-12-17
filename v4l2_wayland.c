@@ -98,7 +98,7 @@ static const struct wl_registry_listener registry_listener;
 static const struct wl_keyboard_listener keyboard_listener;
 static const struct wl_pointer_listener pointer_listener;
 
-static cairo_surface_t    *csurface, *pointer_surface;
+static cairo_surface_t    *csurface;
 static cairo_t            *cr;
 static int                mdown = 0, mdown_x, mdown_y;
 static int                m_x, m_y;
@@ -113,8 +113,6 @@ struct buffer            *buffers;
 static unsigned int       n_buffers;
 static int                frame_count = 200;
 static int                frame_number = 0;
-int nsound_shapes = 8;
-static sound_shape        sound_shapes[8];
 
 volatile int              can_process;
 volatile int              can_capture;
@@ -128,6 +126,7 @@ const size_t              sample_size = sizeof(jack_default_audio_sample_t);
 pthread_mutex_t           av_thread_lock = PTHREAD_MUTEX_INITIALIZER;
 long                      jack_overruns = 0;
 
+extern uint8_t major[], minor[];
 static void errno_exit(const char *s)
 {
   fprintf(stderr, "%s error %d, %s\n", s, errno, strerror(errno));
@@ -184,7 +183,7 @@ static void registry_global(void *data,
     seat = wl_registry_bind(registry, name,
      &wl_seat_interface, min(version, 2));
     pointer = wl_seat_get_pointer(seat);
-    wl_pointer_add_listener(pointer, &pointer_listener, NULL);
+    wl_pointer_add_listener(pointer, &pointer_listener, dd);
     keyboard = wl_seat_get_keyboard(seat);
     wl_keyboard_add_listener(keyboard, &keyboard_listener, dd);
   }
@@ -550,19 +549,20 @@ static void process_image(const void *p, const int size, int do_tld,
       }
     }
     if (newbox.rect.width && newbox.rect.height &&
-        made_first_tld && tld->found) {
-      for (i = 0; i < nsound_shapes; i++) {
-        if (sound_shape_in(&sound_shapes[i],
-              ascale_factor_x*newbox.rect.x +
-              0.5*ascale_factor_x*newbox.rect.width,
-              ascale_factor_y*newbox.rect.y +
-              0.5*ascale_factor_y*newbox.rect.height)) {
-          if (!sound_shapes[i].on) {
-            sound_shape_on(&sound_shapes[i]);
+     made_first_tld && tld->found) {
+      for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+        if (!dd->sound_shapes[i].active) continue;
+        if (sound_shape_in(&dd->sound_shapes[i],
+         ascale_factor_x*newbox.rect.x +
+         0.5*ascale_factor_x*newbox.rect.width,
+         ascale_factor_y*newbox.rect.y +
+         0.5*ascale_factor_y*newbox.rect.height)) {
+          if (!dd->sound_shapes[i].on) {
+            sound_shape_on(&dd->sound_shapes[i]);
           }
         } else {
-          if (sound_shapes[i].on) {
-            sound_shape_off(&sound_shapes[i]);
+          if (dd->sound_shapes[i].on) {
+            sound_shape_off(&dd->sound_shapes[i]);
           }
         }
       }
@@ -574,15 +574,17 @@ static void process_image(const void *p, const int size, int do_tld,
     newbox.rect.y = 0;
     newbox.rect.width = 0;
     newbox.rect.height = 0;
-    for (i = 0; i < nsound_shapes; i++) {
-      if (sound_shapes[i].on) {
-        sound_shape_off(&sound_shapes[i]);
+    for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+      if (!dd->sound_shapes[i].active) continue;
+      if (dd->sound_shapes[i].on) {
+        sound_shape_off(&dd->sound_shapes[i]);
       }
     }
   }
-  isort(sound_shapes, nsound_shapes, sizeof(sound_shape), cmp_z_order);
-  for (i = 0; i < nsound_shapes; i++) {
-    sound_shape_render(&sound_shapes[i], cr);
+  isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
+  for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+    if (!dd->sound_shapes[i].active) continue;
+    sound_shape_render(&dd->sound_shapes[i], cr);
   }
   if (mdown) {
     render_detection_box(cr, 1, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
@@ -602,7 +604,6 @@ static void process_image(const void *p, const int size, int do_tld,
   if (!recording_started || recording_stopped) return;
   if (first_call) {
     first_call = 0;
-    printf("can_capturei %d\n", dd->video_thread_info->stream);
     dd->video_thread_info->stream->first_time = out_frame.ts;
     can_capture = 1;
   }
@@ -806,8 +807,56 @@ void start_recording_threads(dingle_dots_t *dd) {
    dd);
 }
 
-char *note_names[] = {"A", "A#", "B", "C", "C#", "D", "D#", "E",
- "F", "F#", "G", "G#"};
+int midi_scale_init(midi_scale_t *scale, uint8_t *notes, uint8_t nb_notes) {
+  scale->notes = notes;
+  scale->nb_notes = nb_notes;
+  return 0;
+}
+
+int midi_key_init(midi_key_t *key, uint8_t base_note, midi_scale_t *scale) {
+  key->base_note = base_note;
+  key->scale = scale;
+  return 0;
+}
+
+int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys) {
+  int i;
+  int j;
+  int k;
+  char label[NCHAR];
+  int note_names_idx, note_octave_num;
+  uint8_t midi_note;
+  double freq;
+  double x_delta;
+  char *note_names[] = {"C", "C#", "D", "D#", "E",
+   "F", "F#", "G", "G#", "A", "A#", "B"};
+  color colors[2];
+  color_init(&colors[0], 30./255., 100./255., 80./255., 0.5);
+  color_init(&colors[1], 0., 30./255., 80./255., 0.5);
+  memset(dd->sound_shapes, 0, MAX_NSOUND_SHAPES * sizeof(sound_shape));
+  for (i = 0; i < nb_keys; i++) {
+    x_delta = 1. / (keys[i].scale->nb_notes + 1);
+    for (j = 0; j < keys[i].scale->nb_notes; j++) {
+      midi_note = keys[i].base_note + keys[i].scale->notes[j];
+      note_octave_num = (midi_note - 12) / 12;
+      note_names_idx = (midi_note - 12) % 12;
+      freq = 440.0 * pow(2.0, (midi_note - 69.0) / 12.0);
+      memset(label, '\0', NCHAR * sizeof(char));
+      sprintf(label, "%d\n%.2f\n%s%d", j+1, freq, note_names[note_names_idx],
+     note_octave_num);
+      for (k = 0; k < MAX_NSOUND_SHAPES; k++) {
+        if (dd->sound_shapes[k].active) continue;
+        sound_shape_init(&dd->sound_shapes[k], label, midi_note,
+         x_delta * (j + 1) * width, (i+1) * height / 4.,
+         width/(keys[i].scale->nb_notes*3),
+         &colors[i%2]);
+        sound_shape_activate(&dd->sound_shapes[k]);
+        break;
+      }
+    }
+  }
+  printf("dd_init\n");
+}
 
 static void mainloop(dingle_dots_t *dd) {
   int ret;
@@ -867,26 +916,14 @@ static void mainloop(dingle_dots_t *dd) {
   csurface = cairo_image_surface_create_for_data((unsigned char *)shm_data,
    CAIRO_FORMAT_RGB24, width, height, 4*width);
   cr = cairo_create(csurface);
-  cairo_set_source_rgba(cr, 0., 0.25, 0.5, 0.5);
-  uint8_t base_midi_note = 64;
-  uint8_t aeolian[] = { 0, 2, 4, 5, 7, 9, 11, 12 };
-  double x_delta = 1. / (nsound_shapes + 1);
-  char label[NCHAR];
-  double freq;
-  uint8_t midi_note;
-  int note_names_idx, note_octave_num;
-  for (i = 0; i < nsound_shapes; i++) {
-    midi_note = base_midi_note + aeolian[i];
-    note_octave_num = (midi_note - 21) / 12;
-    note_names_idx = (midi_note - 21) % 12;
-    freq = 440.0 * pow(2.0, (midi_note - 69.0) / 12.0);
-    memset(label, '\0', NCHAR * sizeof(char));
-    sprintf(label, "%d\n%.1f\n%s%d", i+1, freq, note_names[note_names_idx],
-     note_octave_num);
-    sound_shape_init(&sound_shapes[i], label, midi_note,
-     x_delta * (i + 1) * width, height/2.5, width/(nsound_shapes*3),
-     30, 100, 80, 0.5);
-  }
+  printf("here\n");
+  midi_key_t keys[2];
+  midi_scale_t scales[2];
+  midi_scale_init(&scales[0], minor, 8);
+  midi_scale_init(&scales[1], major, 8);
+  midi_key_init(&keys[0], 32, &scales[0]);
+  midi_key_init(&keys[1], 44, &scales[1]);
+  dingle_dots_init(dd, keys, 2);
   init_output(dd);
   out_frame.size = 4 * width * height;
   out_frame.data = calloc(1, out_frame.size);
@@ -1166,6 +1203,7 @@ static void pointer_motion(void *data,
     struct wl_pointer *wl_pointer, uint32_t time,
     wl_fixed_t surface_x, wl_fixed_t surface_y) {
   int i;
+  dingle_dots_t *dd = (dingle_dots_t *)data;
   m_x = wl_fixed_to_int(surface_x);
   m_y = wl_fixed_to_int(surface_y);
   if (mdown) {
@@ -1198,13 +1236,14 @@ static void pointer_motion(void *data,
       FIRST_Y = mdown_y;
     }
   }
-  isort(sound_shapes, nsound_shapes, sizeof(sound_shape), cmp_z_order);
-  for (i = nsound_shapes-1; i > -1; i--) {
-    if (sound_shapes[i].mdown) {
-      sound_shapes[i].x = m_x - sound_shapes[i].mdown_x
-       + sound_shapes[i].down_x;
-      sound_shapes[i].y = m_y - sound_shapes[i].mdown_y
-       + sound_shapes[i].down_y;
+  isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
+  for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
+    if (!dd->sound_shapes[i].active) continue;
+    if (dd->sound_shapes[i].mdown) {
+      dd->sound_shapes[i].x = m_x - dd->sound_shapes[i].mdown_x
+       + dd->sound_shapes[i].down_x;
+      dd->sound_shapes[i].y = m_y - dd->sound_shapes[i].mdown_y
+       + dd->sound_shapes[i].down_y;
       break;
     }
   }
@@ -1215,22 +1254,26 @@ static void pointer_button(void *data,
     uint32_t time, uint32_t button, uint32_t state)
 {
   int i;
+  dingle_dots_t * dd = (dingle_dots_t *)data;
   if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-    isort(sound_shapes, nsound_shapes, sizeof(sound_shape), cmp_z_order);
-    for (i = nsound_shapes-1; i > -1; i--) {
-      if (sound_shape_in(&sound_shapes[i], m_x, m_y)) {
-        sound_shapes[i].mdown = 1;
-        sound_shapes[i].mdown_x = m_x;
-        sound_shapes[i].mdown_y = m_y;
-        sound_shapes[i].down_x = sound_shapes[i].x;
-        sound_shapes[i].down_y = sound_shapes[i].y;
-        sound_shapes[i].z = next_z++;
+    isort(dd->sound_shapes, MAX_NSOUND_SHAPES,
+     sizeof(sound_shape), cmp_z_order);
+    for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
+      if (!dd->sound_shapes[i].active) continue;
+      if (sound_shape_in(&dd->sound_shapes[i], m_x, m_y)) {
+        dd->sound_shapes[i].mdown = 1;
+        dd->sound_shapes[i].mdown_x = m_x;
+        dd->sound_shapes[i].mdown_y = m_y;
+        dd->sound_shapes[i].down_x = dd->sound_shapes[i].x;
+        dd->sound_shapes[i].down_y = dd->sound_shapes[i].y;
+        dd->sound_shapes[i].z = next_z++;
         break;
       }
     }
   } else if (button == BTN_LEFT && state != WL_POINTER_BUTTON_STATE_PRESSED) {
-    for (i = 0; i < nsound_shapes; i++) {
-      sound_shapes[i].mdown = 0;
+    for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+      if (!dd->sound_shapes[i].active) continue;
+      dd->sound_shapes[i].mdown = 0;
     }
   }
   if (!shift_pressed && button == BTN_RIGHT
