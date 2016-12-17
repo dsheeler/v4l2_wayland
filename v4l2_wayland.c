@@ -106,13 +106,10 @@ uint64_t                  next_z = 0;
 static int                FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
 static int                doing_tld = 0;
 static int                make_new_tld = 0;
-static struct pollfd      fds[1];
 static char              *dev_name;
 static int                fd = -1;
 struct buffer            *buffers;
 static unsigned int       n_buffers;
-static int                frame_count = 200;
-static int                frame_number = 0;
 
 volatile int              can_process;
 volatile int              can_capture;
@@ -197,8 +194,6 @@ static const struct wl_registry_listener registry_listener = {
   .global_remove = registry_global_remove
 };
 
-static const uint32_t PIXEL_FORMAT_ID = WL_SHM_FORMAT_ARGB8888;
-
 static int set_cloexec_or_close(int fd)
 {
   long flags;
@@ -256,14 +251,6 @@ int os_create_anonymous_file(off_t size)
     return -1;
   }
   return fd;
-}
-
-static void paint_pixels() {
-  int n;
-  uint32_t *pixel = shm_data;
-  for (n =0; n < width * height; n++) {
-    *pixel++ = 0xffff00;
-  }
 }
 
 static const struct wl_callback_listener frame_listener;
@@ -393,7 +380,6 @@ void *audio_disk_thread(void *arg) {
 }
 
 void *video_disk_thread (void *arg) {
-  static int out_done = 0;
   int ret;
   dingle_dots_t *dd = (dingle_dots_t *)arg;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
@@ -526,11 +512,12 @@ static void process_image(const void *p, const int size, int do_tld,
   }
   if (doing_tld) {
     if (do_tld) {
-      int ret = sws_scale(resize, (uint8_t const * const *)frame->data, frame->linesize, 0, frame->height,
-          aframe->data, aframe->linesize);
+      sws_scale(resize, (uint8_t const * const *)frame->data,
+       frame->linesize, 0, frame->height, aframe->data, aframe->linesize);
       if (make_new_tld == 1) {
         if (FIRST_W > 0 && FIRST_H > 0) {
-          tld = new_tld(FIRST_X/ascale_factor_x, FIRST_Y/ascale_factor_y, FIRST_W/ascale_factor_x, FIRST_H/ascale_factor_y);
+          tld = new_tld(FIRST_X/ascale_factor_x, FIRST_Y/ascale_factor_y,
+           FIRST_W/ascale_factor_x, FIRST_H/ascale_factor_y);
         } else {
           tld = NULL;
           doing_tld = 0;
@@ -544,7 +531,8 @@ static void process_image(const void *p, const int size, int do_tld,
         made_first_tld = 1;
         make_new_tld = 0;
       } else {
-        ccv_read(aframe->data[0], &cdm2, CCV_IO_ARGB_RAW | CCV_IO_GRAY, aheight, awidth, 4*awidth);
+        ccv_read(aframe->data[0], &cdm2, CCV_IO_ARGB_RAW |
+         CCV_IO_GRAY, aheight, awidth, 4*awidth);
         ccv_tld_info_t info;
         newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
         cdm = cdm2;
@@ -611,7 +599,6 @@ static void process_image(const void *p, const int size, int do_tld,
     can_capture = 1;
   }
   int tsize = out_frame.size + sizeof(struct timespec);
-  int write_failed = 0;
   if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
     jack_ringbuffer_write(video_ring_buf, (void *)shm_data,
      out_frame.size);
@@ -629,7 +616,6 @@ static void process_image(const void *p, const int size, int do_tld,
 
 static int read_frame(dingle_dots_t *dd) {
   struct v4l2_buffer buf;
-  unsigned int i;
   int eagain = 0;
   CLEAR(buf);
   buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -725,14 +711,8 @@ int process(jack_nframes_t nframes, void *arg) {
   if ((!can_process) || (!can_capture) || (audio_done)) return 0;
   if (first_call) {
     struct timespec *ats = &dd->audio_thread_info->stream->first_time;
-    struct timespec *vts = &dd->video_thread_info->stream->first_time;
     clock_gettime(CLOCK_MONOTONIC, ats);
-    double diff;
-    diff = ats->tv_sec + 1e-9*ats->tv_nsec - (vts->tv_sec +
-     1e-9*vts->tv_nsec);
-    dd->audio_thread_info->stream->samples_count = 0;/*
-     dd->audio_thread_info->stream->enc->time_base.den * diff /
-     dd->audio_thread_info->stream->enc->time_base.num;*/
+    dd->audio_thread_info->stream->samples_count = 0;
     first_call = 0;
   }
   for (chn = 0; chn < nports; chn++)
@@ -741,7 +721,7 @@ int process(jack_nframes_t nframes, void *arg) {
     for (chn = 0; chn < nports; chn++) {
       if (jack_ringbuffer_write (audio_ring_buf, (void *) (in[chn]+i),
        sample_size) < sample_size) {
-        printf("jack overrun: %d\n", ++jack_overruns);
+        printf("jack overrun: %ld\n", ++jack_overruns);
       }
     }
   }
@@ -864,7 +844,6 @@ int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys) {
 
 static void mainloop(dingle_dots_t *dd) {
   int ret;
-  int i;
   if (compositor == NULL) {
     fprintf(stderr, "Can't find compositor\n");
     exit(1);
@@ -1033,7 +1012,6 @@ static void init_device(void)
   struct v4l2_cropcap cropcap;
   struct v4l2_crop crop;
   struct v4l2_format fmt;
-  unsigned int min;
   if (-1 == xioctl(fd, VIDIOC_QUERYCAP, &cap)) {
     if (EINVAL == errno) {
       fprintf(stderr, "%s is no V4L2 device\n",

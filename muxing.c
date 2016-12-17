@@ -21,7 +21,7 @@ static int write_frame(AVFormatContext *fmt_ctx,
   av_packet_rescale_ts(pkt, *time_base, st->time_base);
   pkt->stream_index = st->index;
   /* Write the compressed frame to the media file. */
-  /*log_packet(fmt_ctx, pkt);*/
+  if (0) log_packet(fmt_ctx, pkt);
   ret = av_interleaved_write_frame(fmt_ctx, pkt);
   pthread_mutex_unlock(&av_thread_lock);
   return ret;
@@ -173,7 +173,7 @@ static void open_audio(AVFormatContext *oc, AVCodec *codec, OutputStream *ost,
 
 int get_audio_frame(OutputStream *ost, AVFrame **ret_frame) {
   AVFrame *frame = ost->tmp_frame;
-  int j, i, v;
+  int j, i;
   float *q = (float*)frame->data[0];
   *ret_frame = frame;
   if (recording_stopped) {
@@ -206,7 +206,6 @@ int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
   AVPacket pkt;
   AVFrame *frame;
   int ret;
-  int got_packet;
   int dst_nb_samples;
   c = ost->enc;
   ret = get_audio_frame(ost, &frame);
@@ -252,25 +251,6 @@ int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
 
 /**************************************************************/
 /* video output */
-
-static AVFrame *alloc_picture(enum AVPixelFormat pix_fmt, int width, int height)
-{
-  AVFrame *picture;
-  int ret;
-  picture = av_frame_alloc();
-  if (!picture)
-    return NULL;
-  picture->format = pix_fmt;
-  picture->width  = width;
-  picture->height = height;
-  /* allocate the buffers for the frame data */
-  ret = av_frame_get_buffer(picture, 32);
-  if (ret < 0) {
-    fprintf(stderr, "Could not allocate frame data.\n");
-    exit(1);
-  }
-  return picture;
-}
 
 static void open_video(AVFormatContext *oc, AVCodec *codec, OutputStream *ost, AVDictionary *opt_arg)
 {
@@ -361,8 +341,6 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame) {
       }
     }
     printf("before sws_scale get_video_frame \n");
-    printf("ost->frame->data: %d, ost->tmp_frame->data: %d\n", ost->frame->data,
-        ost->tmp_frame->data);
     sws_scale(ost->sws_ctx, (const uint8_t * const *)ost->frame->data,
      ost->frame->linesize, 0, c->height, ost->tmp_frame->data,
      ost->tmp_frame->linesize);
@@ -383,7 +361,6 @@ int write_video_frame(AVFormatContext *oc, OutputStream *ost)
   int ret;
   AVCodecContext *c;
   AVFrame *tframe;
-  int got_packet = 0;
   AVPacket pkt;
   c = ost->enc;
   ret = get_video_frame(ost, &tframe);
@@ -443,10 +420,7 @@ int init_output(dingle_dots_t *dd) {
   AVOutputFormat *fmt;
   AVCodec *audio_codec, *video_codec;
   int ret;
-  int have_video = 0, have_audio = 0;
-  int encode_video = 0, encode_audio = 0;
   AVDictionary *opt = NULL;
-  int i;
   av_register_all();
   filename = out_file_name;
   avformat_alloc_output_context2(&oc, NULL, NULL, filename);
@@ -459,13 +433,9 @@ int init_output(dingle_dots_t *dd) {
   fmt = oc->oformat;
   add_stream(dd->video_thread_info->stream, oc,
    &video_codec, fmt->video_codec);
-  have_video = 1;
-  encode_video = 1;
   if (fmt->audio_codec != AV_CODEC_ID_NONE) {
     add_stream(dd->audio_thread_info->stream, oc,
      &audio_codec, fmt->audio_codec);
-    have_audio = 1;
-    encode_audio = 1;
   }
   open_video(oc, video_codec, dd->video_thread_info->stream, opt);
   //open_video(oc, video_codec, &video_st, opt);
