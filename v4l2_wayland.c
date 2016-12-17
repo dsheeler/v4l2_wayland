@@ -24,7 +24,6 @@
 #include <sys/time.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
-
 #include <libavcodec/avcodec.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
@@ -407,6 +406,7 @@ void *video_disk_thread (void *arg) {
     if (ret == 0) continue;
     if (ret == -1) pthread_cond_wait(&dd->video_thread_info->data_ready,
      &dd->video_thread_info->lock);
+    printf("vdiskthread ret %d\n", ret);
   }
   if (audio_done && video_done && !trailer_written) {
     av_write_trailer(oc);
@@ -727,9 +727,9 @@ int process(jack_nframes_t nframes, void *arg) {
     double diff;
     diff = ats->tv_sec + 1e-9*ats->tv_nsec - (vts->tv_sec +
      1e-9*vts->tv_nsec);
-    dd->audio_thread_info->stream->samples_count =
+    dd->audio_thread_info->stream->samples_count = 0;/*
      dd->audio_thread_info->stream->enc->time_base.den * diff /
-     dd->audio_thread_info->stream->enc->time_base.num;
+     dd->audio_thread_info->stream->enc->time_base.num;*/
     first_call = 0;
   }
   for (chn = 0; chn < nports; chn++)
@@ -916,7 +916,6 @@ static void mainloop(dingle_dots_t *dd) {
   csurface = cairo_image_surface_create_for_data((unsigned char *)shm_data,
    CAIRO_FORMAT_RGB24, width, height, 4*width);
   cr = cairo_create(csurface);
-  printf("here\n");
   midi_key_t keys[2];
   midi_scale_t scales[2];
   midi_scale_init(&scales[0], minor, 8);

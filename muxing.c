@@ -20,7 +20,7 @@ static int write_frame(AVFormatContext *fmt_ctx,
   av_packet_rescale_ts(pkt, *time_base, st->time_base);
   pkt->stream_index = st->index;
   /* Write the compressed frame to the media file. */
-  log_packet(fmt_ctx, pkt);
+  /*log_packet(fmt_ctx, pkt);*/
   ret = av_interleaved_write_frame(fmt_ctx, pkt);
   pthread_mutex_unlock(&av_thread_lock);
   return ret;
@@ -227,13 +227,12 @@ int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
       exit(1);
     }
     frame = ost->frame;
-    ost->samples_count += dst_nb_samples;
     printf("audio time: %f\n", ost->samples_count / (double) c->sample_rate);
     frame->pts = av_rescale_q(ost->samples_count,
      (AVRational){1, c->sample_rate}, c->time_base);
-    printf("frame-pts: %d\n", frame->pts);
     av_init_packet(&pkt);
     ret = avcodec_send_frame(c, frame);
+    ost->samples_count += dst_nb_samples;
     if (ret < 0) {
       fprintf(stderr, "Error encoding audio frame: %s\n", av_err2str(ret));
       exit(1);
@@ -354,9 +353,13 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame) {
         exit(1);
       }
     }
+    printf("before sws_scale get_video_frame \n");
+    printf("ost->frame->data: %d, ost->tmp_frame->data: %d\n", ost->frame->data,
+        ost->tmp_frame->data);
     sws_scale(ost->sws_ctx, (const uint8_t * const *)ost->frame->data,
      ost->frame->linesize, 0, c->height, ost->tmp_frame->data,
      ost->tmp_frame->linesize);
+    printf("after sws_scale get_video_frame\n");
     ost->tmp_frame->pts = ost->frame->pts = ost->next_pts;
     ost->last_time = *now;
     *ret_frame = ost->tmp_frame;
