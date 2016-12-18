@@ -1,4 +1,6 @@
 a.out
+*.mkv
+*.mp4
 *.mov
 *.webm
 *.avi
