@@ -304,7 +304,6 @@ static void open_video(AVFormatContext *oc, AVCodec *codec, OutputStream *ost, A
         fprintf(stderr, "Could not copy the stream parameters\n");
         exit(1);
     }
-    clock_gettime(CLOCK_MONOTONIC, &ost->last_time);
 }
 
 int get_video_frame(OutputStream *ost, AVFrame **ret_frame) {
@@ -346,7 +345,6 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame) {
      ost->tmp_frame->linesize);
     printf("after sws_scale get_video_frame\n");
     ost->tmp_frame->pts = ost->frame->pts = ost->next_pts;
-    ost->last_time = *now;
     *ret_frame = ost->tmp_frame;
     return 0;
   }

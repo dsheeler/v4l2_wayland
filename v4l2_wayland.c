@@ -38,6 +38,7 @@
 #include <wayland-client.h>
 #include <linux/videodev2.h>
 
+#include "kmeter.h"
 #include "muxing.h"
 #include "sound_shape.h"
 #include "midi.h"
@@ -577,6 +578,9 @@ static void process_image(const void *p, const int size, int do_tld,
     if (!dd->sound_shapes[i].active) continue;
     sound_shape_render(&dd->sound_shapes[i], cr);
   }
+  for (i = 0; i < 2; i++) {
+    kmeter_render(&dd->meters[i], cr, 1.);
+  }
   if (mdown) {
     render_detection_box(cr, 1, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
   }
@@ -707,7 +711,13 @@ int process(jack_nframes_t nframes, void *arg) {
   int chn;
   size_t i;
   static int first_call = 1;
-  if (can_process) process_midi_output(nframes);
+  if (can_process) {
+    process_midi_output(nframes);
+    for (chn = 0; chn < nports; chn++) {
+      in[chn] = jack_port_get_buffer(in_ports[chn], nframes);
+      kmeter_process(&dd->meters[chn], in[chn], nframes);
+    }
+  }
   if ((!can_process) || (!can_capture) || (audio_done)) return 0;
   if (first_call) {
     struct timespec *ats = &dd->audio_thread_info->stream->first_time;
@@ -715,8 +725,6 @@ int process(jack_nframes_t nframes, void *arg) {
     dd->audio_thread_info->stream->samples_count = 0;
     first_call = 0;
   }
-  for (chn = 0; chn < nports; chn++)
-    in[chn] = jack_port_get_buffer(in_ports[chn], nframes);
   for (i = 0; i < nframes; i++) {
     for (chn = 0; chn < nports; chn++) {
       if (jack_ringbuffer_write (audio_ring_buf, (void *) (in[chn]+i),
@@ -838,7 +846,13 @@ int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys) {
       }
     }
   }
-  printf("dd_init\n");
+  color meter_color;
+  color_init(&meter_color, 30./255., 0, 0, 0.5);
+  for (i = 0; i < 2; i++) {
+    float w = width/3.;
+    kmeter_init(&dd->meters[i], 48000, 256, 0.5, 15.0, w * (i + 1),
+     height - w, w, meter_color);
+  }
   return 0;
 }
 

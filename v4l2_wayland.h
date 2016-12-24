@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include "sound_shape.h"
+#include "kmeter.h"
 
 typedef struct output_frame {
   uint32_t *data;
@@ -15,13 +16,11 @@ typedef struct OutputStream {
   AVCodecContext *enc;
   int64_t next_pts;
   struct timespec first_time;
-  struct timespec last_time;
   int samples_count;
   int64_t overruns;
   output_frame out_frame;
   AVFrame *frame;
   AVFrame *tmp_frame;
-  float t, tincr, tincr2;
   struct SwsContext *sws_ctx;
   struct SwrContext *swr_ctx;
 } OutputStream;
@@ -37,6 +36,7 @@ typedef struct {
   disk_thread_info_t *audio_thread_info;
   disk_thread_info_t *video_thread_info;
   sound_shape sound_shapes[MAX_NSOUND_SHAPES];
+  kmeter meters[2];
 } dingle_dots_t;
 
 int midi_scale_init(midi_scale_t *scale, uint8_t *notes, uint8_t nb_notes);
