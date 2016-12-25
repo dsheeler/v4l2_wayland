@@ -14,7 +14,7 @@ int sound_shape_init(sound_shape *ss, char *label,
   strncpy(ss->label, label, NCHAR);
   ss->midi_note = midi_note;
   ss->normal = color_copy(c);
-  ss->playing = color_lighten(c, 0.5);
+  ss->playing = color_lighten(c, 0.75);
   ss->on = 0;
   ss->mdown = 0;
   return 0;

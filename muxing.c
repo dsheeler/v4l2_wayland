@@ -435,6 +435,8 @@ int init_output(dingle_dots_t *dd) {
     add_stream(dd->audio_thread_info->stream, oc,
      &audio_codec, fmt->audio_codec);
   }
+  av_dict_set(&opt, "cpu-used", "-8", 0);
+  av_dict_set(&opt, "deadline", "realtime", 0);
   open_video(oc, video_codec, dd->video_thread_info->stream, opt);
   //open_video(oc, video_codec, &video_st, opt);
   open_audio(oc, audio_codec, dd->audio_thread_info->stream, opt);
