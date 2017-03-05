@@ -227,7 +227,7 @@ int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
       exit(1);
     }
     frame = ost->frame;
-    printf("audio time: %f\n", ost->samples_count / (double) c->sample_rate);
+    //printf("audio time: %f\n", ost->samples_count / (double) c->sample_rate);
     frame->pts = av_rescale_q(ost->samples_count,
      (AVRational){1, c->sample_rate}, c->time_base);
     av_init_packet(&pkt);
@@ -274,7 +274,7 @@ static void open_video(AVFormatContext *oc, AVCodec *codec, OutputStream *ost, A
         fprintf(stderr, "Could not allocate video frame\n");
         exit(1);
     }
-    ost->frame->format = AV_PIX_FMT_RGB32;
+    ost->frame->format = AV_PIX_FMT_RGBA;
     ost->frame->width = width;
     ost->frame->height = height;
     ost->out_frame.size = 4 * width * height;
@@ -327,11 +327,11 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame) {
     now = &ost->out_frame.ts;
     diff = now->tv_sec + 1e-9*now->tv_nsec - (ost->first_time.tv_sec +
      1e-9*ost->first_time.tv_nsec);
-    printf("video time : %f\n", diff);
+    //printf("video time : %f\n", diff);
     ost->next_pts = (int) c->time_base.den * diff / c->time_base.num;
     if (!ost->sws_ctx) {
       ost->sws_ctx = sws_getContext(c->width, c->height,
-       AV_PIX_FMT_RGB32, c->width, c->height, c->pix_fmt,
+       AV_PIX_FMT_BGRA, c->width, c->height, c->pix_fmt,
        SCALE_FLAGS, NULL, NULL, NULL);
       if (!ost->sws_ctx) {
         fprintf(stderr,
@@ -339,11 +339,9 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame) {
         exit(1);
       }
     }
-    printf("before sws_scale get_video_frame \n");
     sws_scale(ost->sws_ctx, (const uint8_t * const *)ost->frame->data,
      ost->frame->linesize, 0, c->height, ost->tmp_frame->data,
      ost->tmp_frame->linesize);
-    printf("after sws_scale get_video_frame\n");
     ost->tmp_frame->pts = ost->frame->pts = ost->next_pts;
     *ret_frame = ost->tmp_frame;
     return 0;

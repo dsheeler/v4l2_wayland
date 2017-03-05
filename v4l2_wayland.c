@@ -1,22 +1,13 @@
-/*
- *  V4L2 video capture example
- *
- *  This program can be used and distributed without restrictions.
- *
- *      This program is provided with the V4L2 API
- * see http://linuxtv.org/docs.php for more information
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <poll.h>
 #include <pthread.h>
-#include <getopt.h>             /* getopt_long() */
+#include <getopt.h>
 #include <math.h>
 
-#include <fcntl.h>              /* low-level i/o */
+#include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
@@ -37,6 +28,7 @@
 #include <cairo/cairo.h>
 #include <wayland-client.h>
 #include <linux/videodev2.h>
+#include <fftw3.h>
 
 #include "kmeter.h"
 #include "muxing.h"
@@ -55,15 +47,20 @@ struct buffer {
   size_t  length;
 };
 
+#define FFT_SIZE 256
 #define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
 
-static int read_frame(dingle_dots_t *dd);
+static int read_frame(cairo_t *cr, dingle_dots_t *dd);
 static void isort(void *base, size_t nmemb, size_t size,
  int (*compar)(const void *, const void *));
 
+fftw_complex                   *fftw_in, *fftw_out;
+fftw_plan                      p;
 output_frame                   out_frame;
 OutputStream                   video_st;
 AVFormatContext                *oc;
+AVFrame                        *screen_frame;
+AVFrame                        *tframe;
 AVFrame                        *frame;
 char                           *out_file_name;
 uint32_t                       width = 640;
@@ -75,29 +72,14 @@ double                         ascale_factor_y;
 uint32_t                       stream_bitrate = 400000;
 static AVFrame                 *aframe;
 static struct SwsContext       *resize;
+static struct SwsContext       *screen_resize;
 static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
 static ccv_tld_t               *tld = 0;
-static struct wl_compositor    *compositor;
-static struct wl_display       *display;
-static struct wl_keyboard      *keyboard;
-static struct wl_pointer       *pointer;
-static struct wl_seat          *seat;
-static struct wl_shell         *shell;
-static struct wl_shell_surface *shell_surface;
-static struct wl_shm           *shm;
-static struct wl_surface       *surface;
-static struct wl_buffer        *buffer;
-static struct wl_callback      *frame_callback;
 int                             recording_started = 0;
 int                             recording_stopped = 0;
 static int                      audio_done = 0, video_done = 0,
                                 trailer_written = 0;
 static int                      shift_pressed = 0;
-void *shm_data;
-
-static const struct wl_registry_listener registry_listener;
-static const struct wl_keyboard_listener keyboard_listener;
-static const struct wl_pointer_listener pointer_listener;
 
 static cairo_surface_t    *csurface;
 static cairo_t            *cr;
@@ -140,223 +122,6 @@ static int xioctl(int fh, int request, void *arg)
   return r;
 }
 
-void setup_wayland(dingle_dots_t *dd) {
-  struct wl_registry *registry;
-  display = wl_display_connect(NULL);
-  if (display == NULL) {
-    fprintf(stderr, "Can't connect to display\n");
-    exit(1);
-  }
-  registry = wl_display_get_registry(display);
-  wl_registry_add_listener(registry, &registry_listener, dd);
-  wl_display_roundtrip(display);
-  wl_registry_destroy(registry);
-}
-
-void cleanup_wayland(void)
-{
-  wl_pointer_destroy(pointer);
-  wl_seat_destroy(seat);
-  wl_shell_destroy(shell);
-  wl_shm_destroy(shm);
-  wl_compositor_destroy(compositor);
-  wl_display_disconnect(display);
-}
-
-static void registry_global(void *data,
-    struct wl_registry *registry, uint32_t name,
-    const char *interface, uint32_t version)
-{
-  dingle_dots_t *dd = (dingle_dots_t *)data;
-  if (strcmp(interface, wl_compositor_interface.name) == 0)
-    compositor = wl_registry_bind(registry, name,
-     &wl_compositor_interface, min(version, 4));
-  else if (strcmp(interface, wl_shm_interface.name) == 0) {
-    shm = wl_registry_bind(registry, name,
-     &wl_shm_interface, min(version, 1));
-  } else if (strcmp(interface, wl_shell_interface.name) == 0)
-    shell = wl_registry_bind(registry, name,
-     &wl_shell_interface, min(version, 1));
-  else if (strcmp(interface, wl_seat_interface.name) == 0) {
-    seat = wl_registry_bind(registry, name,
-     &wl_seat_interface, min(version, 2));
-    pointer = wl_seat_get_pointer(seat);
-    wl_pointer_add_listener(pointer, &pointer_listener, dd);
-    keyboard = wl_seat_get_keyboard(seat);
-    wl_keyboard_add_listener(keyboard, &keyboard_listener, dd);
-  }
-}
-
-static void registry_global_remove(void *a,
-    struct wl_registry *b, uint32_t c) { }
-
-static const struct wl_registry_listener registry_listener = {
-  .global = registry_global,
-  .global_remove = registry_global_remove
-};
-
-static int set_cloexec_or_close(int fd)
-{
-  long flags;
-  if (fd == -1)
-    return -1;
-  flags = fcntl(fd, F_GETFD);
-  if (flags == -1)
-    goto err;
-  if (fcntl(fd, F_SETFD, flags | FD_CLOEXEC) == -1)
-    goto err;
-  return fd;
-err:
-  close(fd);
-  return -1;
-}
-
-static int create_tmpfile_cloexec(char *tmpname)
-{
-  int fd;
-#ifdef HAVE_MKOSTEMP
-  fd = mkostemp(tmpname, O_CLOEXEC);
-  if (fd >= 0)
-    unlink(tmpname);
-#else
-  fd = mkstemp(tmpname);
-  if (fd >= 0) {
-    fd = set_cloexec_or_close(fd);
-    unlink(tmpname);
-  }
-#endif
-  return fd;
-}
-int os_create_anonymous_file(off_t size)
-{
-  static const char template[] = "/weston-shared-XXXXXX";
-  const char *path;
-  char *name;
-  int fd;
-  path = getenv("XDG_RUNTIME_DIR");
-  if (!path) {
-    errno = ENOENT;
-    return -1;
-  }
-  name = malloc(strlen(path) + sizeof(template));
-  if (!name)
-    return -1;
-  strcpy(name, path);
-  strcat(name, template);
-  fd = create_tmpfile_cloexec(name);
-  free(name);
-  if (fd < 0)
-    return -1;
-  if (ftruncate(fd, size) < 0) {
-    close(fd);
-    return -1;
-  }
-  return fd;
-}
-
-static const struct wl_callback_listener frame_listener;
-
-static void redraw(void *data, struct wl_callback *callback, uint32_t time)
-{
-  dingle_dots_t *dd = (dingle_dots_t *)data;
-  wl_callback_destroy(frame_callback);
-  wl_surface_damage(surface, 0, 0, width, height); 
-  read_frame(dd);
-  frame_callback = wl_surface_frame(surface);
-  wl_surface_attach(surface, buffer, 0, 0);
-  wl_callback_add_listener(frame_callback, &frame_listener, dd);
-  wl_surface_commit(surface);
-}
-static const struct
-wl_callback_listener frame_listener
-= {
-  redraw
-};
-
-struct wl_buffer *create_buffer(unsigned width, unsigned height)
-{
-  struct wl_shm_pool *pool;
-  int stride = width * 4;
-  int size = stride * height;
-  int fd;
-  struct wl_buffer *buffer;
-  fd = os_create_anonymous_file(size);
-  if (fd < 0) {
-    fprintf(stderr, "creating a buffer file for %d B failed: %m\n",
-        size);
-    exit(1);
-  }
-  shm_data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-  if (shm_data == MAP_FAILED) {
-    fprintf(stderr, "mmap failed: %m\n");
-    close(fd);
-    exit(1);
-  }
-  pool = wl_shm_create_pool(shm, fd, size);
-  buffer = wl_shm_pool_create_buffer(pool, 0,
-      width, height,
-      stride,
-      WL_SHM_FORMAT_XRGB8888);
-  wl_shm_pool_destroy(pool);
-  return buffer;
-}
-
-void free_buffer(struct wl_buffer *buffer)
-{
-  wl_buffer_destroy(buffer);
-}
-
-static void
-create_window() {
-  buffer = create_buffer(width, height);
-  wl_surface_attach(surface, buffer, 0, 0);
-  wl_surface_commit(surface);
-}
-
-static void shell_surface_ping(void *data,
-    struct wl_shell_surface *shell_surface, uint32_t serial)
-{
-  wl_shell_surface_pong(shell_surface, serial);
-}
-
-static void shell_surface_configure(void *data,
-    struct wl_shell_surface *shell_surface,
-    uint32_t edges, int32_t width, int32_t height) { }
-
-static const struct wl_shell_surface_listener
-shell_surface_listener = {
-  .ping = shell_surface_ping,
-  .configure = shell_surface_configure,
-};
-
-struct wl_shell_surface *create_surface(void)
-{
-  struct wl_surface *surface;
-  struct wl_shell_surface *shell_surface;
-  surface = wl_compositor_create_surface(compositor);
-  if (surface == NULL)
-    return NULL;
-  shell_surface = wl_shell_get_shell_surface(shell, surface);
-  if (shell_surface == NULL) {
-    wl_surface_destroy(surface);
-    return NULL;
-  }
-  wl_shell_surface_add_listener(shell_surface,
-      &shell_surface_listener, 0);
-  wl_shell_surface_set_toplevel(shell_surface);
-  wl_shell_surface_set_user_data(shell_surface, surface);
-  wl_surface_set_user_data(surface, NULL);
-  return shell_surface;
-}
-
-void free_surface(struct wl_shell_surface *shell_surface)
-{
-  struct wl_surface *surface;
-  surface = wl_shell_surface_get_user_data(shell_surface);
-  wl_shell_surface_destroy(shell_surface);
-  wl_surface_destroy(surface);
-}
-
 void *audio_disk_thread(void *arg) {
   int ret;
   dingle_dots_t *dd = (dingle_dots_t *)arg;
@@ -394,7 +159,6 @@ void *video_disk_thread (void *arg) {
     if (ret == 0) continue;
     if (ret == -1) pthread_cond_wait(&dd->video_thread_info->data_ready,
      &dd->video_thread_info->lock);
-    printf("vdiskthread ret %d\n", ret);
   }
   if (audio_done && video_done && !trailer_written) {
     av_write_trailer(oc);
@@ -427,9 +191,12 @@ static void YUV2RGB(const unsigned char y, const unsigned char u,const unsigned 
 }
 
 ccv_tld_t *new_tld(int x, int y, int w, int h) {
+  ccv_tld_param_t p = ccv_tld_default_params;
   ccv_rect_t box = ccv_rect(x, y, w, h);
   ccv_read(aframe->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, aheight, awidth, 4*awidth);
-  return ccv_tld_new(cdm, box, ccv_tld_default_params);
+  p.level = 1;
+  printf("image pyrimad level: %d\n", p.level);
+  return ccv_tld_new(cdm, box, p);
 }
 
 static void render_detection_box(cairo_t *cr, int initializing,
@@ -477,11 +244,11 @@ static void render_pointer(cairo_t *cr, double x, double y) {
   cairo_restore(cr);
 }
 
-static void process_image(const void *p, const int size, int do_tld,
+static void process_image(cairo_t *cr, const void *p, const int size, int do_tld,
  void *arg) {
   dingle_dots_t *dd = (dingle_dots_t *)arg;
   static int first_call = 1;
-  static unsigned char save_buf[8192*4608];
+  static uint32_t save_buf[8192*4608];
   static int save_size = 0;
   static ccv_comp_t newbox;
   static int made_first_tld = 0;
@@ -489,28 +256,32 @@ static void process_image(const void *p, const int size, int do_tld,
   unsigned char y0, y1, u, v;
   unsigned char r, g, b;
   int n;
-  uint32_t *pixel = shm_data;
-  unsigned char *ptr = (unsigned char*) p;
+  unsigned char *ptr = (unsigned char *) p;
   if (video_done) return;
-  if (size == 0) {
-    ptr = save_buf;
-  } else {
+  if (size != 0) {
     save_size = size;
-    memcpy(save_buf, p, size);
+    //(uint32_t *)frame->data[0];
+    for (n = 0; n < save_size; n += 4) {
+      nij = (int) n / 2;
+      i = nij%width;
+      j = nij/width;
+      y0 = (unsigned char)ptr[n + 0];
+      u = (unsigned char)ptr[n + 1];
+      y1 = (unsigned char)ptr[n + 2];
+      v = (unsigned char)ptr[n + 3];
+      YUV2RGB(y0, u, v, &r, &g, &b);
+      save_buf[width - 1 - i + j*width] = 255 << 24 | r << 16 | g << 8 | b;
+      YUV2RGB(y1, u, v, &r, &g, &b);
+      save_buf[width - 1 - (i+1) + j*width] = 255 << 24 | r << 16 | g << 8 | b;
+    }
   }
-  for (n = 0; n < save_size; n += 4) {
-    nij = (int) n / 2;
-    i = nij%width;
-    j = nij/width;
-    y0 = (unsigned char)ptr[n + 0];
-    u = (unsigned char)ptr[n + 1];
-    y1 = (unsigned char)ptr[n + 2];
-    v = (unsigned char)ptr[n + 3];
-    YUV2RGB(y0, u, v, &r, &g, &b);
-    pixel[width - 1 - i + j*width] = r << 16 | g << 8 | b;
-    YUV2RGB(y1, u, v, &r, &g, &b);
-    pixel[width - 1 - (i+1) + j*width] = r << 16 | g << 8 | b;
-  }
+  memcpy(frame->data[0], save_buf, 2 * save_size);
+  GdkPixbuf *pb;
+  cairo_surface_t *csurf;
+  csurf = cairo_image_surface_create_for_data((unsigned char *)frame->data[0],
+   CAIRO_FORMAT_ARGB32, width, height, 4*width);
+  cairo_t *tcr;
+  tcr = cairo_create(csurf);
   if (doing_tld) {
     if (do_tld) {
       sws_scale(resize, (uint8_t const * const *)frame->data,
@@ -532,7 +303,7 @@ static void process_image(const void *p, const int size, int do_tld,
         made_first_tld = 1;
         make_new_tld = 0;
       } else {
-        ccv_read(aframe->data[0], &cdm2, CCV_IO_ARGB_RAW |
+        ccv_read(aframe->data[0], &cdm2, CCV_IO_ABGR_RAW |
          CCV_IO_GRAY, aheight, awidth, 4*awidth);
         ccv_tld_info_t info;
         newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
@@ -576,20 +347,48 @@ static void process_image(const void *p, const int size, int do_tld,
   isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
   for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
     if (!dd->sound_shapes[i].active) continue;
-    sound_shape_render(&dd->sound_shapes[i], cr);
+    sound_shape_render(&dd->sound_shapes[i], tcr);
   }
   for (i = 0; i < 2; i++) {
-    kmeter_render(&dd->meters[i], cr, 1.);
+    kmeter_render(&dd->meters[i], tcr, 1.);
   }
+  double space;
+  double w;
+  double h;
+  double x;
+  w = width / (FFT_SIZE + 1);
+  space = w;
+  cairo_save(tcr);
+  cairo_set_source_rgba(tcr, 0, 0.25, 0, 0.5);
+  for (i = 0; i < FFT_SIZE/2; i++) {
+    h = ((20.0 * log(sqrt(fftw_out[i][0] * fftw_out[i][0] +
+     fftw_out[i][1] * fftw_out[i][1])) / M_LN10) + 50.) * (height / 50.);
+    x = i * (w + space) + space;
+    cairo_rectangle(tcr, x, height - h, w, h);
+    cairo_fill(tcr);
+  }
+  cairo_restore(tcr);
+  cairo_surface_destroy(csurf);
   if (mdown) {
-    render_detection_box(cr, 1, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
+    render_detection_box(tcr, 1, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
   }
-  render_pointer(cr, m_x, m_y);
+  render_pointer(tcr, m_x, m_y);
   if (doing_tld) {
-    render_detection_box(cr, 0, ascale_factor_x*newbox.rect.x,
+    render_detection_box(tcr, 0, ascale_factor_x*newbox.rect.x,
      ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
      ascale_factor_y*newbox.rect.height);
   }
+  struct SwsContext *sws_context;
+  /*sws_context = sws_getContext(width, height, AV_PIX_FMT_RGBA,
+   tframe->width, tframe->height, AV_PIX_FMT_BGRA, 0, NULL, NULL, NULL);*/
+  sws_scale(screen_resize, (const uint8_t* const*)frame->data, frame->linesize,
+   0, height, screen_frame->data, screen_frame->linesize);
+  /*sws_freeContext(sws_context);*/
+  pb = gdk_pixbuf_new_from_data(screen_frame->data[0], GDK_COLORSPACE_RGB,
+   TRUE, 8, screen_frame->width, screen_frame->height, 4*screen_frame->width,
+   NULL, NULL);
+  gdk_cairo_set_source_pixbuf(cr, pb, 0, 0);
+  cairo_paint(cr);
   if (recording_stopped) {
     if (pthread_mutex_trylock(&dd->video_thread_info->lock) == 0) {
       pthread_cond_signal(&dd->video_thread_info->data_ready);
@@ -604,7 +403,7 @@ static void process_image(const void *p, const int size, int do_tld,
   }
   int tsize = out_frame.size + sizeof(struct timespec);
   if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
-    jack_ringbuffer_write(video_ring_buf, (void *)shm_data,
+    jack_ringbuffer_write(video_ring_buf, (void *)frame->data[0],
      out_frame.size);
     jack_ringbuffer_write(video_ring_buf, (void *)&out_frame.ts,
      sizeof(struct timespec));
@@ -618,7 +417,7 @@ static void process_image(const void *p, const int size, int do_tld,
   }
 }
 
-static int read_frame(dingle_dots_t *dd) {
+static int read_frame(cairo_t *cr, dingle_dots_t *dd) {
   struct v4l2_buffer buf;
   int eagain = 0;
   CLEAR(buf);
@@ -638,7 +437,7 @@ static int read_frame(dingle_dots_t *dd) {
   }
   assert(buf.index < n_buffers);
   clock_gettime(CLOCK_MONOTONIC, &out_frame.ts);
-  process_image(buffers[buf.index].start, buf.bytesused, !eagain, dd);
+  process_image(cr, buffers[buf.index].start, buf.bytesused, !eagain, dd);
   if (!eagain) {
     if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
       errno_exit("VIDIOC_QBUF");
@@ -706,6 +505,10 @@ void setup_signal_handler() {
   signal(SIGINT, signal_handler);
 }
 
+double hanning_window(int i, int N) {
+  return 0.5 * (1 - cos(2 * M_PI * i / (N - 1)));
+}
+
 int process(jack_nframes_t nframes, void *arg) {
   dingle_dots_t *dd = (dingle_dots_t *)arg;
   int chn;
@@ -716,6 +519,13 @@ int process(jack_nframes_t nframes, void *arg) {
     for (chn = 0; chn < nports; chn++) {
       in[chn] = jack_port_get_buffer(in_ports[chn], nframes);
       kmeter_process(&dd->meters[chn], in[chn], nframes);
+    }
+    if (nframes >= FFT_SIZE) {
+      for (i = 0; i < FFT_SIZE; i++) {
+        fftw_in[i][0] = in[0][i] * hanning_window(i, FFT_SIZE);
+        fftw_in[i][1] = 0.0;
+      }
+      fftw_execute(p);
     }
   }
   if ((!can_process) || (!can_capture) || (audio_done)) return 0;
@@ -767,6 +577,9 @@ void setup_jack(dingle_dots_t *dd) {
   memset(in, 0, in_size);
   memset(audio_ring_buf->buf, 0, audio_ring_buf->size);
   midi_ring_buf = jack_ringbuffer_create(MIDI_RB_SIZE);
+  fftw_in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
+  fftw_out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
+  p = fftw_plan_dft_1d(FFT_SIZE, fftw_in, fftw_out, FFTW_FORWARD, FFTW_ESTIMATE);
   for (i = 0; i < nports; i++) {
     char name[64];
     sprintf(name, "input%d", i + 1);
@@ -856,8 +669,309 @@ int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys) {
   return 0;
 }
 
-static void mainloop(dingle_dots_t *dd) {
+static void close_window (void) {
+  if(csurface)
+    cairo_surface_destroy(csurface);
+  gtk_main_quit();
+}
+
+static gboolean configure_event_cb (GtkWidget *widget,
+ GdkEventConfigure *event, gpointer data) {
   int ret;
+  dingle_dots_t *dd;
+  dd = (dingle_dots_t *)data;
+  if (csurface)
+    cairo_surface_destroy(csurface);
+  csurface = gdk_window_create_similar_surface(gtk_widget_get_window (widget),
+   CAIRO_CONTENT_COLOR, gtk_widget_get_allocated_width (widget),
+   gtk_widget_get_allocated_height (widget));
+  ccv_enable_default_cache();
+  FIRST_W = width/5.;
+  FIRST_H = height/5.;
+  FIRST_X = width/2.0;
+  FIRST_Y = height/2.0 - 0.5 * FIRST_H;
+  printf("width, awidth: %d, %d, %f\n", width, awidth, (1.0*width)/(1.0*awidth));
+  ascale_factor_x = (1.0*width) / awidth;
+  ascale_factor_y = ((double)height) / aheight;
+  resize = sws_getContext(width, height, AV_PIX_FMT_ARGB, awidth,
+   aheight, AV_PIX_FMT_ARGB, SWS_BICUBIC, NULL, NULL, NULL);
+  frame = av_frame_alloc();
+  frame->format = AV_PIX_FMT_ARGB;
+  frame->width = width;
+  frame->height = height;
+  ret = av_image_alloc(frame->data, frame->linesize,
+   frame->width, frame->height, frame->format, 1);
+  if (ret < 0) {
+    fprintf(stderr, "Could not allocate raw picture buffer\n");
+    exit(1);
+  }
+  screen_resize = sws_getContext(width, height, AV_PIX_FMT_RGBA,
+   event->width, event->height, AV_PIX_FMT_BGRA, SWS_BICUBIC, NULL, NULL,
+   NULL);
+  screen_frame = av_frame_alloc();
+  screen_frame->format = AV_PIX_FMT_BGRA;
+  screen_frame->width = event->width;
+  screen_frame->height = event->height;
+  ret = av_image_alloc(screen_frame->data, screen_frame->linesize,
+   screen_frame->width, screen_frame->height, screen_frame->format, 1);
+  if (ret < 0) {
+    fprintf(stderr, "Could not allocate raw picture buffer\n");
+    exit(1);
+  }
+  tframe = av_frame_alloc();
+  tframe->format = AV_PIX_FMT_BGRA;
+  tframe->width = width;
+  tframe->height = height;
+  ret = av_image_alloc(tframe->data, tframe->linesize,
+   tframe->width, tframe->height, tframe->format, 1);
+  if (ret < 0) {
+    fprintf(stderr, "Could not allocate raw picture buffer\n");
+    exit(1);
+  }
+  aframe = av_frame_alloc();
+  aframe->format = AV_PIX_FMT_ARGB;
+  aframe->width = awidth;
+  aframe->height = aheight;
+  ret = av_image_alloc(aframe->data, aframe->linesize,
+   aframe->width, aframe->height, aframe->format, 1);
+  if (ret < 0) {
+    fprintf(stderr, "Could not allocate raw picture buffer\n");
+    exit(1);
+  }
+  cr = cairo_create(csurface);
+  midi_key_t keys[2];
+  midi_scale_t scales[2];
+  midi_scale_init(&scales[0], minor, 8);
+  midi_scale_init(&scales[1], major, 8);
+  midi_key_init(&keys[0], 32, &scales[0]);
+  midi_key_init(&keys[1], 44, &scales[1]);
+  dingle_dots_init(dd, keys, 2);
+  init_output(dd);
+  out_frame.size = 4 * width * height;
+  out_frame.data = calloc(1, out_frame.size);
+  uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
+  video_ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
+  memset(video_ring_buf->buf, 0, video_ring_buf->size);
+  /* We've handled the configure event, no need for further processing.
+   * */
+  return TRUE;
+}
+
+static gboolean draw_cb (GtkWidget *widget, cairo_t *crt, gpointer   data)
+{
+  dingle_dots_t *dd;
+  dd = (dingle_dots_t *)data;
+  cairo_set_source_surface(crt, csurface, 0, 0);
+  read_frame(crt, dd);
+  return FALSE;
+}
+
+static gboolean on_timeout(GtkWidget *widget) {
+  gtk_widget_queue_draw(widget);
+  return TRUE;
+}
+
+static gboolean motion_notify_event_cb(GtkWidget *widget,
+ GdkEventMotion *event, gpointer data) {
+  int i;
+  dingle_dots_t *dd = (dingle_dots_t *)data;
+  m_x = event->x;
+  m_y = event->y;
+  if (mdown) {
+    FIRST_W = m_x - mdown_x;
+    FIRST_H = m_y - mdown_y;
+    if (FIRST_W < 0) {
+      if (FIRST_W > - 20 * ascale_factor_x) {
+        FIRST_W = 20 * ascale_factor_x;
+      } else {
+        FIRST_W = -FIRST_W;
+      }
+      FIRST_X = mdown_x - FIRST_W;
+    } else if (FIRST_W >= 0) {
+      if (FIRST_W < 20 * ascale_factor_x) {
+        FIRST_W = 20 * ascale_factor_x;
+      }
+      FIRST_X = mdown_x;
+    }
+    if (FIRST_H < 0) {
+      if (FIRST_H > - 20 * ascale_factor_y) {
+        FIRST_H = 20 * ascale_factor_y;
+      } else {
+        FIRST_H = -FIRST_H;
+      }
+      FIRST_Y = mdown_y - FIRST_H;
+    } else if (FIRST_W >= 0) {
+      if (FIRST_H < 20 * ascale_factor_y) {
+        FIRST_H = 20 * ascale_factor_y;
+      }
+      FIRST_Y = mdown_y;
+    }
+  }
+  isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
+  for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
+    if (!dd->sound_shapes[i].active) continue;
+    if (dd->sound_shapes[i].mdown) {
+      dd->sound_shapes[i].x = m_x - dd->sound_shapes[i].mdown_x
+       + dd->sound_shapes[i].down_x;
+      dd->sound_shapes[i].y = m_y - dd->sound_shapes[i].mdown_y
+       + dd->sound_shapes[i].down_y;
+      break;
+    }
+  }
+  return TRUE;
+}
+
+static gboolean button_press_event_cb(GtkWidget *widget,
+ GdkEventButton *event, gpointer data) {
+  int i;
+  dingle_dots_t * dd = (dingle_dots_t *)data;
+  if (event->button == GDK_BUTTON_PRIMARY) {
+    isort(dd->sound_shapes, MAX_NSOUND_SHAPES,
+     sizeof(sound_shape), cmp_z_order);
+    for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
+      if (!dd->sound_shapes[i].active) continue;
+      if (sound_shape_in(&dd->sound_shapes[i], m_x, m_y)) {
+        dd->sound_shapes[i].mdown = 1;
+        dd->sound_shapes[i].mdown_x = m_x;
+        dd->sound_shapes[i].mdown_y = m_y;
+        dd->sound_shapes[i].down_x = dd->sound_shapes[i].x;
+        dd->sound_shapes[i].down_y = dd->sound_shapes[i].y;
+        dd->sound_shapes[i].z = next_z++;
+        break;
+      }
+    }
+  }
+  if (!shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
+    mdown = 1;
+    mdown_x = m_x;
+    mdown_y = m_y;
+    FIRST_X = mdown_x;
+    FIRST_Y = mdown_y;
+    FIRST_W = 20 * ascale_factor_x;
+    FIRST_H = 20 * ascale_factor_y;
+  }
+  if (doing_tld && shift_pressed) {
+    if (event->button == GDK_BUTTON_SECONDARY) {
+      doing_tld = 0;
+    }
+  }
+  return TRUE;
+}
+
+static gboolean button_release_event_cb(GtkWidget *widget,
+ GdkEventButton *event, gpointer data) {
+  dingle_dots_t * dd;
+  int i;
+  dd = (dingle_dots_t *)data;
+  if (event->button == GDK_BUTTON_PRIMARY) {
+    for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+      if (!dd->sound_shapes[i].active) continue;
+      dd->sound_shapes[i].mdown = 0;
+    }
+  } else if (!shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
+    mdown = 0;
+    make_new_tld = 1;
+    doing_tld = 1;
+  }
+  return TRUE;
+}
+
+static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
+ gpointer data) {
+  dingle_dots_t *dd = (dingle_dots_t *)data;
+  static int first_r = 1;
+  if (event->keyval == GDK_KEY_q && (first_r != -1)) {
+    exit(0);
+  } else if (event->keyval == GDK_KEY_r && (first_r == 1)) {
+    first_r = -1;
+    start_recording_threads(dd);
+  } else if (event->keyval == GDK_KEY_r && (first_r == -1)) {
+    first_r = 0;
+    recording_stopped = 1;
+  } else if (event->keyval == GDK_KEY_Shift_L ||
+   event->keyval == GDK_KEY_Shift_R) {
+    shift_pressed = 1;
+  }
+  return TRUE;
+}
+
+static gboolean on_key_release(GtkWidget *widget, GdkEventKey *event,
+ gpointer data) {
+  if (event->keyval == GDK_KEY_Shift_L ||
+   event->keyval == GDK_KEY_Shift_R) {
+    shift_pressed = 0;
+  }
+  return TRUE;
+}
+
+static gboolean quit_cb(GtkWidget *widget, gpointer data) {
+  dingle_dots_t * dd;
+  dd = (dingle_dots_t *)data;
+  g_application_quit(dd->app);
+  return TRUE;
+}
+
+static void activate(GtkApplication *app, gpointer user_data) {
+  GtkWidget *window;
+  GtkWidget *frame;
+  GtkWidget *drawing_area;
+  GtkWidget *hbox;
+  GtkWidget *vbox;
+  GtkWidget *rbutton;
+  GtkWidget *qbutton;
+  dingle_dots_t *dd;
+  dd = (dingle_dots_t *)user_data;
+  window = gtk_application_window_new (app);
+  gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
+  //gtk_window_set_title (GTK_WINDOW (window), "Drawing Area");
+  g_signal_connect (window, "destroy", G_CALLBACK (close_window), NULL);
+  gtk_container_set_border_width (GTK_CONTAINER (window), 64);
+  frame = gtk_frame_new (NULL);
+  gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_OUT);
+  gtk_container_add (GTK_CONTAINER (window), frame);
+  hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+  vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+  rbutton = gtk_toggle_button_new_with_label("RECORD");
+  qbutton = gtk_button_new_with_label("QUIT");
+  gtk_box_pack_start(GTK_BOX(vbox), rbutton, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), qbutton, FALSE, FALSE, 0);
+  drawing_area = gtk_drawing_area_new ();
+  gtk_widget_set_size_request (drawing_area, width, height);
+  gtk_box_pack_start(GTK_BOX(hbox), drawing_area, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
+  gtk_container_add (GTK_CONTAINER (frame), hbox);
+  /* Signals used to handle the backing surface */
+  g_timeout_add(16, (GSourceFunc)on_timeout, (gpointer)drawing_area);
+  g_signal_connect(qbutton, "clicked", G_CALLBACK(quit_cb), dd);
+  g_signal_connect (drawing_area, "draw",
+   G_CALLBACK (draw_cb), dd);
+  g_signal_connect (drawing_area,"configure-event",
+   G_CALLBACK (configure_event_cb), dd);
+  g_signal_connect (drawing_area, "motion-notify-event",
+   G_CALLBACK (motion_notify_event_cb), dd);
+  g_signal_connect (drawing_area, "button-press-event",
+   G_CALLBACK (button_press_event_cb), dd);
+  g_signal_connect (drawing_area, "button-release-event",
+   G_CALLBACK (button_release_event_cb), dd);
+  g_signal_connect (window, "key-press-event",
+   G_CALLBACK (on_key_press), dd);
+  g_signal_connect (window, "key-release-event",
+   G_CALLBACK (on_key_release), dd);
+  gtk_widget_set_events (drawing_area, gtk_widget_get_events (drawing_area)
+   | GDK_BUTTON_PRESS_MASK | GDK_POINTER_MOTION_MASK | GDK_BUTTON_RELEASE_MASK
+   | GDK_KEY_PRESS_MASK | GDK_KEY_RELEASE_MASK);
+  gtk_widget_show_all (window);
+}
+
+
+static void mainloop(dingle_dots_t *dd) {
+  dd->app = gtk_application_new("org.dsheeler.v4l2_wayland",
+   G_APPLICATION_FLAGS_NONE);
+  g_signal_connect(dd->app, "activate", G_CALLBACK (activate), dd);
+  g_application_run(G_APPLICATION(dd->app), 0, NULL);
+  g_object_unref(dd->app);
+
+  /*int ret;
   if (compositor == NULL) {
     fprintf(stderr, "Can't find compositor\n");
     exit(1);
@@ -884,50 +998,6 @@ static void mainloop(dingle_dots_t *dd) {
   frame_callback = wl_surface_frame(surface);
   wl_callback_add_listener(frame_callback, &frame_listener, dd);
   create_window();
-  ccv_enable_default_cache();
-  FIRST_W = width/5.;
-  FIRST_H = height/5.;
-  FIRST_X = width/2.0;
-  FIRST_Y = height/2.0 - 0.5 * FIRST_H;
-  printf("width, awidth: %d, %d, %f\n", width, awidth, (1.0*width)/(1.0*awidth));
-  ascale_factor_x = (1.0*width) / awidth;
-  ascale_factor_y = ((double)height) / aheight;
-  resize = sws_getContext(width, height, AV_PIX_FMT_RGB32, awidth,
-   aheight, AV_PIX_FMT_RGB32, SWS_BICUBIC, NULL, NULL, NULL);
-  frame = av_frame_alloc();
-  frame->format = AV_PIX_FMT_RGB32;
-  frame->width = width;
-  frame->height = height;
-  av_image_fill_arrays(frame->data, frame->linesize,
-   (const unsigned char *)shm_data, AV_PIX_FMT_RGB32, frame->width, frame->height, 1);
-  aframe = av_frame_alloc();
-  aframe->format = AV_PIX_FMT_RGB32;
-  aframe->width = awidth;
-  aframe->height = aheight;
-  ret = av_image_alloc(aframe->data, aframe->linesize,
-   aframe->width, aframe->height, aframe->format, 1);
-  if (ret < 0) {
-    fprintf(stderr, "Could not allocate raw picture buffer\n");
-    exit(1);
-  }
-  csurface = cairo_image_surface_create_for_data((unsigned char *)shm_data,
-   CAIRO_FORMAT_RGB24, width, height, 4*width);
-  cr = cairo_create(csurface);
-  midi_key_t keys[2];
-  midi_scale_t scales[2];
-  midi_scale_init(&scales[0], minor, 8);
-  midi_scale_init(&scales[1], major, 8);
-  midi_key_init(&keys[0], 32, &scales[0]);
-  midi_key_init(&keys[1], 44, &scales[1]);
-  dingle_dots_init(dd, keys, 2);
-  init_output(dd);
-  out_frame.size = 4 * width * height;
-  out_frame.data = calloc(1, out_frame.size);
-  uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
-  video_ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
-  memset(video_ring_buf->buf, 0, video_ring_buf->size);
-  setup_jack(dd);
-  setup_signal_handler();
   while (wl_display_dispatch(display) != -1) {
   }
   close_stream(oc, dd->audio_thread_info->stream);
@@ -935,7 +1005,7 @@ static void mainloop(dingle_dots_t *dd) {
   avio_closep(&oc->pb);
   avformat_free_context(oc);
   wl_display_disconnect(display);
-  printf("disconnected from display\n");
+  printf("disconnected from display\n");*/
 }
 
 static void stop_capturing(void)
@@ -1068,7 +1138,7 @@ static void init_device(void)
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   fmt.fmt.pix.width       = width; //replace
   fmt.fmt.pix.height      = height; //replace
-  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_BGR32; //replace
+  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV; //replace
   fmt.fmt.pix.field       = V4L2_FIELD_ANY;
   if (-1 == xioctl(fd, VIDIOC_S_FMT, &fmt))
     errno_exit("VIDIOC_S_FMT");
@@ -1110,74 +1180,6 @@ static void open_device(void)
   }
 }
 
-static void
-keyboard_handle_keymap(void *data, struct wl_keyboard *keyboard,
- uint32_t format, int fd, uint32_t size)
-{
-}
-
-static void
-keyboard_handle_enter(void *data, struct wl_keyboard *keyboard,
- uint32_t serial, struct wl_surface *surface,
- struct wl_array *keys)
-{
-}
-
-static void
-keyboard_handle_leave(void *data, struct wl_keyboard *keyboard,
- uint32_t serial, struct wl_surface *surface)
-{
-}
-
-static void
-keyboard_handle_key(void *data, struct wl_keyboard *keyboard,
- uint32_t serial, uint32_t time, uint32_t key,
- uint32_t state)
-{
-  dingle_dots_t *dd = (dingle_dots_t *)data;
-  static int first_r = 1;
-  if (key == KEY_Q && state == 1 && (first_r != -1)) {
-    exit(0);
-  } else if (key == KEY_R && state == 1 && (first_r == 1)) {
-    first_r = -1;
-    start_recording_threads(dd);
-  } else if (key == KEY_R && state == 1 && (first_r == -1)) {
-    first_r = 0;
-    recording_stopped = 1;
-  }
-
-}
-
-static void
-keyboard_handle_modifiers(void *data, struct wl_keyboard *keyboard,
- uint32_t serial, uint32_t mods_depressed,
- uint32_t mods_latched, uint32_t mods_locked,
- uint32_t group)
-{
-  if (!shift_pressed && mods_depressed & 1) {
-    shift_pressed = 1;
-  } else if (shift_pressed && ((mods_depressed & 1) == 0)) {
-    shift_pressed = 0;
-  }
-}
-
-static const struct wl_keyboard_listener keyboard_listener = {
-  keyboard_handle_keymap,
-  keyboard_handle_enter,
-  keyboard_handle_leave,
-  keyboard_handle_key,
-  keyboard_handle_modifiers,
-};
-
-static void pointer_enter(void *data, struct wl_pointer *pointer,
- uint32_t serial, struct wl_surface *surface,
- wl_fixed_t sx, wl_fixed_t sy) {
-}
-
-static void pointer_leave(void *data,
-    struct wl_pointer *wl_pointer, uint32_t serial,
-    struct wl_surface *wl_surface) { }
-
 static void isort(void *base, size_t nmemb, size_t size,
  int (*compar)(const void *, const void *)) {
   int c, d;
@@ -1193,117 +1195,6 @@ static void isort(void *base, size_t nmemb, size_t size,
     }
   }
 }
-
-static void pointer_motion(void *data,
-    struct wl_pointer *wl_pointer, uint32_t time,
-    wl_fixed_t surface_x, wl_fixed_t surface_y) {
-  int i;
-  dingle_dots_t *dd = (dingle_dots_t *)data;
-  m_x = wl_fixed_to_int(surface_x);
-  m_y = wl_fixed_to_int(surface_y);
-  if (mdown) {
-    FIRST_W = m_x - mdown_x;
-    FIRST_H = m_y - mdown_y;
-    if (FIRST_W < 0) {
-      if (FIRST_W > - 20 * ascale_factor_x) {
-        FIRST_W = 20 * ascale_factor_x;
-      } else {
-        FIRST_W = -FIRST_W;
-      }
-      FIRST_X = mdown_x - FIRST_W;
-    } else if (FIRST_W >= 0) {
-      if (FIRST_W < 20 * ascale_factor_x) {
-        FIRST_W = 20 * ascale_factor_x;
-      }
-      FIRST_X = mdown_x;
-    }
-    if (FIRST_H < 0) {
-      if (FIRST_H > - 20 * ascale_factor_y) {
-        FIRST_H = 20 * ascale_factor_y;
-      } else {
-        FIRST_H = -FIRST_H;
-      }
-      FIRST_Y = mdown_y - FIRST_H;
-    } else if (FIRST_W >= 0) {
-      if (FIRST_H < 20 * ascale_factor_y) {
-        FIRST_H = 20 * ascale_factor_y;
-      }
-      FIRST_Y = mdown_y;
-    }
-  }
-  isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
-  for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
-    if (!dd->sound_shapes[i].active) continue;
-    if (dd->sound_shapes[i].mdown) {
-      dd->sound_shapes[i].x = m_x - dd->sound_shapes[i].mdown_x
-       + dd->sound_shapes[i].down_x;
-      dd->sound_shapes[i].y = m_y - dd->sound_shapes[i].mdown_y
-       + dd->sound_shapes[i].down_y;
-      break;
-    }
-  }
-}
-
-static void pointer_button(void *data,
-    struct wl_pointer *wl_pointer, uint32_t serial,
-    uint32_t time, uint32_t button, uint32_t state)
-{
-  int i;
-  dingle_dots_t * dd = (dingle_dots_t *)data;
-  if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-    isort(dd->sound_shapes, MAX_NSOUND_SHAPES,
-     sizeof(sound_shape), cmp_z_order);
-    for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
-      if (!dd->sound_shapes[i].active) continue;
-      if (sound_shape_in(&dd->sound_shapes[i], m_x, m_y)) {
-        dd->sound_shapes[i].mdown = 1;
-        dd->sound_shapes[i].mdown_x = m_x;
-        dd->sound_shapes[i].mdown_y = m_y;
-        dd->sound_shapes[i].down_x = dd->sound_shapes[i].x;
-        dd->sound_shapes[i].down_y = dd->sound_shapes[i].y;
-        dd->sound_shapes[i].z = next_z++;
-        break;
-      }
-    }
-  } else if (button == BTN_LEFT && state != WL_POINTER_BUTTON_STATE_PRESSED) {
-    for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
-      if (!dd->sound_shapes[i].active) continue;
-      dd->sound_shapes[i].mdown = 0;
-    }
-  }
-  if (!shift_pressed && button == BTN_RIGHT
-   && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-    mdown = 1;
-    mdown_x = m_x;
-    mdown_y = m_y;
-    FIRST_X = mdown_x;
-    FIRST_Y = mdown_y;
-    FIRST_W = 20 * ascale_factor_x;
-    FIRST_H = 20 * ascale_factor_y;
-  } else if (!shift_pressed && button == BTN_RIGHT
-   && state != WL_POINTER_BUTTON_STATE_PRESSED) {
-    mdown = 0;
-    make_new_tld = 1;
-    doing_tld = 1;
-  }
-  if (doing_tld && shift_pressed) {
-    if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-      doing_tld = 0;
-    }
-  }
-}
-
-static void pointer_axis(void *data,
-    struct wl_pointer *wl_pointer, uint32_t time,
-    uint32_t axis, wl_fixed_t value) { }
-
-static const struct wl_pointer_listener pointer_listener = {
-  .enter = pointer_enter,
-  .leave = pointer_leave,
-  .motion = pointer_motion,
-  .button = pointer_button,
-  .axis = pointer_axis
-};
 
 static void usage(FILE *fp, int argc, char **argv)
 {
@@ -1393,7 +1284,9 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
   }
-  setup_wayland(&dingle_dots);
+  //setup_wayland(&dingle_dots);
+  setup_jack(&dingle_dots);
+  setup_signal_handler();
   open_device();
   init_device();
   start_capturing();
@@ -1401,7 +1294,6 @@ int main(int argc, char **argv) {
   stop_capturing();
   uninit_device();
   close_device();
-  cleanup_wayland();
   fprintf(stderr, "\n");
   return 0;
 }

@@ -2,6 +2,7 @@
 #define _V4L2_WAYLAND_H (1)
 
 #include <pthread.h>
+#include <gtk/gtk.h>
 #include "sound_shape.h"
 #include "kmeter.h"
 
@@ -33,6 +34,7 @@ typedef struct disk_thread_info {
 } disk_thread_info_t;
 
 typedef struct {
+  GApplication *app;
   disk_thread_info_t *audio_thread_info;
   disk_thread_info_t *video_thread_info;
   sound_shape sound_shapes[MAX_NSOUND_SHAPES];
