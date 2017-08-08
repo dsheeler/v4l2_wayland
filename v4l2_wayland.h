@@ -35,6 +35,35 @@ typedef struct disk_thread_info {
 	OutputStream stream;
 } disk_thread_info_t;
 
+typedef struct video_file {
+	char name[256];
+	AVFormatContext *fmt_ctx;
+	AVCodecContext *video_dec_ctx;
+  AVStream *video_stream;
+  struct SwsContext *resample;
+	int width;
+	int height;
+	enum AVPixelFormat pix_fmt;
+	int video_stream_idx;
+	uint8_t *video_dst_data[4];
+	int video_dst_linesize[4];
+	int video_dst_bufsize;
+	AVFrame *frame;
+	AVPacket pkt;
+  pthread_t thread_id;
+  pthread_mutex_t lock;
+  pthread_cond_t data_ready;
+	int playing;
+	double total_playtime;
+	double current_playtime;
+	struct timespec play_start_ts;
+	jack_ringbuffer_t *vbuf;
+} video_file_t;
+
+video_file_t *video_file_create(char *name);
+int video_file_destroy(video_file_t *video_file);
+int video_file_play(video_file_t *vf);
+
 int timespec2file_name(char *buf, uint len, char *dir, char *extension,
  struct timespec *ts);
 #endif
