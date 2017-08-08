@@ -3,6 +3,8 @@ APPDIR=$(PREFIX)/share/applications
 BINDIR=$(PREFIX)/bin
 PROGNAME=v4l2_wayland
 DESKTOP_FILENAME=$(PROGNAME).desktop
+ICON=v4l2_wayland.svg
+ICONDIR=$(PREFIX)/share/icons/hicolor/scalable/apps
 PROGS=$(PROGNAME)
 
 all: $(PROGS)
@@ -37,10 +39,12 @@ v4l2_wayland: v4l2_wayland.c ${OBJS}
 install: all
 	install $(PROGNAME) $(BINDIR)
 	install -m 644 $(DESKTOP_FILENAME) $(APPDIR)
+	install -m 644 $(ICON) $(ICONDIR)
 
 uninstall:
 	rm -f $(BINDIR)/$(PROGNAME)
 	rm -f $(APPDIR)/$(DESKTOP_FILENAME)
+	rm -f $(ICONDIR)/$(ICON)
 
 clean:
 	rm -f ${OBJS} $(PROGS) $(PROGS:%=%.o)
