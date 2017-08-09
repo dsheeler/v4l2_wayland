@@ -52,7 +52,8 @@ int sound_shape_render(sound_shape *ss, cairo_t *cr) {
   cairo_arc(cr, 0, 0, ss->r, 0, 2 * M_PI);
   cairo_fill_preserve(cr);
   cairo_set_source_rgba(cr, 0.5*c->r, 0.5*c->g, 0.5*c->b, 0.75);
-  cairo_stroke(cr);
+  cairo_set_line_width(cr, 0.05 * ss->r);
+	cairo_stroke(cr);
   cairo_restore(cr);
   sound_shape_render_label(ss, cr);
   return 0;

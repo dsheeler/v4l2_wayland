@@ -63,8 +63,8 @@ AVFrame                        *screen_frame;
 AVFrame                        *tframe;
 AVFrame                        *frame;
 char                           *out_file_name;
-uint32_t                       width = 640;
-uint32_t                       height = 360;
+uint32_t                       width = 1920;
+uint32_t                       height = 1080;
 uint32_t                       awidth = 260;
 uint32_t                       aheight = 148;
 double                         ascale_factor_x;
@@ -966,7 +966,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
 static void mainloop(dingle_dots_t *dd) {
   dd->app = gtk_application_new("org.dsheeler.v4l2_wayland",
-   G_APPLICATION_FLAGS_NONE);
+   G_APPLICATION_NON_UNIQUE);
   g_signal_connect(dd->app, "activate", G_CALLBACK (activate), dd);
   g_application_run(G_APPLICATION(dd->app), 0, NULL);
   g_object_unref(dd->app);
