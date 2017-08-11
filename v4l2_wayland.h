@@ -39,6 +39,8 @@ typedef struct {
   disk_thread_info_t *video_thread_info;
   sound_shape sound_shapes[MAX_NSOUND_SHAPES];
   kmeter meters[2];
+	int doing_motion;
+	int doing_tld;
 } dingle_dots_t;
 
 int midi_scale_init(midi_scale_t *scale, uint8_t *notes, uint8_t nb_notes);

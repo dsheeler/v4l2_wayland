@@ -69,7 +69,7 @@ uint32_t                       awidth = 260;
 uint32_t                       aheight = 148;
 double                         ascale_factor_x;
 double                         ascale_factor_y;
-uint32_t                       stream_bitrate = 400000;
+uint32_t                       stream_bitrate = 800000;
 static AVFrame                 *aframe;
 static struct SwsContext       *resize;
 static struct SwsContext       *screen_resize;
@@ -87,7 +87,6 @@ static int                mdown = 0, mdown_x, mdown_y;
 static int                m_x, m_y;
 uint64_t                  next_z = 0;
 static int                FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
-static int                doing_tld = 0;
 static int                make_new_tld = 0;
 static char              *dev_name;
 static int                fd = -1;
@@ -194,8 +193,6 @@ ccv_tld_t *new_tld(int x, int y, int w, int h) {
   ccv_tld_param_t p = ccv_tld_default_params;
   ccv_rect_t box = ccv_rect(x, y, w, h);
   ccv_read(aframe->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, aheight, awidth, 4*awidth);
-  p.level = 1;
-  printf("image pyrimad level: %d\n", p.level);
   return ccv_tld_new(cdm, box, p);
 }
 
@@ -248,20 +245,29 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
  void *arg) {
   dingle_dots_t *dd = (dingle_dots_t *)arg;
   static int first_call = 1;
+  static int first_data = 1;
   static uint32_t save_buf[8192*4608];
+  static uint32_t save_buf2[8192*4608];
   static int save_size = 0;
   static ccv_comp_t newbox;
   static int made_first_tld = 0;
-  int nij, i,j;
+  int nij,s, i,j;
+	float sum, bw, bw2, diff, fr, fg, fb;
+	int istart, jstart, iend, jend;
+	int npts;
   unsigned char y0, y1, u, v;
   unsigned char r, g, b;
+	uint32_t val;
   int n;
   unsigned char *ptr = (unsigned char *) p;
   if (video_done) return;
   if (size != 0) {
     save_size = size;
     //(uint32_t *)frame->data[0];
-    for (n = 0; n < save_size; n += 4) {
+  	if (!first_data) {
+			memcpy(save_buf2, save_buf, 2 * save_size);
+		}
+		for (n = 0; n < save_size; n += 4) {
       nij = (int) n / 2;
       i = nij%width;
       j = nij/width;
@@ -275,6 +281,10 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
       save_buf[width - 1 - (i+1) + j*width] = 255 << 24 | r << 16 | g << 8 | b;
     }
   }
+	if (first_data) {
+		first_data = 0;
+		memcpy(save_buf2, save_buf, 2 * save_size);
+	}
   memcpy(frame->data[0], save_buf, 2 * save_size);
   GdkPixbuf *pb;
   cairo_surface_t *csurf;
@@ -282,7 +292,48 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
    CAIRO_FORMAT_ARGB32, width, height, 4*width);
   cairo_t *tcr;
   tcr = cairo_create(csurf);
-  if (doing_tld) {
+	int motion_state[MAX_NSOUND_SHAPES];
+	memset(motion_state, 0, sizeof(int) * MAX_NSOUND_SHAPES);
+	int	tld_state[MAX_NSOUND_SHAPES];
+	memset(tld_state, 0, sizeof(int) * MAX_NSOUND_SHAPES);
+	if (dd->doing_motion) {
+		for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
+			if (!dd->sound_shapes[s].active) continue;
+			sum = 0;
+			npts = 0;
+      istart = min(width, max(0, round(dd->sound_shapes[s].x -
+			 dd->sound_shapes[s].r)));
+      jstart = min(height, max(0, round(dd->sound_shapes[s].y -
+			 dd->sound_shapes[s].r)));
+      iend = max(0, min(width, round(dd->sound_shapes[s].x +
+		   dd->sound_shapes[s].r)));
+      jend = max(0, min(height, round(dd->sound_shapes[s].y +
+			 dd->sound_shapes[s].r)));
+			for (i = istart; i < iend; i++) {
+				for (j = jstart; j < jend; j++) {
+					if (sound_shape_in(&dd->sound_shapes[s], i, j)) {
+						val = save_buf[i + j * width];
+						fr = ((val & 0x00ff0000) >> 16) / 256.;
+						fg = ((val & 0x0000ff00) >> 8) / 256.;
+						fb = ((val & 0x000000ff)) / 256.;
+						bw = fr * 0.3 + fg * 0.59 + fb * 0.1;
+						val = save_buf2[i + j * width];
+						fr = ((val & 0x00ff0000) >> 16) / 256.;
+						fg = ((val & 0x0000ff00) >> 8) / 256.;
+						fb = ((val & 0x000000ff)) / 256.;
+						bw2 = fr * 0.3 + fg * 0.59 + fb * 0.1;
+						diff = bw - bw2;
+						sum += diff * diff;
+						npts++;
+					}
+				}
+			}
+			if ((sum / npts) > 0.00025) {
+				motion_state[s] = 1;
+			}
+		}
+	}
+	if (dd->doing_tld) {
     if (do_tld) {
       sws_scale(resize, (uint8_t const * const *)frame->data,
        frame->linesize, 0, frame->height, aframe->data, aframe->linesize);
@@ -292,7 +343,7 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
            FIRST_W/ascale_factor_x, FIRST_H/ascale_factor_y);
         } else {
           tld = NULL;
-          doing_tld = 0;
+          dd->doing_tld = 0;
           made_first_tld = 0;
           newbox.rect.x = 0;
           newbox.rect.y = 0;
@@ -320,13 +371,7 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
          0.5*ascale_factor_x*newbox.rect.width,
          ascale_factor_y*newbox.rect.y +
          0.5*ascale_factor_y*newbox.rect.height)) {
-          if (!dd->sound_shapes[i].on) {
-            sound_shape_on(&dd->sound_shapes[i]);
-          }
-        } else {
-          if (dd->sound_shapes[i].on) {
-            sound_shape_off(&dd->sound_shapes[i]);
-          }
+         	tld_state[i] = 1;
         }
       }
     }
@@ -337,22 +382,31 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
     newbox.rect.y = 0;
     newbox.rect.width = 0;
     newbox.rect.height = 0;
-    for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
-      if (!dd->sound_shapes[i].active) continue;
-      if (dd->sound_shapes[i].on) {
-        sound_shape_off(&dd->sound_shapes[i]);
+	}
+
+
+	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+  	if (!dd->sound_shapes[i].active) continue;
+		if (motion_state[i] || tld_state[i]) {
+			if (!dd->sound_shapes[i].on) {
+      	sound_shape_on(&dd->sound_shapes[i]);
       }
     }
-  }
+		if (!motion_state[i] && !tld_state[i]) {
+			if (dd->sound_shapes[i].on) {
+				sound_shape_off(&dd->sound_shapes[i]);
+			}
+		}
+	}
   isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
   for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
     if (!dd->sound_shapes[i].active) continue;
     sound_shape_render(&dd->sound_shapes[i], tcr);
   }
-  for (i = 0; i < 2; i++) {
+  /*for (i = 0; i < 2; i++) {
     kmeter_render(&dd->meters[i], tcr, 1.);
-  }
-  double space;
+  }*/
+  /*double space;
   double w;
   double h;
   double x;
@@ -367,13 +421,13 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
     cairo_rectangle(tcr, x, height - h, w, h);
     cairo_fill(tcr);
   }
-  cairo_restore(tcr);
+  cairo_restore(tcr);*/
   cairo_surface_destroy(csurf);
   if (mdown) {
     render_detection_box(tcr, 1, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
   }
   render_pointer(tcr, m_x, m_y);
-  if (doing_tld) {
+  if (dd->doing_tld) {
     render_detection_box(tcr, 0, ascale_factor_x*newbox.rect.x,
      ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
      ascale_factor_y*newbox.rect.height);
@@ -637,6 +691,8 @@ int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys) {
   color colors[2];
   color_init(&colors[0], 30./255., 100./255., 80./255., 0.5);
   color_init(&colors[1], 0., 30./255., 80./255., 0.5);
+	dd->doing_tld = 0;
+	dd->doing_motion = 0;
   memset(dd->sound_shapes, 0, MAX_NSOUND_SHAPES * sizeof(sound_shape));
   for (i = 0; i < nb_keys; i++) {
     x_delta = 1. / (keys[i].scale->nb_notes + 1);
@@ -685,29 +741,10 @@ static gboolean configure_event_cb (GtkWidget *widget,
   csurface = gdk_window_create_similar_surface(gtk_widget_get_window (widget),
    CAIRO_CONTENT_COLOR, gtk_widget_get_allocated_width (widget),
    gtk_widget_get_allocated_height (widget));
-  ccv_enable_default_cache();
-  FIRST_W = width/5.;
-  FIRST_H = height/5.;
-  FIRST_X = width/2.0;
-  FIRST_Y = height/2.0 - 0.5 * FIRST_H;
-  printf("width, awidth: %d, %d, %f\n", width, awidth, (1.0*width)/(1.0*awidth));
-  ascale_factor_x = (1.0*width) / awidth;
-  ascale_factor_y = ((double)height) / aheight;
-  resize = sws_getContext(width, height, AV_PIX_FMT_ARGB, awidth,
-   aheight, AV_PIX_FMT_ARGB, SWS_BICUBIC, NULL, NULL, NULL);
-  frame = av_frame_alloc();
-  frame->format = AV_PIX_FMT_ARGB;
-  frame->width = width;
-  frame->height = height;
-  ret = av_image_alloc(frame->data, frame->linesize,
-   frame->width, frame->height, frame->format, 1);
-  if (ret < 0) {
-    fprintf(stderr, "Could not allocate raw picture buffer\n");
-    exit(1);
-  }
   screen_resize = sws_getContext(width, height, AV_PIX_FMT_RGBA,
    event->width, event->height, AV_PIX_FMT_BGRA, SWS_BICUBIC, NULL, NULL,
    NULL);
+  cr = cairo_create(csurface);
   screen_frame = av_frame_alloc();
   screen_frame->format = AV_PIX_FMT_BGRA;
   screen_frame->width = event->width;
@@ -718,40 +755,7 @@ static gboolean configure_event_cb (GtkWidget *widget,
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
   }
-  tframe = av_frame_alloc();
-  tframe->format = AV_PIX_FMT_BGRA;
-  tframe->width = width;
-  tframe->height = height;
-  ret = av_image_alloc(tframe->data, tframe->linesize,
-   tframe->width, tframe->height, tframe->format, 1);
-  if (ret < 0) {
-    fprintf(stderr, "Could not allocate raw picture buffer\n");
-    exit(1);
-  }
-  aframe = av_frame_alloc();
-  aframe->format = AV_PIX_FMT_ARGB;
-  aframe->width = awidth;
-  aframe->height = aheight;
-  ret = av_image_alloc(aframe->data, aframe->linesize,
-   aframe->width, aframe->height, aframe->format, 1);
-  if (ret < 0) {
-    fprintf(stderr, "Could not allocate raw picture buffer\n");
-    exit(1);
-  }
-  cr = cairo_create(csurface);
-  midi_key_t keys[2];
-  midi_scale_t scales[2];
-  midi_scale_init(&scales[0], minor, 8);
-  midi_scale_init(&scales[1], major, 8);
-  midi_key_init(&keys[0], 32, &scales[0]);
-  midi_key_init(&keys[1], 44, &scales[1]);
-  dingle_dots_init(dd, keys, 2);
-  init_output(dd);
-  out_frame.size = 4 * width * height;
-  out_frame.data = calloc(1, out_frame.size);
-  uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
-  video_ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
-  memset(video_ring_buf->buf, 0, video_ring_buf->size);
+
   /* We've handled the configure event, no need for further processing.
    * */
   return TRUE;
@@ -775,8 +779,8 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
  GdkEventMotion *event, gpointer data) {
   int i;
   dingle_dots_t *dd = (dingle_dots_t *)data;
-  m_x = event->x;
-  m_y = event->y;
+  m_x = event->x * width / screen_frame->width;
+  m_y = event->y * height / screen_frame->height;
   if (mdown) {
     FIRST_W = m_x - mdown_x;
     FIRST_H = m_y - mdown_y;
@@ -850,9 +854,9 @@ static gboolean button_press_event_cb(GtkWidget *widget,
     FIRST_W = 20 * ascale_factor_x;
     FIRST_H = 20 * ascale_factor_y;
   }
-  if (doing_tld && shift_pressed) {
+  if (dd->doing_tld && shift_pressed) {
     if (event->button == GDK_BUTTON_SECONDARY) {
-      doing_tld = 0;
+      dd->doing_tld = 0;
     }
   }
   return TRUE;
@@ -871,7 +875,7 @@ static gboolean button_release_event_cb(GtkWidget *widget,
   } else if (!shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
     mdown = 0;
     make_new_tld = 1;
-    doing_tld = 1;
+    dd->doing_tld = 1;
   }
   return TRUE;
 }
@@ -911,38 +915,106 @@ static gboolean quit_cb(GtkWidget *widget, gpointer data) {
   return TRUE;
 }
 
+static gboolean motion_cb(GtkWidget *widget, gpointer data) {
+  dingle_dots_t * dd;
+  dd = (dingle_dots_t *)data;
+  if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+		dd->doing_motion = 1;
+	} else {
+		dd->doing_motion = 0;
+	}
+	return TRUE;
+}
+
 static void activate(GtkApplication *app, gpointer user_data) {
   GtkWidget *window;
-  GtkWidget *frame;
+  GtkWidget *gframe;
   GtkWidget *drawing_area;
   GtkWidget *hbox;
   GtkWidget *vbox;
   GtkWidget *rbutton;
   GtkWidget *qbutton;
+  GtkWidget *mbutton;
   dingle_dots_t *dd;
-  dd = (dingle_dots_t *)user_data;
-  window = gtk_application_window_new (app);
-  gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
+  int ret;
+	dd = (dingle_dots_t *)user_data;
+  ccv_enable_default_cache();
+  FIRST_W = width/5.;
+  FIRST_H = height/5.;
+  FIRST_X = width/2.0;
+  FIRST_Y = height/2.0 - 0.5 * FIRST_H;
+  printf("width, awidth: %d, %d, %f\n", width, awidth, (1.0*width)/(1.0*awidth));
+  ascale_factor_x = (1.0*width) / awidth;
+  ascale_factor_y = ((double)height) / aheight;
+  resize = sws_getContext(width, height, AV_PIX_FMT_ARGB, awidth,
+   aheight, AV_PIX_FMT_ARGB, SWS_BICUBIC, NULL, NULL, NULL);
+  frame = av_frame_alloc();
+  frame->format = AV_PIX_FMT_ARGB;
+  frame->width = width;
+  frame->height = height;
+  ret = av_image_alloc(frame->data, frame->linesize,
+   frame->width, frame->height, frame->format, 1);
+  if (ret < 0) {
+    fprintf(stderr, "Could not allocate raw picture buffer\n");
+    exit(1);
+  }
+	tframe = av_frame_alloc();
+  tframe->format = AV_PIX_FMT_BGRA;
+  tframe->width = width;
+  tframe->height = height;
+  ret = av_image_alloc(tframe->data, tframe->linesize,
+   tframe->width, tframe->height, tframe->format, 1);
+  if (ret < 0) {
+    fprintf(stderr, "Could not allocate raw picture buffer\n");
+    exit(1);
+  }
+  aframe = av_frame_alloc();
+  aframe->format = AV_PIX_FMT_ARGB;
+  aframe->width = awidth;
+  aframe->height = aheight;
+  ret = av_image_alloc(aframe->data, aframe->linesize,
+   aframe->width, aframe->height, aframe->format, 1);
+  if (ret < 0) {
+    fprintf(stderr, "Could not allocate raw picture buffer\n");
+    exit(1);
+  }
+  midi_key_t keys[2];
+  midi_scale_t scales[2];
+  midi_scale_init(&scales[0], minor, 8);
+  midi_scale_init(&scales[1], major, 8);
+  midi_key_init(&keys[0], 32, &scales[0]);
+  midi_key_init(&keys[1], 44, &scales[1]);
+  dingle_dots_init(dd, keys, 2);
+  init_output(dd);
+  out_frame.size = 4 * width * height;
+  out_frame.data = calloc(1, out_frame.size);
+  uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
+  video_ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
+  memset(video_ring_buf->buf, 0, video_ring_buf->size);  window = gtk_application_window_new (app);
+  gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
   //gtk_window_set_title (GTK_WINDOW (window), "Drawing Area");
   g_signal_connect (window, "destroy", G_CALLBACK (close_window), NULL);
   gtk_container_set_border_width (GTK_CONTAINER (window), 64);
-  frame = gtk_frame_new (NULL);
-  gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_OUT);
-  gtk_container_add (GTK_CONTAINER (window), frame);
+  gframe = gtk_frame_new (NULL);
+  gtk_frame_set_shadow_type (GTK_FRAME (gframe), GTK_SHADOW_OUT);
+  gtk_container_add (GTK_CONTAINER (window), gframe);
   hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
   vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
   rbutton = gtk_toggle_button_new_with_label("RECORD");
   qbutton = gtk_button_new_with_label("QUIT");
+  mbutton = gtk_toggle_button_new_with_label("MOTION DETECTION");
   gtk_box_pack_start(GTK_BOX(vbox), rbutton, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), qbutton, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), mbutton, FALSE, FALSE, 0);
   drawing_area = gtk_drawing_area_new ();
   gtk_widget_set_size_request (drawing_area, width, height);
   gtk_box_pack_start(GTK_BOX(hbox), drawing_area, TRUE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
-  gtk_container_add (GTK_CONTAINER (frame), hbox);
+  gtk_container_add (GTK_CONTAINER (gframe), hbox);
   /* Signals used to handle the backing surface */
   g_timeout_add(16, (GSourceFunc)on_timeout, (gpointer)drawing_area);
   g_signal_connect(qbutton, "clicked", G_CALLBACK(quit_cb), dd);
+  g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
   g_signal_connect (drawing_area, "draw",
    G_CALLBACK (draw_cb), dd);
   g_signal_connect (drawing_area,"configure-event",
