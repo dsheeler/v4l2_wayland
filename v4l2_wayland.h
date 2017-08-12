@@ -41,6 +41,9 @@ typedef struct {
   kmeter meters[2];
 	int doing_motion;
 	int doing_tld;
+	float motion_threshold;
+	cairo_surface_t *csurface;
+  cairo_t *cr;
 } dingle_dots_t;
 
 int midi_scale_init(midi_scale_t *scale, uint8_t *notes, uint8_t nb_notes);

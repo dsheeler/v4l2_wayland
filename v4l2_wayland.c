@@ -81,8 +81,6 @@ static int                      audio_done = 0, video_done = 0,
                                 trailer_written = 0;
 static int                      shift_pressed = 0;
 
-static cairo_surface_t    *csurface;
-static cairo_t            *cr;
 static int                mdown = 0, mdown_x, mdown_y;
 static int                m_x, m_y;
 uint64_t                  next_z = 0;
@@ -328,7 +326,8 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 					}
 				}
 			}
-			if ((sum / npts) > 0.00025) {
+			if ((sum / npts) > dd->motion_threshold) {
+				printf("%f\n", sum / npts);
 				motion_state[s] = 1;
 			}
 		}
@@ -403,10 +402,13 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
     if (!dd->sound_shapes[i].active) continue;
     sound_shape_render(&dd->sound_shapes[i], tcr);
   }
-  /*for (i = 0; i < 2; i++) {
+#if defined(RENDER_KMETERS)
+	for (i = 0; i < 2; i++) {
     kmeter_render(&dd->meters[i], tcr, 1.);
-  }*/
-  /*double space;
+  }
+#endif
+#if defined(RENDER_FFT)	
+	double space;
   double w;
   double h;
   double x;
@@ -421,8 +423,9 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
     cairo_rectangle(tcr, x, height - h, w, h);
     cairo_fill(tcr);
   }
-  cairo_restore(tcr);*/
-  cairo_surface_destroy(csurf);
+  cairo_restore(tcr);
+#endif
+	cairo_surface_destroy(csurf);
   if (mdown) {
     render_detection_box(tcr, 1, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
   }
@@ -432,12 +435,8 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
      ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
      ascale_factor_y*newbox.rect.height);
   }
-  struct SwsContext *sws_context;
-  /*sws_context = sws_getContext(width, height, AV_PIX_FMT_RGBA,
-   tframe->width, tframe->height, AV_PIX_FMT_BGRA, 0, NULL, NULL, NULL);*/
   sws_scale(screen_resize, (const uint8_t* const*)frame->data, frame->linesize,
    0, height, screen_frame->data, screen_frame->linesize);
-  /*sws_freeContext(sws_context);*/
   pb = gdk_pixbuf_new_from_data(screen_frame->data[0], GDK_COLORSPACE_RGB,
    TRUE, 8, screen_frame->width, screen_frame->height, 4*screen_frame->width,
    NULL, NULL);
@@ -465,9 +464,6 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
       pthread_cond_signal(&dd->video_thread_info->data_ready);
       pthread_mutex_unlock(&dd->video_thread_info->lock);
     }
-  } else {
-    //dd->video_thread_info->stream->overruns++;
-    //printf("VIDEO OVERRUNS: %d\n", dd->video_thread_info->stream->overruns);
   }
 }
 
@@ -497,18 +493,6 @@ static int read_frame(cairo_t *cr, dingle_dots_t *dd) {
       errno_exit("VIDIOC_QBUF");
   }
   return 1;
-}
-
-void on_button(uint32_t button) {
-}
-
-void set_button_callback(
-    struct wl_shell_surface *shell_surface,
-    void (*callback)(uint32_t))
-{
-  //struct wl_surface* surface;
-
-  //wl_surface_set_user_data(surface, callback);
 }
 
 void process_midi_output(jack_nframes_t nframes) {
@@ -693,7 +677,8 @@ int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys) {
   color_init(&colors[1], 0., 30./255., 80./255., 0.5);
 	dd->doing_tld = 0;
 	dd->doing_motion = 0;
-  memset(dd->sound_shapes, 0, MAX_NSOUND_SHAPES * sizeof(sound_shape));
+	dd->motion_threshold = 0.001;
+	memset(dd->sound_shapes, 0, MAX_NSOUND_SHAPES * sizeof(sound_shape));
   for (i = 0; i < nb_keys; i++) {
     x_delta = 1. / (keys[i].scale->nb_notes + 1);
     for (j = 0; j < keys[i].scale->nb_notes; j++) {
@@ -725,9 +710,10 @@ int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys) {
   return 0;
 }
 
-static void close_window (void) {
-  if(csurface)
-    cairo_surface_destroy(csurface);
+static void close_window (void *data) {
+	dingle_dots_t *dd = (dingle_dots_t *)data;
+	if(dd->csurface)
+    cairo_surface_destroy(dd->csurface);
   gtk_main_quit();
 }
 
@@ -736,15 +722,15 @@ static gboolean configure_event_cb (GtkWidget *widget,
   int ret;
   dingle_dots_t *dd;
   dd = (dingle_dots_t *)data;
-  if (csurface)
-    cairo_surface_destroy(csurface);
-  csurface = gdk_window_create_similar_surface(gtk_widget_get_window (widget),
+  if (dd->csurface)
+    cairo_surface_destroy(dd->csurface);
+  dd->csurface = gdk_window_create_similar_surface(gtk_widget_get_window (widget),
    CAIRO_CONTENT_COLOR, gtk_widget_get_allocated_width (widget),
    gtk_widget_get_allocated_height (widget));
   screen_resize = sws_getContext(width, height, AV_PIX_FMT_RGBA,
    event->width, event->height, AV_PIX_FMT_BGRA, SWS_BICUBIC, NULL, NULL,
    NULL);
-  cr = cairo_create(csurface);
+  dd->cr = cairo_create(dd->csurface);
   screen_frame = av_frame_alloc();
   screen_frame->format = AV_PIX_FMT_BGRA;
   screen_frame->width = event->width;
@@ -765,7 +751,7 @@ static gboolean draw_cb (GtkWidget *widget, cairo_t *crt, gpointer   data)
 {
   dingle_dots_t *dd;
   dd = (dingle_dots_t *)data;
-  cairo_set_source_surface(crt, csurface, 0, 0);
+  cairo_set_source_surface(crt, dd->csurface, 0, 0);
   read_frame(crt, dd);
   return FALSE;
 }
@@ -993,7 +979,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   memset(video_ring_buf->buf, 0, video_ring_buf->size);  window = gtk_application_window_new (app);
   gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
   //gtk_window_set_title (GTK_WINDOW (window), "Drawing Area");
-  g_signal_connect (window, "destroy", G_CALLBACK (close_window), NULL);
+  g_signal_connect (window, "destroy", G_CALLBACK (close_window), dd);
   gtk_container_set_border_width (GTK_CONTAINER (window), 64);
   gframe = gtk_frame_new (NULL);
   gtk_frame_set_shadow_type (GTK_FRAME (gframe), GTK_SHADOW_OUT);
@@ -1035,49 +1021,11 @@ static void activate(GtkApplication *app, gpointer user_data) {
   gtk_widget_show_all (window);
 }
 
-
 static void mainloop(dingle_dots_t *dd) {
-  dd->app = gtk_application_new("org.dsheeler.v4l2_wayland",
-   G_APPLICATION_NON_UNIQUE);
+  dd->app = G_APPLICATION(gtk_application_new("org.dsheeler.v4l2_wayland",
+   G_APPLICATION_NON_UNIQUE));
   g_signal_connect(dd->app, "activate", G_CALLBACK (activate), dd);
   g_application_run(G_APPLICATION(dd->app), 0, NULL);
-  g_object_unref(dd->app);
-
-  /*int ret;
-  if (compositor == NULL) {
-    fprintf(stderr, "Can't find compositor\n");
-    exit(1);
-  } else {
-    fprintf(stderr, "Found compositor\n");
-  }
-  surface = wl_compositor_create_surface(compositor);
-  if (surface == NULL) {
-    fprintf(stderr, "Can't create surface\n");
-    exit(1);
-  } else {
-    fprintf(stderr, "Created surface\n");
-  }
-  shell_surface = wl_shell_get_shell_surface(shell, surface);
-  if (shell_surface == NULL) {
-    fprintf(stderr, "Can't create shell surface\n");
-    exit(1);
-  } else {
-    fprintf(stderr, "Created shell surface\n");
-  }
-  wl_shell_surface_set_toplevel(shell_surface);
-  wl_shell_surface_add_listener(shell_surface,
-      &shell_surface_listener, NULL);
-  frame_callback = wl_surface_frame(surface);
-  wl_callback_add_listener(frame_callback, &frame_listener, dd);
-  create_window();
-  while (wl_display_dispatch(display) != -1) {
-  }
-  close_stream(oc, dd->audio_thread_info->stream);
-  close_stream(oc, dd->video_thread_info->stream);
-  avio_closep(&oc->pb);
-  avformat_free_context(oc);
-  wl_display_disconnect(display);
-  printf("disconnected from display\n");*/
 }
 
 static void stop_capturing(void)
@@ -1300,8 +1248,6 @@ int main(int argc, char **argv) {
   disk_thread_info_t video_thread_info;
   disk_thread_info_t audio_thread_info;
   OutputStream  audio_st;
-  /*mysteriously, this does not work... video_st global variable does work.
-  OutputStream video_st;*/
   dingle_dots_t dingle_dots;
   dingle_dots.audio_thread_info = &audio_thread_info;
   dingle_dots.video_thread_info = &video_thread_info;
@@ -1356,7 +1302,6 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
   }
-  //setup_wayland(&dingle_dots);
   setup_jack(&dingle_dots);
   setup_signal_handler();
   open_device();
