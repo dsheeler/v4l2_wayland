@@ -26,10 +26,10 @@
 #include <linux/input.h>
 #include <ccv/ccv.h>
 #include <cairo/cairo.h>
-#include <wayland-client.h>
 #include <linux/videodev2.h>
 #include <fftw3.h>
 
+#include "dingle_dots.h"
 #include "kmeter.h"
 #include "muxing.h"
 #include "sound_shape.h"
@@ -59,7 +59,6 @@ fftw_plan                      p;
 output_frame                   out_frame;
 OutputStream                   video_st;
 AVFormatContext                *oc;
-AVFrame                        *screen_frame;
 AVFrame                        *tframe;
 AVFrame                        *frame;
 char                           *out_file_name;
@@ -93,10 +92,9 @@ static unsigned int       n_buffers;
 
 volatile int              can_process;
 volatile int              can_capture;
-jack_client_t            *client;
 jack_ringbuffer_t        *video_ring_buf, *audio_ring_buf, *midi_ring_buf;
 unsigned int              nports = 2;
-jack_port_t             **in_ports, **out_ports, *midi_port;
+jack_port_t             **in_ports, **out_ports;
 jack_default_audio_sample_t **in;
 jack_nframes_t            nframes;
 const size_t              sample_size = sizeof(jack_default_audio_sample_t);
@@ -436,10 +434,10 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
      ascale_factor_y*newbox.rect.height);
   }
   sws_scale(screen_resize, (const uint8_t* const*)frame->data, frame->linesize,
-   0, height, screen_frame->data, screen_frame->linesize);
-  pb = gdk_pixbuf_new_from_data(screen_frame->data[0], GDK_COLORSPACE_RGB,
-   TRUE, 8, screen_frame->width, screen_frame->height, 4*screen_frame->width,
-   NULL, NULL);
+   0, height, dd->screen_frame->data, dd->screen_frame->linesize);
+  pb = gdk_pixbuf_new_from_data(dd->screen_frame->data[0], GDK_COLORSPACE_RGB,
+   TRUE, 8, dd->screen_frame->width, dd->screen_frame->height,
+	 4 * dd->screen_frame->width, NULL, NULL);
   gdk_cairo_set_source_pixbuf(cr, pb, 0, 0);
   cairo_paint(cr);
   if (recording_stopped) {
@@ -495,43 +493,7 @@ static int read_frame(cairo_t *cr, dingle_dots_t *dd) {
   return 1;
 }
 
-void process_midi_output(jack_nframes_t nframes) {
-  int read, t;
-  unsigned char *buffer;
-  void *port_buffer;
-  jack_nframes_t last_frame_time;
-  struct midi_message ev;
-  last_frame_time = jack_last_frame_time(client);
-  port_buffer = jack_port_get_buffer(midi_port, nframes);
-  if (port_buffer == NULL) {
-    return;
-  }
-  jack_midi_clear_buffer(port_buffer);
-  while (jack_ringbuffer_read_space(midi_ring_buf)) {
-    read = jack_ringbuffer_peek(midi_ring_buf, (char *)&ev, sizeof(ev));
-    if (read != sizeof(ev)) {
-      jack_ringbuffer_read_advance(midi_ring_buf, read);
-      continue;
-    }
-    t = ev.time + nframes - last_frame_time;
-    /* If computed time is too much into
-     * the future, we'll need
-     *       to send it later. */
-    if (t >= (int)nframes)
-      break;
-    /* If computed time is < 0, we
-     * missed a cycle because of xrun.
-     * */
-    if (t < 0)
-      t = 0;
-    jack_ringbuffer_read_advance(midi_ring_buf, sizeof(ev));
-    buffer = jack_midi_event_reserve(port_buffer, t, ev.len);
-    memcpy(buffer, ev.data, ev.len);
-  }
-}
-
 static void signal_handler(int sig) {
-  jack_client_close(client);
   fprintf(stderr, "signal received, exiting ...\n");
   exit(0);
 }
@@ -553,7 +515,7 @@ int process(jack_nframes_t nframes, void *arg) {
   size_t i;
   static int first_call = 1;
   if (can_process) {
-    process_midi_output(nframes);
+    process_midi_output(nframes, dd);
     for (chn = 0; chn < nports; chn++) {
       in[chn] = jack_port_get_buffer(in_ports[chn], nframes);
       kmeter_process(&dd->meters[chn], in[chn], nframes);
@@ -597,13 +559,14 @@ void setup_jack(dingle_dots_t *dd) {
   unsigned int i;
   size_t in_size;
   can_process = 0;
-  if ((client = jack_client_open("v4l2_wayland", JackNoStartServer, NULL)) == 0) {
+  if ((dd->client = jack_client_open("v4l2_wayland",
+	 JackNoStartServer, NULL)) == 0) {
     printf("jack server not running?\n");
     exit(1);
   }
-  jack_set_process_callback(client, process, dd);
-  jack_on_shutdown(client, jack_shutdown, NULL);
-  if (jack_activate(client)) {
+  jack_set_process_callback(dd->client, process, dd);
+  jack_on_shutdown(dd->client, jack_shutdown, NULL);
+  if (jack_activate(dd->client)) {
     printf("cannot activate jack client\n");
   }
   in_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * nports);
@@ -621,23 +584,27 @@ void setup_jack(dingle_dots_t *dd) {
   for (i = 0; i < nports; i++) {
     char name[64];
     sprintf(name, "input%d", i + 1);
-    if ((in_ports[i] = jack_port_register (client, name, JACK_DEFAULT_AUDIO_TYPE,
+    if ((in_ports[i] = jack_port_register (dd->client, name, JACK_DEFAULT_AUDIO_TYPE,
      JackPortIsInput, 0)) == 0) {
       printf("cannot register input port \"%s\"!\n", name);
-      jack_client_close(client);
+      jack_client_close(dd->client);
       exit(1);
     }
     sprintf(name, "output%d", i + 1);
-    if ((out_ports[i] = jack_port_register (client, name, JACK_DEFAULT_AUDIO_TYPE,
+    if ((out_ports[i] = jack_port_register (dd->client, name, JACK_DEFAULT_AUDIO_TYPE,
      JackPortIsOutput, 0)) == 0) {
       printf("cannot register output port \"%s\"!\n", name);
-      jack_client_close(client);
+      jack_client_close(dd->client);
       exit(1);
     }
   }
-  midi_port = jack_port_register(client, "output_midi",
+  dd->midi_port = jack_port_register(dd->client, "output_midi",
    JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
   can_process = 1;
+}
+
+void teardown_jack(dingle_dots_t *dd) {
+	jack_client_close(dd->client);
 }
 
 void start_recording_threads(dingle_dots_t *dd) {
@@ -647,67 +614,6 @@ void start_recording_threads(dingle_dots_t *dd) {
    dd);
   pthread_create(&dd->video_thread_info->thread_id, NULL, video_disk_thread,
    dd);
-}
-
-int midi_scale_init(midi_scale_t *scale, uint8_t *notes, uint8_t nb_notes) {
-  scale->notes = notes;
-  scale->nb_notes = nb_notes;
-  return 0;
-}
-
-int midi_key_init(midi_key_t *key, uint8_t base_note, midi_scale_t *scale) {
-  key->base_note = base_note;
-  key->scale = scale;
-  return 0;
-}
-
-int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys) {
-  int i;
-  int j;
-  int k;
-  char label[NCHAR];
-  int note_names_idx, note_octave_num;
-  uint8_t midi_note;
-  double freq;
-  double x_delta;
-  char *note_names[] = {"C", "C#", "D", "D#", "E",
-   "F", "F#", "G", "G#", "A", "A#", "B"};
-  color colors[2];
-  color_init(&colors[0], 30./255., 100./255., 80./255., 0.5);
-  color_init(&colors[1], 0., 30./255., 80./255., 0.5);
-	dd->doing_tld = 0;
-	dd->doing_motion = 0;
-	dd->motion_threshold = 0.001;
-	memset(dd->sound_shapes, 0, MAX_NSOUND_SHAPES * sizeof(sound_shape));
-  for (i = 0; i < nb_keys; i++) {
-    x_delta = 1. / (keys[i].scale->nb_notes + 1);
-    for (j = 0; j < keys[i].scale->nb_notes; j++) {
-      midi_note = keys[i].base_note + keys[i].scale->notes[j];
-      note_octave_num = (midi_note - 12) / 12;
-      note_names_idx = (midi_note - 12) % 12;
-      freq = 440.0 * pow(2.0, (midi_note - 69.0) / 12.0);
-      memset(label, '\0', NCHAR * sizeof(char));
-      sprintf(label, "%d\n%.2f\n%s%d", j+1, freq, note_names[note_names_idx],
-     note_octave_num);
-      for (k = 0; k < MAX_NSOUND_SHAPES; k++) {
-        if (dd->sound_shapes[k].active) continue;
-        sound_shape_init(&dd->sound_shapes[k], label, midi_note,
-         x_delta * (j + 1) * width, (i+1) * height / 4.,
-         width/(keys[i].scale->nb_notes*3),
-         &colors[i%2]);
-        sound_shape_activate(&dd->sound_shapes[k]);
-        break;
-      }
-    }
-  }
-  color meter_color;
-  color_init(&meter_color, 30./255., 0, 0, 0.5);
-  for (i = 0; i < 2; i++) {
-    float w = width/3.;
-    kmeter_init(&dd->meters[i], 48000, 256, 0.5, 15.0, w * (i + 1),
-     height - w, w, meter_color);
-  }
-  return 0;
 }
 
 static void close_window (void *data) {
@@ -731,12 +637,17 @@ static gboolean configure_event_cb (GtkWidget *widget,
    event->width, event->height, AV_PIX_FMT_BGRA, SWS_BICUBIC, NULL, NULL,
    NULL);
   dd->cr = cairo_create(dd->csurface);
-  screen_frame = av_frame_alloc();
-  screen_frame->format = AV_PIX_FMT_BGRA;
-  screen_frame->width = event->width;
-  screen_frame->height = event->height;
-  ret = av_image_alloc(screen_frame->data, screen_frame->linesize,
-   screen_frame->width, screen_frame->height, screen_frame->format, 1);
+  if (dd->screen_frame) {
+		av_freep(&dd->screen_frame->data[0]);
+		av_frame_free(&dd->screen_frame);
+	}
+	dd->screen_frame = av_frame_alloc();
+  dd->screen_frame->format = AV_PIX_FMT_BGRA;
+  dd->screen_frame->width = event->width;
+  dd->screen_frame->height = event->height;
+  ret = av_image_alloc(dd->screen_frame->data, dd->screen_frame->linesize,
+   dd->screen_frame->width, dd->screen_frame->height,
+	 dd->screen_frame->format, 1);
   if (ret < 0) {
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
@@ -765,8 +676,8 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
  GdkEventMotion *event, gpointer data) {
   int i;
   dingle_dots_t *dd = (dingle_dots_t *)data;
-  m_x = event->x * width / screen_frame->width;
-  m_y = event->y * height / screen_frame->height;
+  m_x = event->x * width / dd->screen_frame->width;
+  m_y = event->y * height / dd->screen_frame->height;
   if (mdown) {
     FIRST_W = m_x - mdown_x;
     FIRST_H = m_y - mdown_y;
@@ -871,8 +782,8 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
   dingle_dots_t *dd = (dingle_dots_t *)data;
   static int first_r = 1;
   if (event->keyval == GDK_KEY_q && (first_r != -1)) {
-    exit(0);
-  } else if (event->keyval == GDK_KEY_r && (first_r == 1)) {
+  	g_application_quit(dd->app);
+	} else if (event->keyval == GDK_KEY_r && (first_r == 1)) {
     first_r = -1;
     start_recording_threads(dd);
   } else if (event->keyval == GDK_KEY_r && (first_r == -1)) {
@@ -914,7 +825,6 @@ static gboolean motion_cb(GtkWidget *widget, gpointer data) {
 
 static void activate(GtkApplication *app, gpointer user_data) {
   GtkWidget *window;
-  GtkWidget *gframe;
   GtkWidget *drawing_area;
   GtkWidget *hbox;
   GtkWidget *vbox;
@@ -929,7 +839,6 @@ static void activate(GtkApplication *app, gpointer user_data) {
   FIRST_H = height/5.;
   FIRST_X = width/2.0;
   FIRST_Y = height/2.0 - 0.5 * FIRST_H;
-  printf("width, awidth: %d, %d, %f\n", width, awidth, (1.0*width)/(1.0*awidth));
   ascale_factor_x = (1.0*width) / awidth;
   ascale_factor_y = ((double)height) / aheight;
   resize = sws_getContext(width, height, AV_PIX_FMT_ARGB, awidth,
@@ -964,13 +873,6 @@ static void activate(GtkApplication *app, gpointer user_data) {
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
   }
-  midi_key_t keys[2];
-  midi_scale_t scales[2];
-  midi_scale_init(&scales[0], minor, 8);
-  midi_scale_init(&scales[1], major, 8);
-  midi_key_init(&keys[0], 32, &scales[0]);
-  midi_key_init(&keys[1], 44, &scales[1]);
-  dingle_dots_init(dd, keys, 2);
   init_output(dd);
   out_frame.size = 4 * width * height;
   out_frame.data = calloc(1, out_frame.size);
@@ -980,10 +882,10 @@ static void activate(GtkApplication *app, gpointer user_data) {
   gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
   //gtk_window_set_title (GTK_WINDOW (window), "Drawing Area");
   g_signal_connect (window, "destroy", G_CALLBACK (close_window), dd);
-  gtk_container_set_border_width (GTK_CONTAINER (window), 64);
-  gframe = gtk_frame_new (NULL);
-  gtk_frame_set_shadow_type (GTK_FRAME (gframe), GTK_SHADOW_OUT);
-  gtk_container_add (GTK_CONTAINER (window), gframe);
+  //gtk_container_set_border_width (GTK_CONTAINER (window), 64);
+  //gframe = gtk_frame_new (NULL);
+  //gtk_frame_set_shadow_type (GTK_FRAME (gframe), GTK_SHADOW_OUT);
+  //gtk_container_add (GTK_CONTAINER (window), gframe);
   hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
   vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
   rbutton = gtk_toggle_button_new_with_label("RECORD");
@@ -995,8 +897,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
   drawing_area = gtk_drawing_area_new ();
   gtk_widget_set_size_request (drawing_area, width, height);
   gtk_box_pack_start(GTK_BOX(hbox), drawing_area, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(hbox), vbox, TRUE, TRUE, 0);
-  gtk_container_add (GTK_CONTAINER (gframe), hbox);
+  gtk_box_pack_start(GTK_BOX(hbox), vbox, FALSE, FALSE, 0);
+  gtk_container_add (GTK_CONTAINER (window), hbox);
   /* Signals used to handle the backing surface */
   g_timeout_add(16, (GSourceFunc)on_timeout, (gpointer)drawing_area);
   g_signal_connect(qbutton, "clicked", G_CALLBACK(quit_cb), dd);
@@ -1249,7 +1151,14 @@ int main(int argc, char **argv) {
   disk_thread_info_t audio_thread_info;
   OutputStream  audio_st;
   dingle_dots_t dingle_dots;
-  dingle_dots.audio_thread_info = &audio_thread_info;
+  midi_key_t keys[2];
+  midi_scale_t scales[2];
+  midi_scale_init(&scales[0], minor, 8);
+  midi_scale_init(&scales[1], major, 8);
+  midi_key_init(&keys[0], 32, &scales[0]);
+  midi_key_init(&keys[1], 44, &scales[1]);
+  dingle_dots_init(&dingle_dots, keys, 2, width, height);
+	dingle_dots.audio_thread_info = &audio_thread_info;
   dingle_dots.video_thread_info = &video_thread_info;
   dingle_dots.audio_thread_info->stream = &audio_st;
   dingle_dots.video_thread_info->stream = &video_st;
@@ -1311,6 +1220,7 @@ int main(int argc, char **argv) {
   stop_capturing();
   uninit_device();
   close_device();
-  fprintf(stderr, "\n");
+	teardown_jack(&dingle_dots);
+	fprintf(stderr, "\n");
   return 0;
 }

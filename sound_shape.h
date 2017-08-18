@@ -6,10 +6,15 @@
 #include <math.h>
 #include <string.h>
 #include <stdint.h>
-#include "midi.h"
+
+#include "v4l2_wayland.h"
+//#include "dingle_dots.h"
 
 #define NCHAR 32
 #define MAX_NSOUND_SHAPES 64
+
+typedef struct sound_shape sound_shape;
+typedef struct dingle_dots_t dingle_dots_t;
 
 typedef struct {
   double r;
@@ -36,8 +41,10 @@ typedef struct {
   midi_scale_t *scale;
 } midi_key_t;
 
-typedef struct {
-  uint8_t active;
+
+struct sound_shape {
+	dingle_dots_t *dd;
+	uint8_t active;
   uint8_t on;
   double x;
   double y;
@@ -52,11 +59,11 @@ typedef struct {
   double mdown_y;
   double down_x;
   double down_y;
-} sound_shape;
+};
 
 int sound_shape_init(sound_shape *ss, char *label,
  uint8_t midi_note, double x, double y, double r,
- color *c);
+ color *c, dingle_dots_t *dd);
 int sound_shape_render(sound_shape *ss, cairo_t *cr);
 int sound_shape_activate(sound_shape *ss);
 int sound_shape_deactivate(sound_shape *ss);

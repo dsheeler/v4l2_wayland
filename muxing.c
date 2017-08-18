@@ -1,5 +1,6 @@
 #include "muxing.h"
 #include "v4l2_wayland.h"
+#include "dingle_dots.h"
 
 extern OutputStream video_st;
 static void log_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt)

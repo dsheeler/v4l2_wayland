@@ -23,6 +23,7 @@
 #include <libswscale/swscale.h>
 
 #include "v4l2_wayland.h"
+#include "dingle_dots.h"
 
 #define STREAM_FRAME_RATE 120 /* 25 images/s */
 #define STREAM_PIX_FMT    AV_PIX_FMT_RGB32 /* default pix_fmt */

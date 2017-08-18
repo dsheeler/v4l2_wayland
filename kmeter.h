@@ -2,6 +2,7 @@
 #define _KMETER_H (1)
 
 #include <cairo.h>
+#include "v4l2_wayland.h"
 #include "sound_shape.h"
 
 typedef struct kmeter {

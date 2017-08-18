@@ -1,12 +1,14 @@
 #include "sound_shape.h"
+#include "midi.h"
 
 uint8_t major[] = { 0, 2, 4, 5, 7, 9, 11, 12 };
 uint8_t minor[] = { 0, 2, 3, 5, 7, 8, 10, 12 };
 
 int sound_shape_init(sound_shape *ss, char *label,
  uint8_t midi_note, double x, double y, double r,
- color *c) {
-  ss->active = 0;
+ color *c, dingle_dots_t *dd) {
+  ss->dd = dd;
+	ss->active = 0;
   ss->x = x;
   ss->y = y;
   ss->r = r;
@@ -79,13 +81,13 @@ int sound_shape_in(sound_shape *ss, double x, double y) {
 
 int sound_shape_on(sound_shape *ss) {
   ss->on = 1;
-  queue_new_message(0x90, ss->midi_note, 64);
+  queue_new_message(0x90, ss->midi_note, 64, ss->dd);
   return 0;
 }
 
 int sound_shape_off(sound_shape *ss) {
   ss->on = 0;
-  queue_new_message(0x80, ss->midi_note, 0);
+  queue_new_message(0x80, ss->midi_note, 0, ss->dd);
   return 0;
 }
 
