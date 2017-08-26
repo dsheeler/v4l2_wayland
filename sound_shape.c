@@ -27,7 +27,7 @@ static void sound_shape_render_label(sound_shape *ss, cairo_t *cr) {
   PangoFontDescription *desc;
   int width, height;
   char font[32];
-  sprintf(font, "Agave %d", (int)ceil(0.3 * ss->r));
+  sprintf(font, "Agave %d", (int)ceil(0.2 * ss->r));
   layout = pango_cairo_create_layout(cr);
   pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
   pango_layout_set_text(layout, ss->label, -1);

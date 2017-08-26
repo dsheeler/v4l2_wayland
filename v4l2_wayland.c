@@ -384,12 +384,14 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 
 	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
   	if (!dd->sound_shapes[i].active) continue;
-		if (motion_state[i] || tld_state[i]) {
+		if (dd->sound_shapes[i].double_clicked_on || motion_state[i]
+		 || tld_state[i]) {
 			if (!dd->sound_shapes[i].on) {
       	sound_shape_on(&dd->sound_shapes[i]);
       }
     }
-		if (!motion_state[i] && !tld_state[i]) {
+		if (!dd->sound_shapes[i].double_clicked_on && !motion_state[i]
+		 && !tld_state[i]) {
 			if (dd->sound_shapes[i].on) {
 				sound_shape_off(&dd->sound_shapes[i]);
 			}
@@ -405,7 +407,7 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
     kmeter_render(&dd->meters[i], tcr, 1.);
   }
 #endif
-#if defined(RENDER_FFT)	
+#if defined(RENDER_FFT)
 	double space;
   double w;
   double h;
@@ -609,7 +611,6 @@ void teardown_jack(dingle_dots_t *dd) {
 
 void start_recording_threads(dingle_dots_t *dd) {
   recording_started = 1;
-  printf("start_recording\n");
   pthread_create(&dd->audio_thread_info->thread_id, NULL, audio_disk_thread,
    dd);
   pthread_create(&dd->video_thread_info->thread_id, NULL, video_disk_thread,
@@ -656,6 +657,18 @@ static gboolean configure_event_cb (GtkWidget *widget,
   /* We've handled the configure event, no need for further processing.
    * */
   return TRUE;
+}
+
+static gboolean window_state_event_cb (GtkWidget *widget,
+ GdkEventWindowState *event, gpointer   data) {
+  dingle_dots_t *dd;
+  dd = (dingle_dots_t *)data;
+  if (event->new_window_state & GDK_WINDOW_STATE_FULLSCREEN) {
+		dd->fullscreen = TRUE;
+	} else {
+		dd->fullscreen = FALSE;
+	}
+	return FALSE;
 }
 
 static gboolean draw_cb (GtkWidget *widget, cairo_t *crt, gpointer   data)
@@ -716,10 +729,42 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
        + dd->sound_shapes[i].down_x;
       dd->sound_shapes[i].y = m_y - dd->sound_shapes[i].mdown_y
        + dd->sound_shapes[i].down_y;
-      break;
+  		return TRUE;
     }
   }
-  return TRUE;
+	return FALSE;
+}
+
+static gboolean double_press_event_cb(GtkWidget *widget,
+ GdkEventButton *event, gpointer data) {
+  dingle_dots_t * dd = (dingle_dots_t *)data;
+  if (event->type == GDK_2BUTTON_PRESS &&
+	 event->button == GDK_BUTTON_PRIMARY) {
+		uint8_t found = 0;
+		isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
+  	for (int i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
+    	if (!dd->sound_shapes[i].active) continue;
+    	double x, y;
+			x = event->x * width / dd->screen_frame->width;
+			y = event->y * height / dd->screen_frame->height;
+			if (sound_shape_in(&dd->sound_shapes[i], x, y)) {
+  			found = 1;
+				if (dd->sound_shapes[i].double_clicked_on) {
+					dd->sound_shapes[i].double_clicked_on = 0;
+				} else {
+					dd->sound_shapes[i].double_clicked_on = 1;
+				}
+    	}
+  	}
+		if (found) return TRUE;
+		GtkWidget *toplevel = gtk_widget_get_toplevel(widget);
+		if (gtk_widget_is_toplevel(toplevel)) {
+			if (!dd->fullscreen) gtk_window_fullscreen(GTK_WINDOW(toplevel));
+			else gtk_window_unfullscreen(GTK_WINDOW(toplevel));
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 static gboolean button_press_event_cb(GtkWidget *widget,
@@ -738,7 +783,7 @@ static gboolean button_press_event_cb(GtkWidget *widget,
         dd->sound_shapes[i].down_x = dd->sound_shapes[i].x;
         dd->sound_shapes[i].down_y = dd->sound_shapes[i].y;
         dd->sound_shapes[i].z = next_z++;
-        break;
+        return FALSE;
       }
     }
   }
@@ -750,13 +795,15 @@ static gboolean button_press_event_cb(GtkWidget *widget,
     FIRST_Y = mdown_y;
     FIRST_W = 20 * ascale_factor_x;
     FIRST_H = 20 * ascale_factor_y;
+		return TRUE;
   }
   if (dd->doing_tld && shift_pressed) {
     if (event->button == GDK_BUTTON_SECONDARY) {
       dd->doing_tld = 0;
+			return TRUE;
     }
   }
-  return TRUE;
+  return FALSE;
 }
 
 static gboolean button_release_event_cb(GtkWidget *widget,
@@ -769,12 +816,14 @@ static gboolean button_release_event_cb(GtkWidget *widget,
       if (!dd->sound_shapes[i].active) continue;
       dd->sound_shapes[i].mdown = 0;
     }
+  	return TRUE;
   } else if (!shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
     mdown = 0;
     make_new_tld = 1;
     dd->doing_tld = 1;
+  	return TRUE;
   }
-  return TRUE;
+	return FALSE;
 }
 
 static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
@@ -786,14 +835,23 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
 	} else if (event->keyval == GDK_KEY_r && (first_r == 1)) {
     first_r = -1;
     start_recording_threads(dd);
+  	return TRUE;
   } else if (event->keyval == GDK_KEY_r && (first_r == -1)) {
     first_r = 0;
     recording_stopped = 1;
+  	return TRUE;
   } else if (event->keyval == GDK_KEY_Shift_L ||
    event->keyval == GDK_KEY_Shift_R) {
     shift_pressed = 1;
-  }
-  return TRUE;
+  	return TRUE;
+  } else if (event->keyval == GDK_KEY_Escape && dd->fullscreen) {
+		GtkWidget *toplevel = gtk_widget_get_toplevel(widget);
+		if (gtk_widget_is_toplevel(toplevel)) {
+			gtk_window_unfullscreen(GTK_WINDOW(toplevel));
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 static gboolean on_key_release(GtkWidget *widget, GdkEventKey *event,
@@ -801,8 +859,9 @@ static gboolean on_key_release(GtkWidget *widget, GdkEventKey *event,
   if (event->keyval == GDK_KEY_Shift_L ||
    event->keyval == GDK_KEY_Shift_R) {
     shift_pressed = 0;
+  	return TRUE;
   }
-  return TRUE;
+	return FALSE;
 }
 
 static gboolean quit_cb(GtkWidget *widget, gpointer data) {
@@ -823,16 +882,35 @@ static gboolean motion_cb(GtkWidget *widget, gpointer data) {
 	return TRUE;
 }
 
+static gboolean make_scale_cb(GtkWidget *widget, gpointer data) {
+  dingle_dots_t * dd;
+  dd = (dingle_dots_t *)data;
+	char *text_scale;
+	char text_note[4];
+	text_scale =
+	 gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(dd->scale_combo));
+	sprintf(text_note, "%s",
+	 gtk_combo_box_get_active_id(GTK_COMBO_BOX(dd->note_combo)));
+	midi_key_t key;
+	midi_key_init_by_scale_id(&key, atoi(text_note),
+	 midi_scale_text_to_id(text_scale));
+	dingle_dots_add_scale(dd, &key);
+  return TRUE;
+}
+
 static void activate(GtkApplication *app, gpointer user_data) {
   GtkWidget *window;
-  GtkWidget *drawing_area;
-  GtkWidget *hbox;
+  GtkWidget *ctl_window;
+	GtkWidget *drawing_area;
+	GtkWidget *note_hbox;
   GtkWidget *vbox;
   GtkWidget *rbutton;
   GtkWidget *qbutton;
   GtkWidget *mbutton;
-  dingle_dots_t *dd;
-  int ret;
+  GtkWidget *make_scale_button;
+	GtkWidget *aspect;
+	dingle_dots_t *dd;
+ 	int ret;
 	dd = (dingle_dots_t *)user_data;
   ccv_enable_default_cache();
   FIRST_W = width/5.;
@@ -878,49 +956,88 @@ static void activate(GtkApplication *app, gpointer user_data) {
   out_frame.data = calloc(1, out_frame.size);
   uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
   video_ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
-  memset(video_ring_buf->buf, 0, video_ring_buf->size);  window = gtk_application_window_new (app);
+  memset(video_ring_buf->buf, 0, video_ring_buf->size);
+	window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
-  //gtk_window_set_title (GTK_WINDOW (window), "Drawing Area");
-  g_signal_connect (window, "destroy", G_CALLBACK (close_window), dd);
-  //gtk_container_set_border_width (GTK_CONTAINER (window), 64);
-  //gframe = gtk_frame_new (NULL);
-  //gtk_frame_set_shadow_type (GTK_FRAME (gframe), GTK_SHADOW_OUT);
-  //gtk_container_add (GTK_CONTAINER (window), gframe);
-  hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+  gtk_window_set_deletable(GTK_WINDOW (window), TRUE);
+  gtk_window_set_default_size(GTK_WINDOW(window), width, height);
+	ctl_window = gtk_application_window_new(app);
+	gtk_window_set_keep_above(GTK_WINDOW(ctl_window), TRUE);
+  gtk_window_set_title(GTK_WINDOW (ctl_window), "Controls");
+  g_signal_connect (window, "destroy", G_CALLBACK (quit_cb), dd);
+  g_signal_connect (ctl_window, "destroy", G_CALLBACK (close_window), dd);
+  aspect = gtk_aspect_frame_new(NULL, 0.5, 0.5, ((float)width)/height, FALSE);
+  gtk_frame_set_shadow_type(GTK_FRAME(aspect), GTK_SHADOW_NONE);
+	drawing_area = gtk_drawing_area_new();
+	GdkGeometry size_hints;
+	size_hints.min_aspect = ((double)width)/height;
+	size_hints.max_aspect = ((double)width)/height;
+  gtk_window_set_geometry_hints(GTK_WINDOW(window), NULL, &size_hints,
+	 GDK_HINT_ASPECT);
+	gtk_container_add(GTK_CONTAINER(aspect), drawing_area);
+  note_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
   vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
   rbutton = gtk_toggle_button_new_with_label("RECORD");
   qbutton = gtk_button_new_with_label("QUIT");
-  mbutton = gtk_toggle_button_new_with_label("MOTION DETECTION");
+  mbutton = gtk_check_button_new_with_label("MOTION DETECTION");
   gtk_box_pack_start(GTK_BOX(vbox), rbutton, FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(vbox), qbutton, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), mbutton, FALSE, FALSE, 0);
-  drawing_area = gtk_drawing_area_new ();
-  gtk_widget_set_size_request (drawing_area, width, height);
-  gtk_box_pack_start(GTK_BOX(hbox), drawing_area, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(hbox), vbox, FALSE, FALSE, 0);
-  gtk_container_add (GTK_CONTAINER (window), hbox);
+  dd->scale_combo = gtk_combo_box_text_new();
+	int i = 0;
+	char *name = midi_scale_id_to_text(i);
+	while (strcmp("None", name) != 0) {
+		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(dd->scale_combo), NULL, name);
+	  name = midi_scale_id_to_text(++i);
+	}
+	gtk_combo_box_set_active(GTK_COMBO_BOX(dd->scale_combo), 0);
+  dd->note_combo = gtk_combo_box_text_new();
+	for (int i = 0; i < 128; i++) {
+		char id[4], text[NCHAR];
+		sprintf(id, "%d", i);
+		midi_note_to_octave_name(i, text);
+		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(dd->note_combo), id, text);
+	}
+	gtk_combo_box_set_active(GTK_COMBO_BOX(dd->note_combo), 60);
+  make_scale_button = gtk_button_new_with_label("MAKE SCALE");
+  gtk_box_pack_start(GTK_BOX(vbox), note_hbox, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(note_hbox), dd->scale_combo, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(note_hbox), dd->note_combo, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(note_hbox), make_scale_button, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), qbutton, FALSE, FALSE, 0);
+	gtk_container_add (GTK_CONTAINER (window), aspect);
+  gtk_container_add (GTK_CONTAINER (ctl_window), vbox);
+
   /* Signals used to handle the backing surface */
   g_timeout_add(16, (GSourceFunc)on_timeout, (gpointer)drawing_area);
   g_signal_connect(qbutton, "clicked", G_CALLBACK(quit_cb), dd);
+  g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);
   g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
   g_signal_connect (drawing_area, "draw",
    G_CALLBACK (draw_cb), dd);
   g_signal_connect (drawing_area,"configure-event",
    G_CALLBACK (configure_event_cb), dd);
+  g_signal_connect (window,"window-state-event",
+   G_CALLBACK (window_state_event_cb), dd);
   g_signal_connect (drawing_area, "motion-notify-event",
    G_CALLBACK (motion_notify_event_cb), dd);
   g_signal_connect (drawing_area, "button-press-event",
    G_CALLBACK (button_press_event_cb), dd);
+  g_signal_connect (drawing_area, "button-press-event",
+   G_CALLBACK (double_press_event_cb), dd);
   g_signal_connect (drawing_area, "button-release-event",
    G_CALLBACK (button_release_event_cb), dd);
   g_signal_connect (window, "key-press-event",
    G_CALLBACK (on_key_press), dd);
   g_signal_connect (window, "key-release-event",
    G_CALLBACK (on_key_release), dd);
+	gtk_widget_set_events(window, gtk_widget_get_events(window)
+	 | GDK_WINDOW_STATE);
   gtk_widget_set_events (drawing_area, gtk_widget_get_events (drawing_area)
-   | GDK_BUTTON_PRESS_MASK | GDK_POINTER_MOTION_MASK | GDK_BUTTON_RELEASE_MASK
+   | GDK_BUTTON_PRESS_MASK | GDK_2BUTTON_PRESS
+	 | GDK_POINTER_MOTION_MASK | GDK_BUTTON_RELEASE_MASK
    | GDK_KEY_PRESS_MASK | GDK_KEY_RELEASE_MASK);
   gtk_widget_show_all (window);
+  gtk_widget_show_all (ctl_window);
 }
 
 static void mainloop(dingle_dots_t *dd) {
@@ -1151,21 +1268,6 @@ int main(int argc, char **argv) {
   disk_thread_info_t audio_thread_info;
   OutputStream  audio_st;
   dingle_dots_t dingle_dots;
-  midi_key_t keys[2];
-  midi_scale_t scales[2];
-  midi_scale_init(&scales[0], minor, 8);
-  midi_scale_init(&scales[1], major, 8);
-  midi_key_init(&keys[0], 32, &scales[0]);
-  midi_key_init(&keys[1], 44, &scales[1]);
-  dingle_dots_init(&dingle_dots, keys, 2, width, height);
-	dingle_dots.audio_thread_info = &audio_thread_info;
-  dingle_dots.video_thread_info = &video_thread_info;
-  dingle_dots.audio_thread_info->stream = &audio_st;
-  dingle_dots.video_thread_info->stream = &video_st;
-  pthread_mutex_init(&video_thread_info.lock, NULL);
-  pthread_mutex_init(&audio_thread_info.lock, NULL);
-  pthread_cond_init(&video_thread_info.data_ready, NULL);
-  pthread_cond_init(&audio_thread_info.data_ready, NULL);
   out_file_name = "testington.webm";
   dev_name = "/dev/video0";
   for (;;) {
@@ -1211,6 +1313,15 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
   }
+  dingle_dots_init(&dingle_dots, width, height);
+	dingle_dots.audio_thread_info = &audio_thread_info;
+  dingle_dots.video_thread_info = &video_thread_info;
+  dingle_dots.audio_thread_info->stream = &audio_st;
+  dingle_dots.video_thread_info->stream = &video_st;
+  pthread_mutex_init(&video_thread_info.lock, NULL);
+  pthread_mutex_init(&audio_thread_info.lock, NULL);
+  pthread_cond_init(&video_thread_info.data_ready, NULL);
+  pthread_cond_init(&audio_thread_info.data_ready, NULL);
   setup_jack(&dingle_dots);
   setup_signal_handler();
   open_device();

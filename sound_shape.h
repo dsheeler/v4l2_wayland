@@ -11,7 +11,7 @@
 //#include "dingle_dots.h"
 
 #define NCHAR 32
-#define MAX_NSOUND_SHAPES 64
+#define MAX_NSOUND_SHAPES 256
 
 typedef struct sound_shape sound_shape;
 typedef struct dingle_dots_t dingle_dots_t;
@@ -30,22 +30,11 @@ struct hsva {
   double a;
 };
 
-#define MAX_SIZE_SCALE 64
-typedef struct {
-  uint8_t *notes;
-  uint8_t nb_notes;
-} midi_scale_t;
-
-typedef struct {
-  uint8_t base_note;
-  midi_scale_t *scale;
-} midi_key_t;
-
-
 struct sound_shape {
 	dingle_dots_t *dd;
 	uint8_t active;
   uint8_t on;
+	uint8_t double_clicked_on;
   double x;
   double y;
   double r;

@@ -3,14 +3,7 @@
 #include "dingle_dots.h"
 #include "midi.h"
 
-int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys,
- int width, int height) {
-  int i;
-  int j;
-  double x_delta;
-  color colors[2];
-  color_init(&colors[0], 30./255., 100./255., 80./255., 0.5);
-  color_init(&colors[1], 0., 30./255., 80./255., 0.5);
+int dingle_dots_init(dingle_dots_t *dd, int width, int height) {
 	memset(dd, 0, sizeof(dingle_dots_t));
 	dd->width = width;
 	dd->height = height;
@@ -18,36 +11,49 @@ int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys,
 	dd->doing_motion = 0;
 	dd->motion_threshold = 0.001;
 	memset(dd->sound_shapes, 0, MAX_NSOUND_SHAPES * sizeof(sound_shape));
-  for (i = 0; i < nb_keys; i++) {
-    x_delta = 1. / (keys[i].scale->nb_notes + 1);
-    for (j = 0; j < keys[i].scale->nb_notes; j++) {
-			dingle_dots_add_note(dd, j + 1,
-			 keys[i].base_note + keys[i].scale->notes[j],
-			 x_delta * (j + 1) * dd->width, (i+1) * dd->height / 4.,
-			 dd->width/(keys[i].scale->nb_notes*4), &colors[i%2]);
-		}
-	}
 	return 0;
 }
 
-int dingle_dots_add_note(dingle_dots_t *dd, int scale_num, int midi_note,
- double x, double y, double r, color *c) {
-  char label[NCHAR], snum[NCHAR];
+void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key) {
+	int i;
+  double x_delta;
+	color c;
+	srand(time(NULL));
+	struct hsva h;
+	h.h = (double) rand() / RAND_MAX;
+	h.v = 0.45;
+	h.s = 1.0;
+	h.a = 0.5;
+	c = hsv2rgb(&h);
+	x_delta = 1. / (key->num_steps + 1);
+	for (i = 0; i < key->num_steps; i++) {
+		char key_name[NCHAR];
+		char base_name[NCHAR];
+		char *scale;
+		midi_note_to_octave_name(key->base_note, base_name);
+		scale = midi_scale_id_to_text(key->scaleid);
+		sprintf(key_name, "%s %s", base_name, scale);
+		dingle_dots_add_note(dd, key_name, i + 1,
+		 key->base_note + key->steps[i],
+		 x_delta * (i + 1) * dd->width, dd->height / 2.,
+		 dd->width/32, &c);
+	}
+}
+
+int dingle_dots_add_note(dingle_dots_t *dd, char *scale_name,
+ int scale_num, int midi_note, double x, double y, double r, color *c) {
+  char label[NCHAR], snum[NCHAR], octave_name[NCHAR];
   int i;
   double freq;
-  char *note_names[] = {"C", "C#", "D", "D#", "E",
-   "F", "F#", "G", "G#", "A", "A#", "B"};
-  int note_names_idx, note_octave_num;
-	note_octave_num = (midi_note - 12) / 12;
-	note_names_idx = (midi_note - 12) % 12;
 	memset(label, '\0', NCHAR * sizeof(char));
 	memset(snum, '\0', NCHAR * sizeof(char));
+	memset(octave_name, '\0', NCHAR * sizeof(char));
 	freq = midi_to_freq(midi_note);
 	if (scale_num > 0) {
-		sprintf(snum, "%d", scale_num);
+		sprintf(snum, "%s", scale_name);
 	}
-	sprintf(label, "%s\n%.2f\n%s%d", snum, freq, note_names[note_names_idx],
- 	 note_octave_num);
+	midi_note_to_octave_name(midi_note, octave_name);
+	sprintf(label, "%.2f\n%s\n%d\n%s", freq, snum, scale_num, octave_name);
 	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
 		if (dd->sound_shapes[i].active) continue;
 		sound_shape_init(&dd->sound_shapes[i], label, midi_note,

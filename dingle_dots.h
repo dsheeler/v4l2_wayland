@@ -5,12 +5,15 @@
 #include "v4l2_wayland.h"
 #include "sound_shape.h"
 #include "kmeter.h"
+#include "midi.h"
 
 typedef struct sound_shape sound_shape;
 typedef struct dingle_dots_t dingle_dots_t;
+typedef struct midi_key_t midi_key_t;
 
 struct dingle_dots_t {
   GApplication *app;
+	gboolean fullscreen;
 	int width;
 	int height;
   disk_thread_info_t *audio_thread_info;
@@ -20,6 +23,8 @@ struct dingle_dots_t {
 	int doing_motion;
 	int doing_tld;
 	float motion_threshold;
+	GtkWidget *scale_combo;
+	GtkWidget *note_combo;
 	cairo_surface_t *csurface;
   cairo_t *cr;
 	AVFrame *screen_frame;
@@ -27,8 +32,8 @@ struct dingle_dots_t {
 	jack_port_t *midi_port;
 };
 
-int dingle_dots_init(dingle_dots_t *dd, midi_key_t *keys, uint8_t nb_keys,
- int width, int height);
-int dingle_dots_add_note(dingle_dots_t *dd, int scale_num, int midi_note,
- double x, double y, double r, color *c);
+int dingle_dots_init(dingle_dots_t *dd, int width, int height);
+int dingle_dots_add_note(dingle_dots_t *dd, char *scale_name,
+ int scale_num, int midi_note, double x, double y, double r, color *c);
+void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key);
 #endif

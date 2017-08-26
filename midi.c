@@ -65,20 +65,88 @@ void process_midi_output(jack_nframes_t nframes, dingle_dots_t *dd) {
   }
 }
 
-int midi_scale_init(midi_scale_t *scale, uint8_t *notes, uint8_t nb_notes) {
-  scale->notes = notes;
-  scale->nb_notes = nb_notes;
-  return 0;
-}
-
-int midi_key_init(midi_key_t *key, uint8_t base_note, midi_scale_t *scale) {
-  key->base_note = base_note;
-  key->scale = scale;
-  return 0;
+void midi_key_init_by_scale_id(midi_key_t *key, uint8_t base_note,
+ int scaleid) {
+	key->base_note = base_note;
+	key->scaleid = scaleid;
+	memset(key->steps, 0, MAX_SCALE_LENGTH * sizeof(uint8_t));
+	switch(scaleid) {
+		case MAJOR:
+			key->num_steps = 8;
+			key->steps[0] = 0;
+			key->steps[1] = 2;
+			key->steps[2] = 4;
+			key->steps[3] = 5;
+			key->steps[4] = 7;
+			key->steps[5] = 9;
+			key->steps[6] = 11;
+			key->steps[7] = 12;
+			break;
+		case MINOR:
+			key->num_steps = 8;
+			key->steps[0] = 0;
+			key->steps[1] = 2;
+			key->steps[2] = 3;
+			key->steps[3] = 5;
+			key->steps[4] = 7;
+			key->steps[5] = 8;
+			key->steps[6] = 10;
+			key->steps[7] = 12;
+			break;
+		case CHROMATIC:
+			key->num_steps = 12;
+			key->steps[0] = 0;
+			key->steps[1] = 1;
+			key->steps[2] = 2;
+			key->steps[3] = 3;
+			key->steps[4] = 4;
+			key->steps[5] = 5;
+			key->steps[6] = 6;
+			key->steps[7] = 7;
+			key->steps[8] = 8;
+			key->steps[9] = 9;
+			key->steps[10] = 10;
+			key->steps[11] = 11;
+			key->steps[12] = 12;
+			break;
+		default:
+			key->num_steps = 0;
+	}
 }
 
 float midi_to_freq(int midi_note) {
 	return 440.0 * pow(2.0, (midi_note - 69.0) / 12.0);
 }
 
+int midi_scale_text_to_id(char *name) {
+	if (strcmp(name, "Major") == 0) {
+		return MAJOR;
+	} else if (strcmp(name, "Minor") == 0) {
+		return MINOR;
+	} else if (strcmp(name, "Chromatic") == 0) {
+		return CHROMATIC;
+	}
+	return -1;
+}
 
+char *midi_scale_id_to_text(int scaleid) {
+	switch (scaleid) {
+		case MAJOR:
+			return "Major";
+		case MINOR:
+			return "Minor";
+		case CHROMATIC:
+			return "Chromatic";
+		default:
+			return "None";
+	}
+}
+
+void midi_note_to_octave_name(uint8_t midi_note, char *text) {
+	char *note_names[] = {"C", "C#", "D", "D#", "E",
+   "F", "F#", "G", "G#", "A", "A#", "B"};
+  int note_names_idx, note_octave_num;
+	note_octave_num = midi_note / 12 - 1;
+	note_names_idx = midi_note % 12;
+	sprintf(text, "%s%d", note_names[note_names_idx], note_octave_num);
+}
