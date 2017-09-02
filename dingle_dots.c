@@ -1,4 +1,5 @@
 #include <jack/jack.h>
+#include <libswscale/swscale.h>
 
 #include "dingle_dots.h"
 #include "midi.h"
@@ -11,6 +12,29 @@ int dingle_dots_init(dingle_dots_t *dd, int width, int height) {
 	dd->doing_motion = 0;
 	dd->motion_threshold = 0.001;
 	memset(dd->sound_shapes, 0, MAX_NSOUND_SHAPES * sizeof(sound_shape));
+	return 0;
+}
+
+int dingle_dots_deactivate_sound_shapes(dingle_dots_t *dd) {
+	for (int i = 0; i < MAX_NSOUND_SHAPES; i++) {
+		if (dd->sound_shapes[i].active) {
+			sound_shape_deactivate(&dd->sound_shapes[i]);
+		}
+	}
+	return 0;
+}
+
+int dingle_dots_free(dingle_dots_t *dd) {
+	if (dd->csurface)
+    cairo_surface_destroy(dd->csurface);
+	sws_freeContext(dd->screen_resize);
+  if (dd->cr) {
+		cairo_destroy(dd->cr);
+	}
+  if (dd->screen_frame) {
+		av_freep(&dd->screen_frame->data[0]);
+		av_frame_free(&dd->screen_frame);
+	}
 	return 0;
 }
 

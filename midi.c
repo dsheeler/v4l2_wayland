@@ -1,17 +1,17 @@
 #include "midi.h"
 
-static void queue_message(struct midi_message *ev) {
+static void queue_message(dingle_dots_t *dd, struct midi_message *ev) {
   int written;
-  if (jack_ringbuffer_write_space(midi_ring_buf) < sizeof(*ev)) {
+  if (jack_ringbuffer_write_space(dd->midi_ring_buf) < sizeof(*ev)) {
     fprintf(stderr, "Not enough space in the ringbuffer, NOTE LOST.");
     return;
   }
-  written = jack_ringbuffer_write(midi_ring_buf, (char *)ev, sizeof(*ev));
+  written = jack_ringbuffer_write(dd->midi_ring_buf, (char *)ev, sizeof(*ev));
   if (written != sizeof(*ev))
     fprintf(stderr, "jack_ringbuffer_write failed, NOTE LOST.");
 }
 
-void queue_new_message(int b0, int b1, int b2, dingle_dots_t *dd) {
+void midi_queue_new_message(int b0, int b1, int b2, dingle_dots_t *dd) {
   struct midi_message ev;
   if (b1 == -1) {
     ev.len = 1;
@@ -27,10 +27,10 @@ void queue_new_message(int b0, int b1, int b2, dingle_dots_t *dd) {
     ev.data[2] = b2;
   }
   ev.time = jack_frame_time(dd->client);
-  queue_message(&ev);
+  queue_message(dd, &ev);
 }
 
-void process_midi_output(jack_nframes_t nframes, dingle_dots_t *dd) {
+void midi_process_output(jack_nframes_t nframes, dingle_dots_t *dd) {
   int read, t;
   unsigned char *buffer;
   void *port_buffer;
@@ -42,10 +42,10 @@ void process_midi_output(jack_nframes_t nframes, dingle_dots_t *dd) {
     return;
   }
   jack_midi_clear_buffer(port_buffer);
-  while (jack_ringbuffer_read_space(midi_ring_buf)) {
-    read = jack_ringbuffer_peek(midi_ring_buf, (char *)&ev, sizeof(ev));
+  while (jack_ringbuffer_read_space(dd->midi_ring_buf)) {
+    read = jack_ringbuffer_peek(dd->midi_ring_buf, (char *)&ev, sizeof(ev));
     if (read != sizeof(ev)) {
-      jack_ringbuffer_read_advance(midi_ring_buf, read);
+      jack_ringbuffer_read_advance(dd->midi_ring_buf, read);
       continue;
     }
     t = ev.time + nframes - last_frame_time;
@@ -59,7 +59,7 @@ void process_midi_output(jack_nframes_t nframes, dingle_dots_t *dd) {
      * */
     if (t < 0)
       t = 0;
-    jack_ringbuffer_read_advance(midi_ring_buf, sizeof(ev));
+    jack_ringbuffer_read_advance(dd->midi_ring_buf, sizeof(ev));
     buffer = jack_midi_event_reserve(port_buffer, t, ev.len);
     memcpy(buffer, ev.data, ev.len);
   }

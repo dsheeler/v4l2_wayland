@@ -71,7 +71,6 @@ double                         ascale_factor_y;
 uint32_t                       stream_bitrate = 800000;
 static AVFrame                 *aframe;
 static struct SwsContext       *resize;
-static struct SwsContext       *screen_resize;
 static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
 static ccv_tld_t               *tld = 0;
 int                             recording_started = 0;
@@ -80,10 +79,6 @@ static int                      audio_done = 0, video_done = 0,
                                 trailer_written = 0;
 static int                      shift_pressed = 0;
 
-static int                mdown = 0, mdown_x, mdown_y;
-static int                m_x, m_y;
-uint64_t                  next_z = 0;
-static int                FIRST_W, FIRST_H, FIRST_X, FIRST_Y;
 static int                make_new_tld = 0;
 static char              *dev_name;
 static int                fd = -1;
@@ -92,7 +87,7 @@ static unsigned int       n_buffers;
 
 volatile int              can_process;
 volatile int              can_capture;
-jack_ringbuffer_t        *video_ring_buf, *audio_ring_buf, *midi_ring_buf;
+jack_ringbuffer_t        *video_ring_buf, *audio_ring_buf;
 unsigned int              nports = 2;
 jack_port_t             **in_ports, **out_ports;
 jack_default_audio_sample_t **in;
@@ -101,7 +96,6 @@ const size_t              sample_size = sizeof(jack_default_audio_sample_t);
 pthread_mutex_t           av_thread_lock = PTHREAD_MUTEX_INITIALIZER;
 long                      jack_overruns = 0;
 
-extern uint8_t major[], minor[];
 static void errno_exit(const char *s)
 {
   fprintf(stderr, "%s error %d, %s\n", s, errno, strerror(errno));
@@ -213,6 +207,18 @@ static void render_detection_box(cairo_t *cr, int initializing,
   cairo_line_to(cr, x + w, 0.5 * h + y);
   cairo_move_to(cr, 0.5 * w + x, y);
   cairo_line_to(cr, 0.5 * w + x, h + y);
+  cairo_stroke(cr);
+  cairo_restore(cr);
+}
+
+static void render_selection_box(cairo_t *cr, dingle_dots_t *dd) {
+  cairo_save(cr);
+  cairo_rectangle(cr, dd->selection_rect.x, dd->selection_rect.y,
+	 dd->selection_rect.width, dd->selection_rect.height);
+	cairo_set_source_rgba(cr, 0.5, 0.5, 0.5, 0.375);
+  cairo_fill_preserve(cr);
+  cairo_set_source_rgba(cr, 0.75, 0.75, 0.75, 0.875);
+	cairo_set_line_width(cr, 1.0);
   cairo_stroke(cr);
   cairo_restore(cr);
 }
@@ -335,9 +341,9 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
       sws_scale(resize, (uint8_t const * const *)frame->data,
        frame->linesize, 0, frame->height, aframe->data, aframe->linesize);
       if (make_new_tld == 1) {
-        if (FIRST_W > 0 && FIRST_H > 0) {
-          tld = new_tld(FIRST_X/ascale_factor_x, FIRST_Y/ascale_factor_y,
-           FIRST_W/ascale_factor_x, FIRST_H/ascale_factor_y);
+        if (dd->user_tld_rect.width > 0 && dd->user_tld_rect.height > 0) {
+          tld = new_tld(dd->user_tld_rect.x/ascale_factor_x, dd->user_tld_rect.y/ascale_factor_y,
+           dd->user_tld_rect.width/ascale_factor_x, dd->user_tld_rect.height/ascale_factor_y);
         } else {
           tld = NULL;
           dd->doing_tld = 0;
@@ -426,22 +432,46 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
   cairo_restore(tcr);
 #endif
 	cairo_surface_destroy(csurf);
-  if (mdown) {
-    render_detection_box(tcr, 1, FIRST_X, FIRST_Y, FIRST_W, FIRST_H);
+  if (dd->smdown) {
+    render_detection_box(tcr, 1, dd->user_tld_rect.x, dd->user_tld_rect.y, dd->user_tld_rect.width, dd->user_tld_rect.height);
   }
-  render_pointer(tcr, m_x, m_y);
+	if (dd->selection_in_progress) {
+		render_selection_box(tcr, dd);
+		for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+			if (!dd->sound_shapes[i].active) continue;
+  		GdkRectangle ss_rect;
+			ss_rect.x = dd->sound_shapes[i].x - dd->sound_shapes[i].r;
+			ss_rect.y = dd->sound_shapes[i].y - dd->sound_shapes[i].r;
+			ss_rect.width = 2 * dd->sound_shapes[i].r;
+			ss_rect.height = 2 * dd->sound_shapes[i].r;
+			if (gdk_rectangle_intersect(&ss_rect, &dd->selection_rect, NULL)) {
+				dd->sound_shapes[i].selected = 1;
+				dd->sound_shapes[i].selected_pos.x = dd->sound_shapes[i].x;
+				dd->sound_shapes[i].selected_pos.y = dd->sound_shapes[i].y;
+			} else {
+				dd->sound_shapes[i].selected = 0;
+			}
+		}
+	}
+  render_pointer(tcr, dd->mouse_pos.x, dd->mouse_pos.y);
   if (dd->doing_tld) {
     render_detection_box(tcr, 0, ascale_factor_x*newbox.rect.x,
      ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
      ascale_factor_y*newbox.rect.height);
   }
-  sws_scale(screen_resize, (const uint8_t* const*)frame->data, frame->linesize,
+  sws_scale(dd->screen_resize, (const uint8_t* const*)frame->data, frame->linesize,
    0, height, dd->screen_frame->data, dd->screen_frame->linesize);
   pb = gdk_pixbuf_new_from_data(dd->screen_frame->data[0], GDK_COLORSPACE_RGB,
    TRUE, 8, dd->screen_frame->width, dd->screen_frame->height,
-	 4 * dd->screen_frame->width, NULL, NULL);
+	 /*4 * dd->screen_frame->width*/ dd->screen_frame->linesize[0], NULL, NULL);
   gdk_cairo_set_source_pixbuf(cr, pb, 0, 0);
-  cairo_paint(cr);
+	if (dd->do_snapshot) {
+  	gdk_pixbuf_save(pb, "test.png", "png", NULL, NULL);
+		dd->do_snapshot = 0;
+	}
+	cairo_paint(cr);
+	cairo_destroy(tcr);
+	g_object_unref(pb);
   if (recording_stopped) {
     if (pthread_mutex_trylock(&dd->video_thread_info->lock) == 0) {
       pthread_cond_signal(&dd->video_thread_info->data_ready);
@@ -517,7 +547,7 @@ int process(jack_nframes_t nframes, void *arg) {
   size_t i;
   static int first_call = 1;
   if (can_process) {
-    process_midi_output(nframes, dd);
+    midi_process_output(nframes, dd);
     for (chn = 0; chn < nports; chn++) {
       in[chn] = jack_port_get_buffer(in_ports[chn], nframes);
       kmeter_process(&dd->meters[chn], in[chn], nframes);
@@ -579,7 +609,7 @@ void setup_jack(dingle_dots_t *dd) {
    16384);
   memset(in, 0, in_size);
   memset(audio_ring_buf->buf, 0, audio_ring_buf->size);
-  midi_ring_buf = jack_ringbuffer_create(MIDI_RB_SIZE);
+  dd->midi_ring_buf = jack_ringbuffer_create(MIDI_RB_SIZE);
   fftw_in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
   fftw_out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
   p = fftw_plan_dft_1d(FFT_SIZE, fftw_in, fftw_out, FFTW_FORWARD, FFTW_ESTIMATE);
@@ -606,6 +636,12 @@ void setup_jack(dingle_dots_t *dd) {
 }
 
 void teardown_jack(dingle_dots_t *dd) {
+	while (jack_ringbuffer_read_space(dd->midi_ring_buf)) {
+		struct timespec pause;
+		pause.tv_sec = 0;
+		pause.tv_nsec = 1000;
+		nanosleep(&pause, NULL);
+	}
 	jack_client_close(dd->client);
 }
 
@@ -615,13 +651,6 @@ void start_recording_threads(dingle_dots_t *dd) {
    dd);
   pthread_create(&dd->video_thread_info->thread_id, NULL, video_disk_thread,
    dd);
-}
-
-static void close_window (void *data) {
-	dingle_dots_t *dd = (dingle_dots_t *)data;
-	if(dd->csurface)
-    cairo_surface_destroy(dd->csurface);
-  gtk_main_quit();
 }
 
 static gboolean configure_event_cb (GtkWidget *widget,
@@ -634,11 +663,15 @@ static gboolean configure_event_cb (GtkWidget *widget,
   dd->csurface = gdk_window_create_similar_surface(gtk_widget_get_window (widget),
    CAIRO_CONTENT_COLOR, gtk_widget_get_allocated_width (widget),
    gtk_widget_get_allocated_height (widget));
-  screen_resize = sws_getContext(width, height, AV_PIX_FMT_RGBA,
-   event->width, event->height, AV_PIX_FMT_BGRA, SWS_BICUBIC, NULL, NULL,
-   NULL);
-  dd->cr = cairo_create(dd->csurface);
+	dd->screen_resize = sws_getCachedContext(dd->screen_resize, width, height,
+	 AV_PIX_FMT_RGBA, event->width, event->height, AV_PIX_FMT_BGRA,
+	 SWS_BICUBIC, NULL, NULL, NULL);
+  if (dd->cr) {
+		cairo_destroy(dd->cr);
+	}
+	dd->cr = cairo_create(dd->csurface);
   if (dd->screen_frame) {
+		printf("Freeing Screen Frame\n");
 		av_freep(&dd->screen_frame->data[0]);
 		av_frame_free(&dd->screen_frame);
 	}
@@ -648,7 +681,7 @@ static gboolean configure_event_cb (GtkWidget *widget,
   dd->screen_frame->height = event->height;
   ret = av_image_alloc(dd->screen_frame->data, dd->screen_frame->linesize,
    dd->screen_frame->width, dd->screen_frame->height,
-	 dd->screen_frame->format, 1);
+	 dd->screen_frame->format, 32);
   if (ret < 0) {
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
@@ -689,47 +722,91 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
  GdkEventMotion *event, gpointer data) {
   int i;
   dingle_dots_t *dd = (dingle_dots_t *)data;
-  m_x = event->x * width / dd->screen_frame->width;
-  m_y = event->y * height / dd->screen_frame->height;
-  if (mdown) {
-    FIRST_W = m_x - mdown_x;
-    FIRST_H = m_y - mdown_y;
-    if (FIRST_W < 0) {
-      if (FIRST_W > - 20 * ascale_factor_x) {
-        FIRST_W = 20 * ascale_factor_x;
+  dd->mouse_pos.x = event->x * width / dd->screen_frame->width;
+  dd->mouse_pos.y = event->y * height / dd->screen_frame->height;
+	for (i = 0; i < MAX_NSOUND_SHAPES;i++) {
+    if (!dd->sound_shapes[i].active) continue;
+		dd->sound_shapes[i].hovered = 0;
+	}
+	for (i = MAX_NSOUND_SHAPES; i >= 0; i--) {
+    if (!dd->sound_shapes[i].active) continue;
+		if (sound_shape_in(&dd->sound_shapes[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
+			dd->sound_shapes[i].hovered = 1;
+			break;
+		}
+	}
+	if (dd->smdown) {
+    dd->user_tld_rect.width = dd->mouse_pos.x - dd->mdown_pos.x;
+    dd->user_tld_rect.height = dd->mouse_pos.y - dd->mdown_pos.y;
+    if (dd->user_tld_rect.width < 0) {
+      if (dd->user_tld_rect.width > - 20 * ascale_factor_x) {
+        dd->user_tld_rect.width = 20 * ascale_factor_x;
       } else {
-        FIRST_W = -FIRST_W;
+        dd->user_tld_rect.width = -dd->user_tld_rect.width;
       }
-      FIRST_X = mdown_x - FIRST_W;
-    } else if (FIRST_W >= 0) {
-      if (FIRST_W < 20 * ascale_factor_x) {
-        FIRST_W = 20 * ascale_factor_x;
+      dd->user_tld_rect.x = dd->mdown_pos.x - dd->user_tld_rect.width;
+    } else if (dd->user_tld_rect.width >= 0) {
+      if (dd->user_tld_rect.width < 20 * ascale_factor_x) {
+        dd->user_tld_rect.width = 20 * ascale_factor_x;
       }
-      FIRST_X = mdown_x;
+      dd->user_tld_rect.x = dd->mdown_pos.x;
     }
-    if (FIRST_H < 0) {
-      if (FIRST_H > - 20 * ascale_factor_y) {
-        FIRST_H = 20 * ascale_factor_y;
+    if (dd->user_tld_rect.height < 0) {
+      if (dd->user_tld_rect.height > - 20 * ascale_factor_y) {
+        dd->user_tld_rect.height = 20 * ascale_factor_y;
       } else {
-        FIRST_H = -FIRST_H;
+        dd->user_tld_rect.height = -dd->user_tld_rect.height;
       }
-      FIRST_Y = mdown_y - FIRST_H;
-    } else if (FIRST_W >= 0) {
-      if (FIRST_H < 20 * ascale_factor_y) {
-        FIRST_H = 20 * ascale_factor_y;
+      dd->user_tld_rect.y = dd->mdown_pos.y - dd->user_tld_rect.height;
+    } else if (dd->user_tld_rect.width >= 0) {
+      if (dd->user_tld_rect.height < 20 * ascale_factor_y) {
+        dd->user_tld_rect.height = 20 * ascale_factor_y;
       }
-      FIRST_Y = mdown_y;
+      dd->user_tld_rect.y = dd->mdown_pos.y;
     }
   }
+	if (dd->selection_in_progress) {
+		dd->selection_rect.width = dd->mouse_pos.x - dd->mdown_pos.x;
+		dd->selection_rect.height = dd->mouse_pos.y - dd->mdown_pos.y;
+		if (dd->selection_rect.width < 0) {
+			dd->selection_rect.width = -dd->selection_rect.width;
+			dd->selection_rect.x = dd->mdown_pos.x - dd->selection_rect.width;
+		} else if (dd->selection_rect.width >= 0) {
+			dd->selection_rect.x = dd->mdown_pos.x;
+		}
+		if (dd->selection_rect.height < 0) {
+			dd->selection_rect.height = -dd->selection_rect.height;
+			dd->selection_rect.y = dd->mdown_pos.y - dd->selection_rect.height;
+		} else if (dd->selection_rect.height >= 0) {
+			dd->selection_rect.y = dd->mdown_pos.y;
+		}
+	} else if (dd->mdown) {
+		dd->dragging = 1;
+	}
   isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
   for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
     if (!dd->sound_shapes[i].active) continue;
     if (dd->sound_shapes[i].mdown) {
-      dd->sound_shapes[i].x = m_x - dd->sound_shapes[i].mdown_x
-       + dd->sound_shapes[i].down_x;
-      dd->sound_shapes[i].y = m_y - dd->sound_shapes[i].mdown_y
-       + dd->sound_shapes[i].down_y;
-  		return TRUE;
+			if (dd->sound_shapes[i].selected) {
+				for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
+					if (!dd->sound_shapes[j].active) continue;
+					if (dd->sound_shapes[j].selected) {
+						dd->sound_shapes[j].x = dd->mouse_pos.x -
+						 dd->sound_shapes[i].mdown_pos.x +
+						 dd->sound_shapes[j].selected_pos.x;
+						dd->sound_shapes[j].y = dd->mouse_pos.y -
+						 dd->sound_shapes[i].mdown_pos.y +
+						 dd->sound_shapes[j].selected_pos.y;
+					}
+				}
+				return TRUE;
+			} else {
+				dd->sound_shapes[i].x = dd->mouse_pos.x - dd->sound_shapes[i].mdown_pos.x
+      	 + dd->sound_shapes[i].down_pos.x;
+      	dd->sound_shapes[i].y = dd->mouse_pos.y - dd->sound_shapes[i].mdown_pos.y
+      	 + dd->sound_shapes[i].down_pos.y;
+  			return TRUE;
+			}
     }
   }
 	return FALSE;
@@ -771,30 +848,58 @@ static gboolean button_press_event_cb(GtkWidget *widget,
  GdkEventButton *event, gpointer data) {
   int i;
   dingle_dots_t * dd = (dingle_dots_t *)data;
-  if (event->button == GDK_BUTTON_PRIMARY) {
+  dd->mouse_pos.x = event->x * width / dd->screen_frame->width;
+  dd->mouse_pos.y = event->y * height / dd->screen_frame->height;
+	if (event->button == GDK_BUTTON_PRIMARY) {
+    dd->mdown = 1;
+    dd->mdown_pos.x = dd->mouse_pos.x;
+    dd->mdown_pos.y = dd->mouse_pos.y;
     isort(dd->sound_shapes, MAX_NSOUND_SHAPES,
      sizeof(sound_shape), cmp_z_order);
     for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
       if (!dd->sound_shapes[i].active) continue;
-      if (sound_shape_in(&dd->sound_shapes[i], m_x, m_y)) {
-        dd->sound_shapes[i].mdown = 1;
-        dd->sound_shapes[i].mdown_x = m_x;
-        dd->sound_shapes[i].mdown_y = m_y;
-        dd->sound_shapes[i].down_x = dd->sound_shapes[i].x;
-        dd->sound_shapes[i].down_y = dd->sound_shapes[i].y;
-        dd->sound_shapes[i].z = next_z++;
-        return FALSE;
+      if (sound_shape_in(&dd->sound_shapes[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
+        if (!dd->sound_shapes[i].selected) {
+					for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
+						if (!dd->sound_shapes[j].active) continue;
+						dd->sound_shapes[j].selected = 0;
+					}
+					dd->sound_shapes[i].selected = 1;
+				}
+				dd->sound_shapes[i].mdown = 1;
+        dd->sound_shapes[i].mdown_pos.x = dd->mouse_pos.x;
+        dd->sound_shapes[i].mdown_pos.y = dd->mouse_pos.y;
+        dd->sound_shapes[i].down_pos.x = dd->sound_shapes[i].x;
+        dd->sound_shapes[i].down_pos.y = dd->sound_shapes[i].y;
+     		if (dd->sound_shapes[i].selected) {
+					for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
+						if (!dd->sound_shapes[j].active) continue;
+						if (dd->sound_shapes[j].selected) {
+							dd->sound_shapes[j].z = dd->next_z++;
+							dd->sound_shapes[j].selected_pos.x = dd->sound_shapes[j].x;
+							dd->sound_shapes[j].selected_pos.y = dd->sound_shapes[j].y;
+						}
+					}
+				}
+        dd->sound_shapes[i].z = dd->next_z++;
+				return FALSE;
       }
     }
+		dd->selection_in_progress = 1;
+		dd->selection_rect.x = dd->mouse_pos.x;
+		dd->selection_rect.y = dd->mouse_pos.y;
+		dd->selection_rect.width = 0;
+		dd->selection_rect.height = 0;
+		return FALSE;
   }
   if (!shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
-    mdown = 1;
-    mdown_x = m_x;
-    mdown_y = m_y;
-    FIRST_X = mdown_x;
-    FIRST_Y = mdown_y;
-    FIRST_W = 20 * ascale_factor_x;
-    FIRST_H = 20 * ascale_factor_y;
+    dd->smdown = 1;
+    dd->mdown_pos.x = dd->mouse_pos.x;
+    dd->mdown_pos.y = dd->mouse_pos.y;
+    dd->user_tld_rect.x = dd->mdown_pos.x;
+    dd->user_tld_rect.y = dd->mdown_pos.y;
+    dd->user_tld_rect.width = 20 * ascale_factor_x;
+    dd->user_tld_rect.height = 20 * ascale_factor_y;
 		return TRUE;
   }
   if (dd->doing_tld && shift_pressed) {
@@ -812,13 +917,24 @@ static gboolean button_release_event_cb(GtkWidget *widget,
   int i;
   dd = (dingle_dots_t *)data;
   if (event->button == GDK_BUTTON_PRIMARY) {
+ 		if (!dd->dragging && !dd->selection_in_progress) {
+    	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+      	if (!dd->sound_shapes[i].active) continue;
+      	if (!dd->sound_shapes[i].mdown) {
+					dd->sound_shapes[i].selected = 0;
+				}
+    	}
+		}
     for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
       if (!dd->sound_shapes[i].active) continue;
       dd->sound_shapes[i].mdown = 0;
     }
+		dd->mdown = 0;
+		dd->dragging = 0;
+		dd->selection_in_progress = 0;
   	return TRUE;
   } else if (!shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
-    mdown = 0;
+    dd->smdown = 0;
     make_new_tld = 1;
     dd->doing_tld = 1;
   	return TRUE;
@@ -882,6 +998,13 @@ static gboolean motion_cb(GtkWidget *widget, gpointer data) {
 	return TRUE;
 }
 
+static gboolean snapshot_cb(GtkWidget *widget, gpointer data) {
+  dingle_dots_t * dd;
+  dd = (dingle_dots_t *)data;
+	dd->do_snapshot = 1;
+	return TRUE;
+}
+
 static gboolean make_scale_cb(GtkWidget *widget, gpointer data) {
   dingle_dots_t * dd;
   dd = (dingle_dots_t *)data;
@@ -907,16 +1030,17 @@ static void activate(GtkApplication *app, gpointer user_data) {
   GtkWidget *rbutton;
   GtkWidget *qbutton;
   GtkWidget *mbutton;
+	GtkWidget *snapshot_button;
   GtkWidget *make_scale_button;
 	GtkWidget *aspect;
 	dingle_dots_t *dd;
  	int ret;
 	dd = (dingle_dots_t *)user_data;
   ccv_enable_default_cache();
-  FIRST_W = width/5.;
-  FIRST_H = height/5.;
-  FIRST_X = width/2.0;
-  FIRST_Y = height/2.0 - 0.5 * FIRST_H;
+  dd->user_tld_rect.width = width/5.;
+  dd->user_tld_rect.height = height/5.;
+  dd->user_tld_rect.x = width/2.0;
+  dd->user_tld_rect.y = height/2.0 - 0.5 * dd->user_tld_rect.height;
   ascale_factor_x = (1.0*width) / awidth;
   ascale_factor_y = ((double)height) / aheight;
   resize = sws_getContext(width, height, AV_PIX_FMT_ARGB, awidth,
@@ -951,7 +1075,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
   }
-  init_output(dd);
+  //init_output(dd);
   out_frame.size = 4 * width * height;
   out_frame.data = calloc(1, out_frame.size);
   uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
@@ -965,7 +1089,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_window_set_keep_above(GTK_WINDOW(ctl_window), TRUE);
   gtk_window_set_title(GTK_WINDOW (ctl_window), "Controls");
   g_signal_connect (window, "destroy", G_CALLBACK (quit_cb), dd);
-  g_signal_connect (ctl_window, "destroy", G_CALLBACK (close_window), dd);
+  g_signal_connect (ctl_window, "destroy", G_CALLBACK (quit_cb), dd);
   aspect = gtk_aspect_frame_new(NULL, 0.5, 0.5, ((float)width)/height, FALSE);
   gtk_frame_set_shadow_type(GTK_FRAME(aspect), GTK_SHADOW_NONE);
 	drawing_area = gtk_drawing_area_new();
@@ -980,7 +1104,9 @@ static void activate(GtkApplication *app, gpointer user_data) {
   rbutton = gtk_toggle_button_new_with_label("RECORD");
   qbutton = gtk_button_new_with_label("QUIT");
   mbutton = gtk_check_button_new_with_label("MOTION DETECTION");
-  gtk_box_pack_start(GTK_BOX(vbox), rbutton, FALSE, FALSE, 0);
+  snapshot_button = gtk_button_new_with_label("TAKE SNAPSHOT");
+	gtk_box_pack_start(GTK_BOX(vbox), rbutton, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(vbox), snapshot_button, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), mbutton, FALSE, FALSE, 0);
   dd->scale_combo = gtk_combo_box_text_new();
 	int i = 0;
@@ -1010,6 +1136,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   /* Signals used to handle the backing surface */
   g_timeout_add(16, (GSourceFunc)on_timeout, (gpointer)drawing_area);
   g_signal_connect(qbutton, "clicked", G_CALLBACK(quit_cb), dd);
+  g_signal_connect(snapshot_button, "clicked", G_CALLBACK(snapshot_cb), dd);
   g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);
   g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
   g_signal_connect (drawing_area, "draw",
@@ -1331,6 +1458,8 @@ int main(int argc, char **argv) {
   stop_capturing();
   uninit_device();
   close_device();
+	dingle_dots_deactivate_sound_shapes(&dingle_dots);
+	dingle_dots_free(&dingle_dots);
 	teardown_jack(&dingle_dots);
 	fprintf(stderr, "\n");
   return 0;

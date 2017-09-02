@@ -6,9 +6,9 @@
 #include <math.h>
 #include <string.h>
 #include <stdint.h>
+#include <gdk/gdk.h>
 
 #include "v4l2_wayland.h"
-//#include "dingle_dots.h"
 
 #define NCHAR 32
 #define MAX_NSOUND_SHAPES 256
@@ -35,7 +35,10 @@ struct sound_shape {
 	uint8_t active;
   uint8_t on;
 	uint8_t double_clicked_on;
-  double x;
+	uint8_t selected;
+	uint8_t hovered;
+	GdkPoint selected_pos;
+	double x;
   double y;
   double r;
   uint64_t z;
@@ -43,11 +46,9 @@ struct sound_shape {
   uint8_t midi_note;
   color normal;
   color playing;
-  uint8_t mdown;
-  double mdown_x;
-  double mdown_y;
-  double down_x;
-  double down_y;
+	uint8_t mdown;
+  GdkPoint mdown_pos;
+  GdkPoint down_pos;
 };
 
 int sound_shape_init(sound_shape *ss, char *label,

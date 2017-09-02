@@ -12,7 +12,7 @@ int sound_shape_init(sound_shape *ss, char *label,
   ss->x = x;
   ss->y = y;
   ss->r = r;
-  ss->z = next_z++;
+  ss->z = dd->next_z++;
   strncpy(ss->label, label, NCHAR);
   ss->midi_note = midi_note;
   ss->normal = color_copy(c);
@@ -56,6 +56,20 @@ int sound_shape_render(sound_shape *ss, cairo_t *cr) {
   cairo_set_source_rgba(cr, 0.5*c->r, 0.5*c->g, 0.5*c->b, 0.75);
   cairo_set_line_width(cr, 0.05 * ss->r);
 	cairo_stroke(cr);
+	if (ss->hovered) {
+		cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
+  	cairo_arc(cr, 0, 0, ss->r, 0, 2 * M_PI);
+		cairo_set_line_width(cr, 0.05 * ss->r);
+  	cairo_stroke(cr);
+		/*cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
+	 	cairo_arc(cr, 0, 0, ss->r * 1.025, 0, 2 * M_PI);
+  	cairo_fill(cr);*/
+	}
+	if (ss->selected) {
+		cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
+	 	cairo_arc(cr, 0, 0, ss->r, 0, 2 * M_PI);
+  	cairo_fill(cr);
+	}
   cairo_restore(cr);
   sound_shape_render_label(ss, cr);
   return 0;
@@ -67,7 +81,10 @@ int sound_shape_activate(sound_shape *ss) {
 }
 
 int sound_shape_deactivate(sound_shape *ss) {
-  ss->active = 0;
+	if (ss->on) {
+		sound_shape_off(ss);
+	}
+	ss->active = 0;
   return 0;
 }
 
@@ -81,13 +98,13 @@ int sound_shape_in(sound_shape *ss, double x, double y) {
 
 int sound_shape_on(sound_shape *ss) {
   ss->on = 1;
-  queue_new_message(0x90, ss->midi_note, 64, ss->dd);
+  midi_queue_new_message(0x90, ss->midi_note, 64, ss->dd);
   return 0;
 }
 
 int sound_shape_off(sound_shape *ss) {
   ss->on = 0;
-  queue_new_message(0x80, ss->midi_note, 0, ss->dd);
+  midi_queue_new_message(0x80, ss->midi_note, 0, ss->dd);
   return 0;
 }
 
