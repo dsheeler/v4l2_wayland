@@ -37,6 +37,8 @@ struct sound_shape {
 	uint8_t double_clicked_on;
 	uint8_t selected;
 	uint8_t hovered;
+	uint8_t motion_state;
+	uint8_t tld_state;
 	GdkPoint selected_pos;
 	double x;
   double y;

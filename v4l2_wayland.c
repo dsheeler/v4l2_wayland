@@ -58,6 +58,7 @@ fftw_complex                   *fftw_in, *fftw_out;
 fftw_plan                      p;
 output_frame                   out_frame;
 OutputStream                   video_st;
+OutputStream  								 audio_st;
 AVFormatContext                *oc;
 AVFrame                        *tframe;
 AVFrame                        *frame;
@@ -248,8 +249,8 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
   dingle_dots_t *dd = (dingle_dots_t *)arg;
   static int first_call = 1;
   static int first_data = 1;
-  static uint32_t save_buf[8192*4608];
-  static uint32_t save_buf2[8192*4608];
+  static uint32_t save_buf[2*8192*8192];
+  static uint32_t save_buf2[2*8192*8192];
   static int save_size = 0;
   static ccv_comp_t newbox;
   static int made_first_tld = 0;
@@ -262,12 +263,11 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 	uint32_t val;
   int n;
   unsigned char *ptr = (unsigned char *) p;
-  if (video_done) return;
+	if (video_done) return;
   if (size != 0) {
     save_size = size;
-    //(uint32_t *)frame->data[0];
   	if (!first_data) {
-			memcpy(save_buf2, save_buf, 2 * save_size);
+			memcpy(save_buf2, save_buf, 4 * width * height);
 		}
 		for (n = 0; n < save_size; n += 4) {
       nij = (int) n / 2;
@@ -285,19 +285,15 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
   }
 	if (first_data) {
 		first_data = 0;
-		memcpy(save_buf2, save_buf, 2 * save_size);
+		memcpy(save_buf2, save_buf, 4 * width * height);
 	}
   memcpy(frame->data[0], save_buf, 2 * save_size);
-  GdkPixbuf *pb;
+	GdkPixbuf *pb;
   cairo_surface_t *csurf;
   csurf = cairo_image_surface_create_for_data((unsigned char *)frame->data[0],
    CAIRO_FORMAT_ARGB32, width, height, 4*width);
   cairo_t *tcr;
   tcr = cairo_create(csurf);
-	int motion_state[MAX_NSOUND_SHAPES];
-	memset(motion_state, 0, sizeof(int) * MAX_NSOUND_SHAPES);
-	int	tld_state[MAX_NSOUND_SHAPES];
-	memset(tld_state, 0, sizeof(int) * MAX_NSOUND_SHAPES);
 	if (dd->doing_motion) {
 		for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
 			if (!dd->sound_shapes[s].active) continue;
@@ -331,9 +327,14 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 				}
 			}
 			if ((sum / npts) > dd->motion_threshold) {
-				printf("%f\n", sum / npts);
-				motion_state[s] = 1;
+				dd->sound_shapes[s].motion_state = 1;
+			} else {
+				dd->sound_shapes[s].motion_state = 0;
 			}
+		}
+	} else {
+		for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
+			dd->sound_shapes[s].motion_state = 0;
 		}
 	}
 	if (dd->doing_tld) {
@@ -374,8 +375,10 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
          0.5*ascale_factor_x*newbox.rect.width,
          ascale_factor_y*newbox.rect.y +
          0.5*ascale_factor_y*newbox.rect.height)) {
-         	tld_state[i] = 1;
-        }
+         	dd->sound_shapes[i].tld_state = 1;
+        } else {
+					dd->sound_shapes[i].tld_state = 0;
+				}
       }
     }
   } else {
@@ -386,24 +389,22 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
     newbox.rect.width = 0;
     newbox.rect.height = 0;
 	}
-
-
-	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+	for (int i = 0; i < MAX_NSOUND_SHAPES; i++) {
   	if (!dd->sound_shapes[i].active) continue;
-		if (dd->sound_shapes[i].double_clicked_on || motion_state[i]
-		 || tld_state[i]) {
+		if (dd->sound_shapes[i].double_clicked_on || dd->sound_shapes[i].motion_state
+		 || dd->sound_shapes[i].tld_state) {
 			if (!dd->sound_shapes[i].on) {
       	sound_shape_on(&dd->sound_shapes[i]);
       }
     }
-		if (!dd->sound_shapes[i].double_clicked_on && !motion_state[i]
-		 && !tld_state[i]) {
+		if (!dd->sound_shapes[i].double_clicked_on && !dd->sound_shapes[i].motion_state
+		 && !dd->sound_shapes[i].tld_state) {
 			if (dd->sound_shapes[i].on) {
 				sound_shape_off(&dd->sound_shapes[i]);
 			}
 		}
 	}
-  isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
+	isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
   for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
     if (!dd->sound_shapes[i].active) continue;
     sound_shape_render(&dd->sound_shapes[i], tcr);
@@ -433,7 +434,8 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 #endif
 	cairo_surface_destroy(csurf);
   if (dd->smdown) {
-    render_detection_box(tcr, 1, dd->user_tld_rect.x, dd->user_tld_rect.y, dd->user_tld_rect.width, dd->user_tld_rect.height);
+    render_detection_box(tcr, 1, dd->user_tld_rect.x, dd->user_tld_rect.y,
+		 dd->user_tld_rect.width, dd->user_tld_rect.height);
   }
 	if (dd->selection_in_progress) {
 		render_selection_box(tcr, dd);
@@ -459,11 +461,12 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
      ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
      ascale_factor_y*newbox.rect.height);
   }
-  sws_scale(dd->screen_resize, (const uint8_t* const*)frame->data, frame->linesize,
-   0, height, dd->screen_frame->data, dd->screen_frame->linesize);
+  sws_scale(dd->screen_resize, (const uint8_t* const*)frame->data,
+	 frame->linesize, 0, height, dd->screen_frame->data,
+	 dd->screen_frame->linesize);
   pb = gdk_pixbuf_new_from_data(dd->screen_frame->data[0], GDK_COLORSPACE_RGB,
    TRUE, 8, dd->screen_frame->width, dd->screen_frame->height,
-	 /*4 * dd->screen_frame->width*/ dd->screen_frame->linesize[0], NULL, NULL);
+	 dd->screen_frame->linesize[0], NULL, NULL);
   gdk_cairo_set_source_pixbuf(cr, pb, 0, 0);
 	if (dd->do_snapshot) {
   	gdk_pixbuf_save(pb, "test.png", "png", NULL, NULL);
@@ -665,7 +668,7 @@ static gboolean configure_event_cb (GtkWidget *widget,
    gtk_widget_get_allocated_height (widget));
 	dd->screen_resize = sws_getCachedContext(dd->screen_resize, width, height,
 	 AV_PIX_FMT_RGBA, event->width, event->height, AV_PIX_FMT_BGRA,
-	 SWS_BICUBIC, NULL, NULL, NULL);
+	 SWS_FAST_BILINEAR, NULL, NULL, NULL);
   if (dd->cr) {
 		cairo_destroy(dd->cr);
 	}
@@ -1075,7 +1078,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
   }
-  //init_output(dd);
+  init_output(dd);
   out_frame.size = 4 * width * height;
   out_frame.data = calloc(1, out_frame.size);
   uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
@@ -1393,7 +1396,6 @@ long_options[] = {
 int main(int argc, char **argv) {
   disk_thread_info_t video_thread_info;
   disk_thread_info_t audio_thread_info;
-  OutputStream  audio_st;
   dingle_dots_t dingle_dots;
   out_file_name = "testington.webm";
   dev_name = "/dev/video0";
