@@ -49,7 +49,7 @@ int sound_shape_render(sound_shape *ss, cairo_t *cr) {
   color *c;
   c = ss->on ? &ss->playing : &ss->normal;
   cairo_save(cr);
-  cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
+	cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
   cairo_translate(cr, ss->x, ss->y);
   cairo_arc(cr, 0, 0, ss->r*0.975, 0, 2 * M_PI);
   cairo_fill(cr);

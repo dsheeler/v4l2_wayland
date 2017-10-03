@@ -30,7 +30,8 @@ static int write_frame(AVFormatContext *fmt_ctx,
 
 /* Add an output stream. */
 static void add_stream(OutputStream *ost, AVFormatContext *oc,
-                       AVCodec **codec, enum AVCodecID codec_id) {
+                       AVCodec **codec, enum AVCodecID codec_id, int width,
+											 int height) {
   AVCodecContext *c;
   int i;
   *codec = avcodec_find_encoder(codec_id);
@@ -253,7 +254,7 @@ int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
 /**************************************************************/
 /* video output */
 
-static void open_video(AVFormatContext *oc, AVCodec *codec, OutputStream *ost, AVDictionary *opt_arg)
+static void open_video(int width, int height, AVFormatContext *oc, AVCodec *codec, OutputStream *ost, AVDictionary *opt_arg)
 {
     int ret;
     AVCodecContext *c = ost->enc;
@@ -275,7 +276,7 @@ static void open_video(AVFormatContext *oc, AVCodec *codec, OutputStream *ost, A
         fprintf(stderr, "Could not allocate video frame\n");
         exit(1);
     }
-    ost->frame->format = AV_PIX_FMT_RGBA;
+    ost->frame->format = AV_PIX_FMT_BGRA;
     ost->frame->width = width;
     ost->frame->height = height;
     ost->out_frame.size = 4 * width * height;
@@ -328,11 +329,10 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame) {
     now = &ost->out_frame.ts;
     diff = now->tv_sec + 1e-9*now->tv_nsec - (ost->first_time.tv_sec +
      1e-9*ost->first_time.tv_nsec);
-    //printf("video time : %f\n", diff);
     ost->next_pts = (int) c->time_base.den * diff / c->time_base.num;
     if (!ost->sws_ctx) {
       ost->sws_ctx = sws_getContext(c->width, c->height,
-       AV_PIX_FMT_BGRA, c->width, c->height, c->pix_fmt,
+       ost->frame->format, c->width, c->height, c->pix_fmt,
        SCALE_FLAGS, NULL, NULL, NULL);
       if (!ost->sws_ctx) {
         fprintf(stderr,
@@ -428,17 +428,17 @@ int init_output(dingle_dots_t *dd) {
   if (!oc)
     return 1;
   fmt = oc->oformat;
-  add_stream(dd->video_thread_info->stream, oc,
-   &video_codec, fmt->video_codec);
+  add_stream(&dd->video_thread_info.stream, oc,
+   &video_codec, fmt->video_codec, dd->camera_rect.width, dd->camera_rect.height);
   if (fmt->audio_codec != AV_CODEC_ID_NONE) {
-    add_stream(dd->audio_thread_info->stream, oc,
-     &audio_codec, fmt->audio_codec);
+    add_stream(&dd->audio_thread_info.stream, oc,
+     &audio_codec, fmt->audio_codec, 0, 0);
   }
   av_dict_set(&opt, "cpu-used", "-8", 0);
   av_dict_set(&opt, "deadline", "realtime", 0);
-  open_video(oc, video_codec, dd->video_thread_info->stream, opt);
-  //open_video(oc, video_codec, &video_st, opt);
-  open_audio(oc, audio_codec, dd->audio_thread_info->stream, opt);
+  open_video(dd->camera_rect.width, dd->camera_rect.height,
+	 oc, video_codec, &dd->video_thread_info.stream, opt);
+  open_audio(oc, audio_codec, &dd->audio_thread_info.stream, opt);
   av_dump_format(oc, 0, filename, 1);
   if (!(fmt->flags & AVFMT_NOFILE)) {
     ret = avio_open(&oc->pb, filename, AVIO_FLAG_WRITE);

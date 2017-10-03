@@ -3,7 +3,9 @@
 
 #include <pthread.h>
 #include <libavformat/avformat.h>
+#include <jack/ringbuffer.h>
 
+void *snapshot_disk_thread(void *);
 
 typedef struct output_frame {
   uint32_t *data;
@@ -29,6 +31,7 @@ typedef struct disk_thread_info {
   pthread_t thread_id;
   pthread_mutex_t lock;
   pthread_cond_t data_ready;
-  OutputStream *stream;
+  jack_ringbuffer_t *ring_buf;
+	OutputStream stream;
 } disk_thread_info_t;
 #endif

@@ -56,22 +56,9 @@ static void isort(void *base, size_t nmemb, size_t size,
 
 fftw_complex                   *fftw_in, *fftw_out;
 fftw_plan                      p;
-output_frame                   out_frame;
-OutputStream                   video_st;
-OutputStream  								 audio_st;
 AVFormatContext                *oc;
-AVFrame                        *tframe;
-AVFrame                        *frame;
 char                           *out_file_name;
-uint32_t                       width = 1920;
-uint32_t                       height = 1080;
-uint32_t                       awidth = 260;
-uint32_t                       aheight = 148;
-double                         ascale_factor_x;
-double                         ascale_factor_y;
 uint32_t                       stream_bitrate = 800000;
-static AVFrame                 *aframe;
-static struct SwsContext       *resize;
 static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
 static ccv_tld_t               *tld = 0;
 int                             recording_started = 0;
@@ -116,46 +103,86 @@ void *audio_disk_thread(void *arg) {
   int ret;
   dingle_dots_t *dd = (dingle_dots_t *)arg;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-  pthread_mutex_lock(&dd->audio_thread_info->lock);
+  pthread_mutex_lock(&dd->audio_thread_info.lock);
   while(1) {
-    ret = write_audio_frame(dd, oc, dd->audio_thread_info->stream);
+    ret = write_audio_frame(dd, oc, &dd->audio_thread_info.stream);
     if (ret == 1) {
       audio_done = 1;
       break;
     }
     if (ret == 0) continue;
-    if (ret == -1) pthread_cond_wait(&dd->audio_thread_info->data_ready,
-     &dd->audio_thread_info->lock);
+    if (ret == -1) pthread_cond_wait(&dd->audio_thread_info.data_ready,
+     &dd->audio_thread_info.lock);
   }
   if (audio_done && video_done && !trailer_written) {
     av_write_trailer(oc);
     trailer_written = 1;
   }
-  pthread_mutex_unlock(&dd->audio_thread_info->lock);
-  return 0;
+  pthread_mutex_unlock(&dd->audio_thread_info.lock);
+	return 0;
 }
 
 void *video_disk_thread (void *arg) {
   int ret;
   dingle_dots_t *dd = (dingle_dots_t *)arg;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-  pthread_mutex_lock(&dd->video_thread_info->lock);
+  pthread_mutex_lock(&dd->video_thread_info.lock);
   while(1) {
-    ret = write_video_frame(oc, dd->video_thread_info->stream);
+    ret = write_video_frame(oc, &dd->video_thread_info.stream);
     if (ret == 1) {
       video_done = 1;
       break;
     }
     if (ret == 0) continue;
-    if (ret == -1) pthread_cond_wait(&dd->video_thread_info->data_ready,
-     &dd->video_thread_info->lock);
+    if (ret == -1) pthread_cond_wait(&dd->video_thread_info.data_ready,
+     &dd->video_thread_info.lock);
   }
   if (audio_done && video_done && !trailer_written) {
     av_write_trailer(oc);
     trailer_written = 1;
   }
-  pthread_mutex_unlock(&dd->video_thread_info->lock);
-  return 0;
+  pthread_mutex_unlock(&dd->video_thread_info.lock);
+	return 0;
+}
+
+void *snapshot_disk_thread (void *arg) {
+	int size;
+	int space;
+	cairo_surface_t *csurf;
+	AVFrame *frame;
+  dingle_dots_t *dd = (dingle_dots_t *)arg;
+  pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+  pthread_mutex_lock(&dd->snapshot_thread_info.lock);
+  frame = NULL;
+  frame = av_frame_alloc();
+  frame->width = dd->camera_rect.width;
+  frame->height = dd->camera_rect.height;
+  frame->format = AV_PIX_FMT_ARGB;
+  av_image_alloc(frame->data, frame->linesize,
+   frame->width, frame->height, frame->format, 1);
+  if (!frame) {
+    fprintf(stderr, "Could not allocate temporary picture\n");
+    exit(1);
+  }
+  size = 4 * frame->width * frame->height;
+  csurf = cairo_image_surface_create_for_data((unsigned char *)frame->data[0],
+   CAIRO_FORMAT_ARGB32, frame->width, frame->height, 4*frame->width);
+  while(1) {
+	  space = jack_ringbuffer_read_space(dd->snapshot_thread_info.ring_buf);
+  	while (space >= size) {
+  	  jack_ringbuffer_read(dd->snapshot_thread_info.ring_buf, (char *)frame->data[0],
+  	   size);
+  		cairo_surface_write_to_png(csurf, "test.png");
+	  	space = jack_ringbuffer_read_space(dd->snapshot_thread_info.ring_buf);
+		}
+   	pthread_cond_wait(&dd->snapshot_thread_info.data_ready,
+   	 &dd->snapshot_thread_info.lock);
+	}
+	cairo_surface_destroy(csurf);
+	av_freep(frame->data[0]);
+	av_frame_free(&frame);
+	pthread_mutex_unlock(&dd->snapshot_thread_info.lock);
+	return 0;
 }
 
 static void YUV2RGB(const unsigned char y, const unsigned char u,const unsigned char v, unsigned char* r,
@@ -180,10 +207,11 @@ static void YUV2RGB(const unsigned char y, const unsigned char u,const unsigned 
   *b = CLIPVALUE(b2);
 }
 
-ccv_tld_t *new_tld(int x, int y, int w, int h) {
+ccv_tld_t *new_tld(int x, int y, int w, int h, dingle_dots_t *dd) {
   ccv_tld_param_t p = ccv_tld_default_params;
   ccv_rect_t box = ccv_rect(x, y, w, h);
-  ccv_read(aframe->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY, aheight, awidth, 4*awidth);
+  ccv_read(dd->analysis_frame->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY,
+	 dd->analysis_rect.height, dd->analysis_rect.width, 4*dd->analysis_rect.width);
   return ccv_tld_new(cdm, box, p);
 }
 
@@ -267,31 +295,34 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
   if (size != 0) {
     save_size = size;
   	if (!first_data) {
-			memcpy(save_buf2, save_buf, 4 * width * height);
+			memcpy(save_buf2, save_buf, 4 * dd->camera_rect.width *
+			 dd->camera_rect.height);
 		}
 		for (n = 0; n < save_size; n += 4) {
       nij = (int) n / 2;
-      i = nij%width;
-      j = nij/width;
+      i = nij%dd->camera_rect.width;
+      j = nij/dd->camera_rect.width;
       y0 = (unsigned char)ptr[n + 0];
       u = (unsigned char)ptr[n + 1];
       y1 = (unsigned char)ptr[n + 2];
       v = (unsigned char)ptr[n + 3];
       YUV2RGB(y0, u, v, &r, &g, &b);
-      save_buf[width - 1 - i + j*width] = 255 << 24 | r << 16 | g << 8 | b;
+      save_buf[dd->camera_rect.width - 1 - i + j*dd->camera_rect.width] = 255 << 24 | r << 16 | g << 8 | b;
       YUV2RGB(y1, u, v, &r, &g, &b);
-      save_buf[width - 1 - (i+1) + j*width] = 255 << 24 | r << 16 | g << 8 | b;
+      save_buf[dd->camera_rect.width - 1 - (i+1) + j*dd->camera_rect.width] = 255 << 24 | r << 16 | g << 8 | b;
     }
   }
 	if (first_data) {
 		first_data = 0;
-		memcpy(save_buf2, save_buf, 4 * width * height);
+		memcpy(save_buf2, save_buf, 4 * dd->camera_rect.width *
+		 dd->camera_rect.height);
 	}
-  memcpy(frame->data[0], save_buf, 2 * save_size);
-	GdkPixbuf *pb;
+  memcpy(dd->drawing_frame->data[0], save_buf, 4 * dd->camera_rect.width *
+	 dd->camera_rect.height);
   cairo_surface_t *csurf;
-  csurf = cairo_image_surface_create_for_data((unsigned char *)frame->data[0],
-   CAIRO_FORMAT_ARGB32, width, height, 4*width);
+  csurf = cairo_image_surface_create_for_data((unsigned char *)dd->drawing_frame->data[0],
+   CAIRO_FORMAT_ARGB32, dd->camera_rect.width, dd->camera_rect.height,
+	 4*dd->camera_rect.width);
   cairo_t *tcr;
   tcr = cairo_create(csurf);
 	if (dd->doing_motion) {
@@ -299,23 +330,23 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 			if (!dd->sound_shapes[s].active) continue;
 			sum = 0;
 			npts = 0;
-      istart = min(width, max(0, round(dd->sound_shapes[s].x -
+      istart = min(dd->camera_rect.width, max(0, round(dd->sound_shapes[s].x -
 			 dd->sound_shapes[s].r)));
-      jstart = min(height, max(0, round(dd->sound_shapes[s].y -
+      jstart = min(dd->camera_rect.height, max(0, round(dd->sound_shapes[s].y -
 			 dd->sound_shapes[s].r)));
-      iend = max(0, min(width, round(dd->sound_shapes[s].x +
+      iend = max(0, min(dd->camera_rect.width, round(dd->sound_shapes[s].x +
 		   dd->sound_shapes[s].r)));
-      jend = max(0, min(height, round(dd->sound_shapes[s].y +
+      jend = max(0, min(dd->camera_rect.height, round(dd->sound_shapes[s].y +
 			 dd->sound_shapes[s].r)));
 			for (i = istart; i < iend; i++) {
 				for (j = jstart; j < jend; j++) {
 					if (sound_shape_in(&dd->sound_shapes[s], i, j)) {
-						val = save_buf[i + j * width];
+						val = save_buf[i + j * dd->camera_rect.width];
 						fr = ((val & 0x00ff0000) >> 16) / 256.;
 						fg = ((val & 0x0000ff00) >> 8) / 256.;
 						fb = ((val & 0x000000ff)) / 256.;
 						bw = fr * 0.3 + fg * 0.59 + fb * 0.1;
-						val = save_buf2[i + j * width];
+						val = save_buf2[i + j * dd->camera_rect.width];
 						fr = ((val & 0x00ff0000) >> 16) / 256.;
 						fg = ((val & 0x0000ff00) >> 8) / 256.;
 						fb = ((val & 0x000000ff)) / 256.;
@@ -339,12 +370,12 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 	}
 	if (dd->doing_tld) {
     if (do_tld) {
-      sws_scale(resize, (uint8_t const * const *)frame->data,
-       frame->linesize, 0, frame->height, aframe->data, aframe->linesize);
+      sws_scale(dd->analysis_resize, (uint8_t const * const *)dd->drawing_frame->data,
+       dd->drawing_frame->linesize, 0, dd->drawing_frame->height, dd->analysis_frame->data, dd->analysis_frame->linesize);
       if (make_new_tld == 1) {
         if (dd->user_tld_rect.width > 0 && dd->user_tld_rect.height > 0) {
-          tld = new_tld(dd->user_tld_rect.x/ascale_factor_x, dd->user_tld_rect.y/ascale_factor_y,
-           dd->user_tld_rect.width/ascale_factor_x, dd->user_tld_rect.height/ascale_factor_y);
+          tld = new_tld(dd->user_tld_rect.x/dd->ascale_factor_x, dd->user_tld_rect.y/dd->ascale_factor_y,
+           dd->user_tld_rect.width/dd->ascale_factor_x, dd->user_tld_rect.height/dd->ascale_factor_y, dd);
         } else {
           tld = NULL;
           dd->doing_tld = 0;
@@ -358,8 +389,8 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
         made_first_tld = 1;
         make_new_tld = 0;
       } else {
-        ccv_read(aframe->data[0], &cdm2, CCV_IO_ABGR_RAW |
-         CCV_IO_GRAY, aheight, awidth, 4*awidth);
+        ccv_read(dd->analysis_frame->data[0], &cdm2, CCV_IO_ABGR_RAW |
+         CCV_IO_GRAY, dd->analysis_rect.height, dd->analysis_rect.width, 4*dd->analysis_rect.width);
         ccv_tld_info_t info;
         newbox = ccv_tld_track_object(tld, cdm, cdm2, &info);
         cdm = cdm2;
@@ -371,10 +402,10 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
       for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
         if (!dd->sound_shapes[i].active) continue;
         if (sound_shape_in(&dd->sound_shapes[i],
-         ascale_factor_x*newbox.rect.x +
-         0.5*ascale_factor_x*newbox.rect.width,
-         ascale_factor_y*newbox.rect.y +
-         0.5*ascale_factor_y*newbox.rect.height)) {
+         dd->ascale_factor_x*newbox.rect.x +
+         0.5*dd->ascale_factor_x*newbox.rect.width,
+         dd->ascale_factor_y*newbox.rect.y +
+         0.5*dd->ascale_factor_y*newbox.rect.height)) {
          	dd->sound_shapes[i].tld_state = 1;
         } else {
 					dd->sound_shapes[i].tld_state = 0;
@@ -419,20 +450,19 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
   double w;
   double h;
   double x;
-  w = width / (FFT_SIZE + 1);
+  w = dd->camera_rect.width / (FFT_SIZE + 1);
   space = w;
   cairo_save(tcr);
   cairo_set_source_rgba(tcr, 0, 0.25, 0, 0.5);
   for (i = 0; i < FFT_SIZE/2; i++) {
     h = ((20.0 * log(sqrt(fftw_out[i][0] * fftw_out[i][0] +
-     fftw_out[i][1] * fftw_out[i][1])) / M_LN10) + 50.) * (height / 50.);
+     fftw_out[i][1] * fftw_out[i][1])) / M_LN10) + 50.) * (dd->camera_rect.height / 50.);
     x = i * (w + space) + space;
-    cairo_rectangle(tcr, x, height - h, w, h);
+    cairo_rectangle(tcr, x, dd->camera_rect.height - h, w, h);
     cairo_fill(tcr);
   }
   cairo_restore(tcr);
 #endif
-	cairo_surface_destroy(csurf);
   if (dd->smdown) {
     render_detection_box(tcr, 1, dd->user_tld_rect.x, dd->user_tld_rect.y,
 		 dd->user_tld_rect.width, dd->user_tld_rect.height);
@@ -457,45 +487,63 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 	}
   render_pointer(tcr, dd->mouse_pos.x, dd->mouse_pos.y);
   if (dd->doing_tld) {
-    render_detection_box(tcr, 0, ascale_factor_x*newbox.rect.x,
-     ascale_factor_y*newbox.rect.y, ascale_factor_x*newbox.rect.width,
-     ascale_factor_y*newbox.rect.height);
+    render_detection_box(tcr, 0, dd->ascale_factor_x*newbox.rect.x,
+     dd->ascale_factor_y*newbox.rect.y, dd->ascale_factor_x*newbox.rect.width,
+     dd->ascale_factor_y*newbox.rect.height);
   }
-  sws_scale(dd->screen_resize, (const uint8_t* const*)frame->data,
-	 frame->linesize, 0, height, dd->screen_frame->data,
+  sws_scale(dd->screen_resize, (const uint8_t* const*)dd->drawing_frame->data,
+	 dd->drawing_frame->linesize, 0, dd->camera_rect.height, dd->screen_frame->data,
 	 dd->screen_frame->linesize);
-  pb = gdk_pixbuf_new_from_data(dd->screen_frame->data[0], GDK_COLORSPACE_RGB,
+  cairo_surface_t *screen_surf;
+  screen_surf = cairo_image_surface_create_for_data((unsigned char *)dd->screen_frame->data[0],
+   CAIRO_FORMAT_ARGB32, dd->screen_frame->width, dd->screen_frame->height,
+	 dd->screen_frame->linesize[0]);
+/*pb = gdk_pixbuf_new_from_data(dd->screen_frame->data[0], GDK_COLORSPACE_RGB,
    TRUE, 8, dd->screen_frame->width, dd->screen_frame->height,
 	 dd->screen_frame->linesize[0], NULL, NULL);
-  gdk_cairo_set_source_pixbuf(cr, pb, 0, 0);
-	if (dd->do_snapshot) {
-  	gdk_pixbuf_save(pb, "test.png", "png", NULL, NULL);
-		dd->do_snapshot = 0;
-	}
+  gdk_cairo_set_source_pixbuf(cr, pb, 0, 0);*/
+	cairo_set_source_surface(cr, screen_surf, 0.0, 0.0);
 	cairo_paint(cr);
 	cairo_destroy(tcr);
-	g_object_unref(pb);
+	cairo_surface_destroy(screen_surf);
+	cairo_surface_destroy(csurf);
+	//g_object_unref(pb);
+	int drawing_size = 4 * dd->drawing_frame->width * dd->drawing_frame->height;
+  int tsize = drawing_size;
+	if (dd->do_snapshot) {
+	  printf("yes snapshot reached\n");
+		if (jack_ringbuffer_write_space(dd->snapshot_thread_info.ring_buf) >= tsize) {
+    	printf("yes snapshot wrote to ringbuf\n");
+			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (void *)dd->drawing_frame->data[0],
+    	 drawing_size);
+    	if (pthread_mutex_trylock(&dd->snapshot_thread_info.lock) == 0) {
+    	  pthread_cond_signal(&dd->snapshot_thread_info.data_ready);
+    	  pthread_mutex_unlock(&dd->snapshot_thread_info.lock);
+    	}
+  	}
+		dd->do_snapshot = 0;
+  }
   if (recording_stopped) {
-    if (pthread_mutex_trylock(&dd->video_thread_info->lock) == 0) {
-      pthread_cond_signal(&dd->video_thread_info->data_ready);
-      pthread_mutex_unlock(&dd->video_thread_info->lock);
+    if (pthread_mutex_trylock(&dd->video_thread_info.lock) == 0) {
+      pthread_cond_signal(&dd->video_thread_info.data_ready);
+      pthread_mutex_unlock(&dd->video_thread_info.lock);
     }
   }
   if (!recording_started || recording_stopped) return;
   if (first_call) {
     first_call = 0;
-    dd->video_thread_info->stream->first_time = out_frame.ts;
+    dd->video_thread_info.stream.first_time = dd->out_frame_ts;
     can_capture = 1;
   }
-  int tsize = out_frame.size + sizeof(struct timespec);
+  tsize = drawing_size + sizeof(struct timespec);
   if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
-    jack_ringbuffer_write(video_ring_buf, (void *)frame->data[0],
-     out_frame.size);
-    jack_ringbuffer_write(video_ring_buf, (void *)&out_frame.ts,
+    jack_ringbuffer_write(video_ring_buf, (void *)dd->drawing_frame->data[0],
+     drawing_size);
+    jack_ringbuffer_write(video_ring_buf, (void *)&dd->out_frame_ts,
      sizeof(struct timespec));
-    if (pthread_mutex_trylock(&dd->video_thread_info->lock) == 0) {
-      pthread_cond_signal(&dd->video_thread_info->data_ready);
-      pthread_mutex_unlock(&dd->video_thread_info->lock);
+    if (pthread_mutex_trylock(&dd->video_thread_info.lock) == 0) {
+      pthread_cond_signal(&dd->video_thread_info.data_ready);
+      pthread_mutex_unlock(&dd->video_thread_info.lock);
     }
   }
 }
@@ -519,7 +567,7 @@ static int read_frame(cairo_t *cr, dingle_dots_t *dd) {
     }
   }
   assert(buf.index < n_buffers);
-  clock_gettime(CLOCK_MONOTONIC, &out_frame.ts);
+  clock_gettime(CLOCK_MONOTONIC, &dd->out_frame_ts);
   process_image(cr, buffers[buf.index].start, buf.bytesused, !eagain, dd);
   if (!eagain) {
     if (-1 == xioctl(fd, VIDIOC_QBUF, &buf))
@@ -565,9 +613,9 @@ int process(jack_nframes_t nframes, void *arg) {
   }
   if ((!can_process) || (!can_capture) || (audio_done)) return 0;
   if (first_call) {
-    struct timespec *ats = &dd->audio_thread_info->stream->first_time;
+    struct timespec *ats = &dd->audio_thread_info.stream.first_time;
     clock_gettime(CLOCK_MONOTONIC, ats);
-    dd->audio_thread_info->stream->samples_count = 0;
+    dd->audio_thread_info.stream.samples_count = 0;
     first_call = 0;
   }
   for (i = 0; i < nframes; i++) {
@@ -578,9 +626,9 @@ int process(jack_nframes_t nframes, void *arg) {
       }
     }
   }
-  if (pthread_mutex_trylock (&dd->audio_thread_info->lock) == 0) {
-    pthread_cond_signal (&dd->audio_thread_info->data_ready);
-    pthread_mutex_unlock (&dd->audio_thread_info->lock);
+  if (pthread_mutex_trylock (&dd->audio_thread_info.lock) == 0) {
+    pthread_cond_signal (&dd->audio_thread_info.data_ready);
+    pthread_mutex_unlock (&dd->audio_thread_info.lock);
   }
   return 0;
 }
@@ -650,9 +698,9 @@ void teardown_jack(dingle_dots_t *dd) {
 
 void start_recording_threads(dingle_dots_t *dd) {
   recording_started = 1;
-  pthread_create(&dd->audio_thread_info->thread_id, NULL, audio_disk_thread,
+  pthread_create(&dd->audio_thread_info.thread_id, NULL, audio_disk_thread,
    dd);
-  pthread_create(&dd->video_thread_info->thread_id, NULL, video_disk_thread,
+  pthread_create(&dd->video_thread_info.thread_id, NULL, video_disk_thread,
    dd);
 }
 
@@ -661,25 +709,12 @@ static gboolean configure_event_cb (GtkWidget *widget,
   int ret;
   dingle_dots_t *dd;
   dd = (dingle_dots_t *)data;
-  if (dd->csurface)
-    cairo_surface_destroy(dd->csurface);
-  dd->csurface = gdk_window_create_similar_surface(gtk_widget_get_window (widget),
-   CAIRO_CONTENT_COLOR, gtk_widget_get_allocated_width (widget),
-   gtk_widget_get_allocated_height (widget));
-	dd->screen_resize = sws_getCachedContext(dd->screen_resize, width, height,
-	 AV_PIX_FMT_RGBA, event->width, event->height, AV_PIX_FMT_BGRA,
-	 SWS_FAST_BILINEAR, NULL, NULL, NULL);
-  if (dd->cr) {
-		cairo_destroy(dd->cr);
-	}
-	dd->cr = cairo_create(dd->csurface);
   if (dd->screen_frame) {
-		printf("Freeing Screen Frame\n");
 		av_freep(&dd->screen_frame->data[0]);
 		av_frame_free(&dd->screen_frame);
 	}
 	dd->screen_frame = av_frame_alloc();
-  dd->screen_frame->format = AV_PIX_FMT_BGRA;
+  dd->screen_frame->format = AV_PIX_FMT_ARGB;
   dd->screen_frame->width = event->width;
   dd->screen_frame->height = event->height;
   ret = av_image_alloc(dd->screen_frame->data, dd->screen_frame->linesize,
@@ -689,6 +724,18 @@ static gboolean configure_event_cb (GtkWidget *widget,
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
   }
+  if (dd->csurface)
+    cairo_surface_destroy(dd->csurface);
+  dd->csurface = gdk_window_create_similar_surface(gtk_widget_get_window (widget),
+   CAIRO_CONTENT_COLOR, gtk_widget_get_allocated_width (widget),
+   gtk_widget_get_allocated_height (widget));
+	dd->screen_resize = sws_getCachedContext(dd->screen_resize, dd->camera_rect.width, dd->camera_rect.height,
+	 dd->drawing_frame->format, event->width, event->height, dd->screen_frame->format,
+	 SWS_FAST_BILINEAR, NULL, NULL, NULL);
+  if (dd->cr) {
+		cairo_destroy(dd->cr);
+	}
+	dd->cr = cairo_create(dd->csurface);
 
   /* We've handled the configure event, no need for further processing.
    * */
@@ -725,8 +772,8 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
  GdkEventMotion *event, gpointer data) {
   int i;
   dingle_dots_t *dd = (dingle_dots_t *)data;
-  dd->mouse_pos.x = event->x * width / dd->screen_frame->width;
-  dd->mouse_pos.y = event->y * height / dd->screen_frame->height;
+  dd->mouse_pos.x = event->x * dd->camera_rect.width / dd->screen_frame->width;
+  dd->mouse_pos.y = event->y * dd->camera_rect.height / dd->screen_frame->height;
 	for (i = 0; i < MAX_NSOUND_SHAPES;i++) {
     if (!dd->sound_shapes[i].active) continue;
 		dd->sound_shapes[i].hovered = 0;
@@ -742,28 +789,28 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
     dd->user_tld_rect.width = dd->mouse_pos.x - dd->mdown_pos.x;
     dd->user_tld_rect.height = dd->mouse_pos.y - dd->mdown_pos.y;
     if (dd->user_tld_rect.width < 0) {
-      if (dd->user_tld_rect.width > - 20 * ascale_factor_x) {
-        dd->user_tld_rect.width = 20 * ascale_factor_x;
+      if (dd->user_tld_rect.width > - 20 * dd->ascale_factor_x) {
+        dd->user_tld_rect.width = 20 * dd->ascale_factor_x;
       } else {
         dd->user_tld_rect.width = -dd->user_tld_rect.width;
       }
       dd->user_tld_rect.x = dd->mdown_pos.x - dd->user_tld_rect.width;
     } else if (dd->user_tld_rect.width >= 0) {
-      if (dd->user_tld_rect.width < 20 * ascale_factor_x) {
-        dd->user_tld_rect.width = 20 * ascale_factor_x;
+      if (dd->user_tld_rect.width < 20 * dd->ascale_factor_x) {
+        dd->user_tld_rect.width = 20 * dd->ascale_factor_x;
       }
       dd->user_tld_rect.x = dd->mdown_pos.x;
     }
     if (dd->user_tld_rect.height < 0) {
-      if (dd->user_tld_rect.height > - 20 * ascale_factor_y) {
-        dd->user_tld_rect.height = 20 * ascale_factor_y;
+      if (dd->user_tld_rect.height > - 20 * dd->ascale_factor_y) {
+        dd->user_tld_rect.height = 20 * dd->ascale_factor_y;
       } else {
         dd->user_tld_rect.height = -dd->user_tld_rect.height;
       }
       dd->user_tld_rect.y = dd->mdown_pos.y - dd->user_tld_rect.height;
     } else if (dd->user_tld_rect.width >= 0) {
-      if (dd->user_tld_rect.height < 20 * ascale_factor_y) {
-        dd->user_tld_rect.height = 20 * ascale_factor_y;
+      if (dd->user_tld_rect.height < 20 * dd->ascale_factor_y) {
+        dd->user_tld_rect.height = 20 * dd->ascale_factor_y;
       }
       dd->user_tld_rect.y = dd->mdown_pos.y;
     }
@@ -825,8 +872,8 @@ static gboolean double_press_event_cb(GtkWidget *widget,
   	for (int i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
     	if (!dd->sound_shapes[i].active) continue;
     	double x, y;
-			x = event->x * width / dd->screen_frame->width;
-			y = event->y * height / dd->screen_frame->height;
+			x = event->x * dd->camera_rect.width / dd->screen_frame->width;
+			y = event->y * dd->camera_rect.height / dd->screen_frame->height;
 			if (sound_shape_in(&dd->sound_shapes[i], x, y)) {
   			found = 1;
 				if (dd->sound_shapes[i].double_clicked_on) {
@@ -851,8 +898,8 @@ static gboolean button_press_event_cb(GtkWidget *widget,
  GdkEventButton *event, gpointer data) {
   int i;
   dingle_dots_t * dd = (dingle_dots_t *)data;
-  dd->mouse_pos.x = event->x * width / dd->screen_frame->width;
-  dd->mouse_pos.y = event->y * height / dd->screen_frame->height;
+  dd->mouse_pos.x = event->x * dd->camera_rect.width / dd->screen_frame->width;
+  dd->mouse_pos.y = event->y * dd->camera_rect.height / dd->screen_frame->height;
 	if (event->button == GDK_BUTTON_PRIMARY) {
     dd->mdown = 1;
     dd->mdown_pos.x = dd->mouse_pos.x;
@@ -901,8 +948,8 @@ static gboolean button_press_event_cb(GtkWidget *widget,
     dd->mdown_pos.y = dd->mouse_pos.y;
     dd->user_tld_rect.x = dd->mdown_pos.x;
     dd->user_tld_rect.y = dd->mdown_pos.y;
-    dd->user_tld_rect.width = 20 * ascale_factor_x;
-    dd->user_tld_rect.height = 20 * ascale_factor_y;
+    dd->user_tld_rect.width = 20 * dd->ascale_factor_x;
+    dd->user_tld_rect.height = 20 * dd->ascale_factor_y;
 		return TRUE;
   }
   if (dd->doing_tld && shift_pressed) {
@@ -1040,65 +1087,42 @@ static void activate(GtkApplication *app, gpointer user_data) {
  	int ret;
 	dd = (dingle_dots_t *)user_data;
   ccv_enable_default_cache();
-  dd->user_tld_rect.width = width/5.;
-  dd->user_tld_rect.height = height/5.;
-  dd->user_tld_rect.x = width/2.0;
-  dd->user_tld_rect.y = height/2.0 - 0.5 * dd->user_tld_rect.height;
-  ascale_factor_x = (1.0*width) / awidth;
-  ascale_factor_y = ((double)height) / aheight;
-  resize = sws_getContext(width, height, AV_PIX_FMT_ARGB, awidth,
-   aheight, AV_PIX_FMT_ARGB, SWS_BICUBIC, NULL, NULL, NULL);
-  frame = av_frame_alloc();
-  frame->format = AV_PIX_FMT_ARGB;
-  frame->width = width;
-  frame->height = height;
-  ret = av_image_alloc(frame->data, frame->linesize,
-   frame->width, frame->height, frame->format, 1);
-  if (ret < 0) {
-    fprintf(stderr, "Could not allocate raw picture buffer\n");
-    exit(1);
-  }
-	tframe = av_frame_alloc();
-  tframe->format = AV_PIX_FMT_BGRA;
-  tframe->width = width;
-  tframe->height = height;
-  ret = av_image_alloc(tframe->data, tframe->linesize,
-   tframe->width, tframe->height, tframe->format, 1);
-  if (ret < 0) {
-    fprintf(stderr, "Could not allocate raw picture buffer\n");
-    exit(1);
-  }
-  aframe = av_frame_alloc();
-  aframe->format = AV_PIX_FMT_ARGB;
-  aframe->width = awidth;
-  aframe->height = aheight;
-  ret = av_image_alloc(aframe->data, aframe->linesize,
-   aframe->width, aframe->height, aframe->format, 1);
+  dd->user_tld_rect.width = dd->camera_rect.width/5.;
+  dd->user_tld_rect.height = dd->camera_rect.height/5.;
+  dd->user_tld_rect.x = dd->camera_rect.width/2.0;
+  dd->user_tld_rect.y = dd->camera_rect.height/2.0 - 0.5 * dd->user_tld_rect.height;
+  dd->drawing_frame = av_frame_alloc();
+  dd->drawing_frame->format = AV_PIX_FMT_ARGB;
+  dd->drawing_frame->width = dd->camera_rect.width;
+  dd->drawing_frame->height = dd->camera_rect.height;
+  ret = av_image_alloc(dd->drawing_frame->data, dd->drawing_frame->linesize,
+   dd->drawing_frame->width, dd->drawing_frame->height, dd->drawing_frame->format, 1);
   if (ret < 0) {
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
   }
   init_output(dd);
-  out_frame.size = 4 * width * height;
-  out_frame.data = calloc(1, out_frame.size);
-  uint32_t rb_size = 200 * 4 * 640 * 360 / out_frame.size;
-  video_ring_buf = jack_ringbuffer_create(rb_size*out_frame.size);
+  uint32_t rb_size = 200 * 4 * 640 * 360;
+  video_ring_buf = jack_ringbuffer_create(rb_size);
   memset(video_ring_buf->buf, 0, video_ring_buf->size);
+	dd->snapshot_thread_info.ring_buf = jack_ringbuffer_create(rb_size);
+	memset(dd->snapshot_thread_info.ring_buf->buf, 0,
+	 dd->snapshot_thread_info.ring_buf->size);
 	window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
   gtk_window_set_deletable(GTK_WINDOW (window), TRUE);
-  gtk_window_set_default_size(GTK_WINDOW(window), width, height);
+  gtk_window_set_default_size(GTK_WINDOW(window), dd->camera_rect.width, dd->camera_rect.height);
 	ctl_window = gtk_application_window_new(app);
 	gtk_window_set_keep_above(GTK_WINDOW(ctl_window), TRUE);
   gtk_window_set_title(GTK_WINDOW (ctl_window), "Controls");
   g_signal_connect (window, "destroy", G_CALLBACK (quit_cb), dd);
   g_signal_connect (ctl_window, "destroy", G_CALLBACK (quit_cb), dd);
-  aspect = gtk_aspect_frame_new(NULL, 0.5, 0.5, ((float)width)/height, FALSE);
+  aspect = gtk_aspect_frame_new(NULL, 0.5, 0.5, ((float)dd->camera_rect.width)/dd->camera_rect.height, FALSE);
   gtk_frame_set_shadow_type(GTK_FRAME(aspect), GTK_SHADOW_NONE);
 	drawing_area = gtk_drawing_area_new();
 	GdkGeometry size_hints;
-	size_hints.min_aspect = ((double)width)/height;
-	size_hints.max_aspect = ((double)width)/height;
+	size_hints.min_aspect = ((double)dd->camera_rect.width)/dd->camera_rect.height;
+	size_hints.max_aspect = ((double)dd->camera_rect.width)/dd->camera_rect.height;
   gtk_window_set_geometry_hints(GTK_WINDOW(window), NULL, &size_hints,
 	 GDK_HINT_ASPECT);
 	gtk_container_add(GTK_CONTAINER(aspect), drawing_area);
@@ -1259,7 +1283,7 @@ static void init_mmap(void)
 }
 
 
-static void init_device(void)
+static void init_device(int width, int height)
 {
   struct v4l2_capability cap;
   struct v4l2_cropcap cropcap;
@@ -1305,9 +1329,9 @@ static void init_device(void)
   }
   CLEAR(fmt);
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  fmt.fmt.pix.width       = width; //replace
-  fmt.fmt.pix.height      = height; //replace
-  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV; //replace
+  fmt.fmt.pix.width       = width;
+  fmt.fmt.pix.height      = height;
+  fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
   fmt.fmt.pix.field       = V4L2_FIELD_ANY;
   if (-1 == xioctl(fd, VIDIOC_S_FMT, &fmt))
     errno_exit("VIDIOC_S_FMT");
@@ -1394,11 +1418,11 @@ long_options[] = {
 };
 
 int main(int argc, char **argv) {
-  disk_thread_info_t video_thread_info;
-  disk_thread_info_t audio_thread_info;
   dingle_dots_t dingle_dots;
   out_file_name = "testington.webm";
   dev_name = "/dev/video0";
+	int width = 1920;
+	int height = 1080;
   for (;;) {
     int idx;
     int c;
@@ -1420,19 +1444,9 @@ int main(int argc, char **argv) {
         break;
       case 'w':
         width = atoi(optarg);
-        ascale_factor_x = ((double)width) / awidth;
         break;
       case 'g':
         height = atoi(optarg);
-        ascale_factor_y = ((double)height) / aheight;
-        break;
-      case 'x':
-        awidth = atoi(optarg);
-        ascale_factor_x = ((double)width) / awidth;
-        break;
-      case 'y':
-        aheight = atoi(optarg);
-        ascale_factor_y = ((double)height) / aheight;
         break;
       case 'h':
         usage(stdout, argc, argv);
@@ -1443,18 +1457,10 @@ int main(int argc, char **argv) {
     }
   }
   dingle_dots_init(&dingle_dots, width, height);
-	dingle_dots.audio_thread_info = &audio_thread_info;
-  dingle_dots.video_thread_info = &video_thread_info;
-  dingle_dots.audio_thread_info->stream = &audio_st;
-  dingle_dots.video_thread_info->stream = &video_st;
-  pthread_mutex_init(&video_thread_info.lock, NULL);
-  pthread_mutex_init(&audio_thread_info.lock, NULL);
-  pthread_cond_init(&video_thread_info.data_ready, NULL);
-  pthread_cond_init(&audio_thread_info.data_ready, NULL);
   setup_jack(&dingle_dots);
   setup_signal_handler();
   open_device();
-  init_device();
+  init_device(width, height);
   start_capturing();
   mainloop(&dingle_dots);
   stop_capturing();
