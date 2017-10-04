@@ -6,12 +6,14 @@
 #include <pthread.h>
 #include <getopt.h>
 #include <math.h>
+#include <time.h>
 
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <pwd.h>
 #include <sys/time.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
@@ -49,6 +51,7 @@ struct buffer {
 
 #define FFT_SIZE 256
 #define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
+#define STR_LEN 80
 
 static int read_frame(cairo_t *cr, dingle_dots_t *dd);
 static void isort(void *base, size_t nmemb, size_t size,
@@ -145,11 +148,38 @@ void *video_disk_thread (void *arg) {
 	return 0;
 }
 
+int timespec2snapshot_name(char *buf, uint len, struct timespec *ts) {
+	int ret;
+	struct tm t;
+	const char *homedir;
+	if (localtime_r(&(ts->tv_sec), &t) == NULL) {
+		return 1;
+	}
+  if ((homedir = getenv("HOME")) == NULL) {
+		homedir = getpwuid(getuid())->pw_dir;
+	}
+	ret = snprintf(buf, len, "%s/Pictures/v4l2_wayland-snapshot-", homedir);
+	len -= ret - 1;
+	ret = strftime(&buf[strlen(buf)], len, "%Y-%m-%d-%H:%M:%S", &t);
+	if (ret == 0)
+		return 2;
+	len -= ret - 1;
+	ret = snprintf(&buf[strlen(buf)], len, ".%03d.png",
+	 (int)ts->tv_nsec/1000000);
+	if (ret >= len)
+		return 3;
+	return 0;
+}
+
 void *snapshot_disk_thread (void *arg) {
-	int size;
+	int fsize;
+	int tsize;
 	int space;
 	cairo_surface_t *csurf;
 	AVFrame *frame;
+	struct timespec ts;
+  char timestr[STR_LEN+1];
+	tzset();
   dingle_dots_t *dd = (dingle_dots_t *)arg;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
   pthread_mutex_lock(&dd->snapshot_thread_info.lock);
@@ -164,15 +194,20 @@ void *snapshot_disk_thread (void *arg) {
     fprintf(stderr, "Could not allocate temporary picture\n");
     exit(1);
   }
-  size = 4 * frame->width * frame->height;
+
+  fsize = 4 * frame->width * frame->height;
+	tsize = fsize + sizeof(struct timespec);
   csurf = cairo_image_surface_create_for_data((unsigned char *)frame->data[0],
    CAIRO_FORMAT_ARGB32, frame->width, frame->height, 4*frame->width);
   while(1) {
 	  space = jack_ringbuffer_read_space(dd->snapshot_thread_info.ring_buf);
-  	while (space >= size) {
+  	while (space >= tsize) {
   	  jack_ringbuffer_read(dd->snapshot_thread_info.ring_buf, (char *)frame->data[0],
-  	   size);
-  		cairo_surface_write_to_png(csurf, "test.png");
+  	   fsize);
+			jack_ringbuffer_read(dd->snapshot_thread_info.ring_buf, (char *)&ts,
+			 sizeof(ts));
+  		timespec2snapshot_name(timestr, STR_LEN, &ts);
+			cairo_surface_write_to_png(csurf, timestr);
 	  	space = jack_ringbuffer_read_space(dd->snapshot_thread_info.ring_buf);
 		}
    	pthread_cond_wait(&dd->snapshot_thread_info.data_ready,
@@ -277,7 +312,8 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
   dingle_dots_t *dd = (dingle_dots_t *)arg;
   static int first_call = 1;
   static int first_data = 1;
-  static uint32_t save_buf[2*8192*8192];
+  struct timespec ts;
+	static uint32_t save_buf[2*8192*8192];
   static uint32_t save_buf2[2*8192*8192];
   static int save_size = 0;
   static ccv_comp_t newbox;
@@ -498,24 +534,20 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
   screen_surf = cairo_image_surface_create_for_data((unsigned char *)dd->screen_frame->data[0],
    CAIRO_FORMAT_ARGB32, dd->screen_frame->width, dd->screen_frame->height,
 	 dd->screen_frame->linesize[0]);
-/*pb = gdk_pixbuf_new_from_data(dd->screen_frame->data[0], GDK_COLORSPACE_RGB,
-   TRUE, 8, dd->screen_frame->width, dd->screen_frame->height,
-	 dd->screen_frame->linesize[0], NULL, NULL);
-  gdk_cairo_set_source_pixbuf(cr, pb, 0, 0);*/
 	cairo_set_source_surface(cr, screen_surf, 0.0, 0.0);
 	cairo_paint(cr);
 	cairo_destroy(tcr);
 	cairo_surface_destroy(screen_surf);
 	cairo_surface_destroy(csurf);
-	//g_object_unref(pb);
+	clock_gettime(CLOCK_REALTIME, &ts);
 	int drawing_size = 4 * dd->drawing_frame->width * dd->drawing_frame->height;
-  int tsize = drawing_size;
+  int tsize = drawing_size + sizeof(struct timespec);
 	if (dd->do_snapshot) {
-	  printf("yes snapshot reached\n");
 		if (jack_ringbuffer_write_space(dd->snapshot_thread_info.ring_buf) >= tsize) {
-    	printf("yes snapshot wrote to ringbuf\n");
 			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (void *)dd->drawing_frame->data[0],
     	 drawing_size);
+			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (void *)&ts,
+    	 sizeof(ts));
     	if (pthread_mutex_trylock(&dd->snapshot_thread_info.lock) == 0) {
     	  pthread_cond_signal(&dd->snapshot_thread_info.data_ready);
     	  pthread_mutex_unlock(&dd->snapshot_thread_info.lock);
@@ -1421,8 +1453,8 @@ int main(int argc, char **argv) {
   dingle_dots_t dingle_dots;
   out_file_name = "testington.webm";
   dev_name = "/dev/video0";
-	int width = 1920;
-	int height = 1080;
+	int width = 1280;
+	int height = 720;
   for (;;) {
     int idx;
     int c;
