@@ -31,7 +31,7 @@ static int write_frame(AVFormatContext *fmt_ctx,
 /* Add an output stream. */
 static void add_stream(OutputStream *ost, AVFormatContext *oc,
                        AVCodec **codec, enum AVCodecID codec_id, int width,
-											 int height) {
+											 int height, int video_bitrate) {
   AVCodecContext *c;
   int i;
   *codec = avcodec_find_encoder(codec_id);
@@ -81,7 +81,7 @@ static void add_stream(OutputStream *ost, AVFormatContext *oc,
     case AVMEDIA_TYPE_VIDEO:
       printf("case VIDEO\n");
       c->codec_id = codec_id;
-      c->bit_rate = stream_bitrate;
+      c->bit_rate = video_bitrate;
       c->width    = width;
       c->height   = height;
       ost->st->time_base = (AVRational){ 1, STREAM_FRAME_RATE };
@@ -173,12 +173,12 @@ static void open_audio(AVFormatContext *oc, AVCodec *codec, OutputStream *ost,
   }
 }
 
-int get_audio_frame(OutputStream *ost, AVFrame **ret_frame) {
+int get_audio_frame(dingle_dots_t *dd, OutputStream *ost, AVFrame **ret_frame) {
   AVFrame *frame = ost->tmp_frame;
   int j, i;
   float *q = (float*)frame->data[0];
   *ret_frame = frame;
-  if (recording_stopped) {
+  if (dd->recording_stopped) {
     printf("audio done\n");
     ret_frame = NULL;
     return 1;
@@ -210,7 +210,7 @@ int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
   int ret;
   int dst_nb_samples;
   c = ost->enc;
-  ret = get_audio_frame(ost, &frame);
+  ret = get_audio_frame(dd, ost, &frame);
   if (ret < 0) {
     return -1;
   } else if (ret == 1) {
@@ -308,13 +308,13 @@ static void open_video(int width, int height, AVFormatContext *oc, AVCodec *code
     }
 }
 
-int get_video_frame(OutputStream *ost, AVFrame **ret_frame) {
+int get_video_frame(dingle_dots_t *dd, OutputStream *ost, AVFrame **ret_frame) {
   AVCodecContext *c = ost->enc;
   *ret_frame = NULL;
   int size = ost->out_frame.size + sizeof(struct timespec);
   int space = jack_ringbuffer_read_space(video_ring_buf);
   if (space < size) {
-    if (recording_stopped) {
+    if (dd->recording_stopped) {
       return 1;
     } else {
       return -1;
@@ -353,16 +353,16 @@ int get_video_frame(OutputStream *ost, AVFrame **ret_frame) {
  * encode one video frame and send it to the muxer
  * return 1 when encoding is finished, 0 otherwise
  */
-int write_video_frame(AVFormatContext *oc, OutputStream *ost)
+int write_video_frame(dingle_dots_t *dd, AVFormatContext *oc, OutputStream *ost)
 {
   int ret;
   AVCodecContext *c;
   AVFrame *tframe;
   AVPacket pkt;
   c = ost->enc;
-  ret = get_video_frame(ost, &tframe);
+  ret = get_video_frame(dd, ost, &tframe);
   if (ret < 0) {
-    if(recording_stopped) {
+    if(dd->recording_stopped) {
       return 1;
     }
     return -1;
@@ -419,29 +419,30 @@ int init_output(dingle_dots_t *dd) {
   int ret;
   AVDictionary *opt = NULL;
   av_register_all();
-  filename = out_file_name;
-  avformat_alloc_output_context2(&oc, NULL, NULL, filename);
-  if (!oc) {
+  filename = dd->video_file_name;
+  avformat_alloc_output_context2(&dd->video_output_context, NULL, NULL, filename);
+  if (!dd->video_output_context) {
     printf("Could not deduce output format from file extension: using MPEG.\n");
-    avformat_alloc_output_context2(&oc, NULL, "mpeg", filename);
+    avformat_alloc_output_context2(&dd->video_output_context, NULL, "mpeg", filename);
   }
-  if (!oc)
+  if (!dd->video_output_context)
     return 1;
-  fmt = oc->oformat;
-  add_stream(&dd->video_thread_info.stream, oc,
-   &video_codec, fmt->video_codec, dd->camera_rect.width, dd->camera_rect.height);
+  fmt = dd->video_output_context->oformat;
+  add_stream(&dd->video_thread_info.stream, dd->video_output_context,
+   &video_codec, fmt->video_codec, dd->camera_rect.width,
+	 dd->camera_rect.height, dd->video_bitrate);
   if (fmt->audio_codec != AV_CODEC_ID_NONE) {
-    add_stream(&dd->audio_thread_info.stream, oc,
-     &audio_codec, fmt->audio_codec, 0, 0);
+    add_stream(&dd->audio_thread_info.stream, dd->video_output_context,
+     &audio_codec, fmt->audio_codec, 0, 0, 0);
   }
   av_dict_set(&opt, "cpu-used", "-8", 0);
   av_dict_set(&opt, "deadline", "realtime", 0);
   open_video(dd->camera_rect.width, dd->camera_rect.height,
-	 oc, video_codec, &dd->video_thread_info.stream, opt);
-  open_audio(oc, audio_codec, &dd->audio_thread_info.stream, opt);
-  av_dump_format(oc, 0, filename, 1);
+	 dd->video_output_context, video_codec, &dd->video_thread_info.stream, opt);
+  open_audio(dd->video_output_context, audio_codec, &dd->audio_thread_info.stream, opt);
+  av_dump_format(dd->video_output_context, 0, filename, 1);
   if (!(fmt->flags & AVFMT_NOFILE)) {
-    ret = avio_open(&oc->pb, filename, AVIO_FLAG_WRITE);
+    ret = avio_open(&dd->video_output_context->pb, filename, AVIO_FLAG_WRITE);
     if (ret < 0) {
       fprintf(stderr, "Could not open '%s': %s\n", filename,
           av_err2str(ret));
@@ -450,7 +451,7 @@ int init_output(dingle_dots_t *dd) {
   }
 
   /* Write the stream header, if any. */
-  ret = avformat_write_header(oc, &opt);
+  ret = avformat_write_header(dd->video_output_context, &opt);
   if (ret < 0) {
     fprintf(stderr, "Error occurred when opening output file: %s\n",
      av_err2str(ret));

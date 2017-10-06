@@ -34,4 +34,7 @@ typedef struct disk_thread_info {
   jack_ringbuffer_t *ring_buf;
 	OutputStream stream;
 } disk_thread_info_t;
+
+int timespec2file_name(char *buf, uint len, char *dir, char *extension,
+ struct timespec *ts);
 #endif

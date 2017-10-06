@@ -16,7 +16,7 @@ int sound_shape_init(sound_shape *ss, char *label,
   strncpy(ss->label, label, NCHAR);
   ss->midi_note = midi_note;
   ss->normal = color_copy(c);
-  ss->playing = color_lighten(c, 0.75);
+  ss->playing = color_lighten(c, 0.95);
   ss->on = 0;
   ss->mdown = 0;
   return 0;
@@ -47,7 +47,7 @@ static void sound_shape_render_label(sound_shape *ss, cairo_t *cr) {
 
 int sound_shape_render(sound_shape *ss, cairo_t *cr) {
   color *c;
-  c = ss->on ? &ss->playing : &ss->normal;
+  c = &ss->normal;
   cairo_save(cr);
 	cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
   cairo_translate(cr, ss->x, ss->y);
@@ -57,6 +57,11 @@ int sound_shape_render(sound_shape *ss, cairo_t *cr) {
   cairo_set_source_rgba(cr, 0.5*c->r, 0.5*c->g, 0.5*c->b, 0.75);
   cairo_set_line_width(cr, 0.05 * ss->r);
 	cairo_stroke(cr);
+	if (ss->on) {
+		cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
+	 	cairo_arc(cr, 0, 0, ss->r*1.025, 0, 2 * M_PI);
+	  cairo_fill(cr);
+	}
 	if (ss->hovered) {
 		cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
   	cairo_arc(cr, 0, 0, ss->r, 0, 2 * M_PI);

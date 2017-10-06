@@ -6,11 +6,19 @@
 #include "dingle_dots.h"
 #include "midi.h"
 
-int dingle_dots_init(dingle_dots_t *dd, int width, int height) {
+int dingle_dots_init(dingle_dots_t *dd, char *dev_name, int width, int height,
+ char *video_file_name, int video_bitrate) {
 	memset(dd, 0, sizeof(dingle_dots_t));
 	int ret;
 	dd->camera_rect.width = width;
 	dd->camera_rect.height = height;
+	dd->recording_started = 0;
+  dd->recording_stopped = 0;
+	dd->nports = 2;
+	dd->make_new_tld = 0;
+	dd->dev_name = dev_name;
+	strncpy(dd->video_file_name, video_file_name, STR_LEN);
+	dd->video_bitrate = video_bitrate;
 	dd->analysis_rect.width = 260;
 	dd->analysis_rect.height = 148;
 	dd->ascale_factor_x = dd->camera_rect.width / (double)dd->analysis_rect.width;
@@ -76,17 +84,10 @@ int dingle_dots_free(dingle_dots_t *dd) {
 	return 0;
 }
 
-void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key) {
+void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key, color *c) {
 	int i;
   double x_delta;
-	color c;
-	srand(time(NULL));
 	struct hsva h;
-	h.h = (double) rand() / RAND_MAX;
-	h.v = 0.45;
-	h.s = 1.0;
-	h.a = 0.5;
-	c = hsv2rgb(&h);
 	x_delta = 1. / (key->num_steps + 1);
 	for (i = 0; i < key->num_steps; i++) {
 		char key_name[NCHAR];
@@ -98,7 +99,7 @@ void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key) {
 		dingle_dots_add_note(dd, key_name, i + 1,
 		 key->base_note + key->steps[i],
 		 x_delta * (i + 1) * dd->camera_rect.width, dd->camera_rect.height / 2.,
-		 dd->camera_rect.width/32, &c);
+		 dd->camera_rect.width/32, c);
 	}
 }
 

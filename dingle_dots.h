@@ -7,13 +7,33 @@
 #include "kmeter.h"
 #include "midi.h"
 
+#define STR_LEN 80
+
 typedef struct sound_shape sound_shape;
 typedef struct dingle_dots_t dingle_dots_t;
 typedef struct midi_key_t midi_key_t;
 
+struct buffer {
+  void   *start;
+  size_t  length;
+};
+
 struct dingle_dots_t {
   GApplication *app;
+	char *dev_name;
 	gboolean fullscreen;
+	char video_file_name[STR_LEN];
+	int recording_started;
+	int recording_stopped;
+	int can_process;
+	int can_capture;
+	int audio_done;
+	int video_done;
+  int trailer_written;
+  int make_new_tld;
+	int use_rand_color_for_scale;
+	uint32_t video_bitrate;
+	AVFormatContext *video_output_context;
 	struct timespec out_frame_ts;
   disk_thread_info_t audio_thread_info;
   disk_thread_info_t video_thread_info;
@@ -44,17 +64,24 @@ struct dingle_dots_t {
 	GdkPoint mdown_pos;
 	GtkWidget *scale_combo;
 	GtkWidget *note_combo;
+	GtkWidget *rand_color_button;
+	GtkWidget *scale_color_button;
 	cairo_surface_t *csurface;
   cairo_t *cr;
+  long jack_overruns;
+	int nports;
+  jack_port_t **in_ports;
+	jack_port_t **out_ports;
 	jack_client_t *client;
 	jack_port_t *midi_port;
 	jack_ringbuffer_t *midi_ring_buf;
 };
 
-int dingle_dots_init(dingle_dots_t *dd, int width, int height);
+int dingle_dots_init(dingle_dots_t *dd, char *dev_name, int width, int height,
+ char *video_file_name, int video_bitrate);
 int dingle_dots_free(dingle_dots_t *dd);
 int dingle_dots_deactivate_sound_shapes(dingle_dots_t *dd);
 int dingle_dots_add_note(dingle_dots_t *dd, char *scale_name,
  int scale_num, int midi_note, double x, double y, double r, color *c);
-void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key);
+void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key, color *c);
 #endif

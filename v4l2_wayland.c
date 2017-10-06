@@ -44,14 +44,8 @@
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #define CLIPVALUE(v) ((v) < 255 ? (v) : 255)
 
-struct buffer {
-  void   *start;
-  size_t  length;
-};
-
 #define FFT_SIZE 256
 #define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
-#define STR_LEN 80
 
 static int read_frame(cairo_t *cr, dingle_dots_t *dd);
 static void isort(void *base, size_t nmemb, size_t size,
@@ -59,33 +53,18 @@ static void isort(void *base, size_t nmemb, size_t size,
 
 fftw_complex                   *fftw_in, *fftw_out;
 fftw_plan                      p;
-AVFormatContext                *oc;
-char                           *out_file_name;
-uint32_t                       stream_bitrate = 800000;
 static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
 static ccv_tld_t               *tld = 0;
-int                             recording_started = 0;
-int                             recording_stopped = 0;
-static int                      audio_done = 0, video_done = 0,
-                                trailer_written = 0;
 static int                      shift_pressed = 0;
 
-static int                make_new_tld = 0;
-static char              *dev_name;
 static int                fd = -1;
 struct buffer            *buffers;
 static unsigned int       n_buffers;
 
-volatile int              can_process;
-volatile int              can_capture;
 jack_ringbuffer_t        *video_ring_buf, *audio_ring_buf;
-unsigned int              nports = 2;
-jack_port_t             **in_ports, **out_ports;
 jack_default_audio_sample_t **in;
-jack_nframes_t            nframes;
 const size_t              sample_size = sizeof(jack_default_audio_sample_t);
 pthread_mutex_t           av_thread_lock = PTHREAD_MUTEX_INITIALIZER;
-long                      jack_overruns = 0;
 
 static void errno_exit(const char *s)
 {
@@ -108,18 +87,18 @@ void *audio_disk_thread(void *arg) {
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
   pthread_mutex_lock(&dd->audio_thread_info.lock);
   while(1) {
-    ret = write_audio_frame(dd, oc, &dd->audio_thread_info.stream);
+    ret = write_audio_frame(dd, dd->video_output_context, &dd->audio_thread_info.stream);
     if (ret == 1) {
-      audio_done = 1;
+      dd->audio_done = 1;
       break;
     }
     if (ret == 0) continue;
     if (ret == -1) pthread_cond_wait(&dd->audio_thread_info.data_ready,
      &dd->audio_thread_info.lock);
   }
-  if (audio_done && video_done && !trailer_written) {
-    av_write_trailer(oc);
-    trailer_written = 1;
+  if (dd->audio_done && dd->video_done && !dd->trailer_written) {
+    av_write_trailer(dd->video_output_context);
+    dd->trailer_written = 1;
   }
   pthread_mutex_unlock(&dd->audio_thread_info.lock);
 	return 0;
@@ -131,24 +110,27 @@ void *video_disk_thread (void *arg) {
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
   pthread_mutex_lock(&dd->video_thread_info.lock);
   while(1) {
-    ret = write_video_frame(oc, &dd->video_thread_info.stream);
+    ret = write_video_frame(dd, dd->video_output_context,
+		 &dd->video_thread_info.stream);
     if (ret == 1) {
-      video_done = 1;
+      dd->video_done = 1;
       break;
     }
     if (ret == 0) continue;
     if (ret == -1) pthread_cond_wait(&dd->video_thread_info.data_ready,
      &dd->video_thread_info.lock);
   }
-  if (audio_done && video_done && !trailer_written) {
-    av_write_trailer(oc);
-    trailer_written = 1;
+  if (dd->audio_done && dd->video_done && !dd->trailer_written) {
+    av_write_trailer(dd->video_output_context);
+    dd->trailer_written = 1;
   }
   pthread_mutex_unlock(&dd->video_thread_info.lock);
+	printf("vid thread gets here\n");
 	return 0;
 }
 
-int timespec2snapshot_name(char *buf, uint len, struct timespec *ts) {
+int timespec2file_name(char *buf, uint len, char *dir, char *extension,
+ struct timespec *ts) {
 	int ret;
 	struct tm t;
 	const char *homedir;
@@ -158,14 +140,14 @@ int timespec2snapshot_name(char *buf, uint len, struct timespec *ts) {
   if ((homedir = getenv("HOME")) == NULL) {
 		homedir = getpwuid(getuid())->pw_dir;
 	}
-	ret = snprintf(buf, len, "%s/Pictures/v4l2_wayland-snapshot-", homedir);
+	ret = snprintf(buf, len, "%s/%s/v4l2_wayland-", homedir, dir);
 	len -= ret - 1;
 	ret = strftime(&buf[strlen(buf)], len, "%Y-%m-%d-%H:%M:%S", &t);
 	if (ret == 0)
 		return 2;
 	len -= ret - 1;
-	ret = snprintf(&buf[strlen(buf)], len, ".%03d.png",
-	 (int)ts->tv_nsec/1000000);
+	ret = snprintf(&buf[strlen(buf)], len, ".%03d.%s",
+	 (int)ts->tv_nsec/1000000, extension);
 	if (ret >= len)
 		return 3;
 	return 0;
@@ -206,7 +188,7 @@ void *snapshot_disk_thread (void *arg) {
   	   fsize);
 			jack_ringbuffer_read(dd->snapshot_thread_info.ring_buf, (char *)&ts,
 			 sizeof(ts));
-  		timespec2snapshot_name(timestr, STR_LEN, &ts);
+  		timespec2file_name(timestr, STR_LEN, "Pictures", "png", &ts);
 			cairo_surface_write_to_png(csurf, timestr);
 	  	space = jack_ringbuffer_read_space(dd->snapshot_thread_info.ring_buf);
 		}
@@ -327,7 +309,7 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 	uint32_t val;
   int n;
   unsigned char *ptr = (unsigned char *) p;
-	if (video_done) return;
+	//if (video_done) return;
   if (size != 0) {
     save_size = size;
   	if (!first_data) {
@@ -408,7 +390,7 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
     if (do_tld) {
       sws_scale(dd->analysis_resize, (uint8_t const * const *)dd->drawing_frame->data,
        dd->drawing_frame->linesize, 0, dd->drawing_frame->height, dd->analysis_frame->data, dd->analysis_frame->linesize);
-      if (make_new_tld == 1) {
+      if (dd->make_new_tld == 1) {
         if (dd->user_tld_rect.width > 0 && dd->user_tld_rect.height > 0) {
           tld = new_tld(dd->user_tld_rect.x/dd->ascale_factor_x, dd->user_tld_rect.y/dd->ascale_factor_y,
            dd->user_tld_rect.width/dd->ascale_factor_x, dd->user_tld_rect.height/dd->ascale_factor_y, dd);
@@ -423,7 +405,7 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
           return;
         }
         made_first_tld = 1;
-        make_new_tld = 0;
+        dd->make_new_tld = 0;
       } else {
         ccv_read(dd->analysis_frame->data[0], &cdm2, CCV_IO_ABGR_RAW |
          CCV_IO_GRAY, dd->analysis_rect.height, dd->analysis_rect.width, 4*dd->analysis_rect.width);
@@ -555,17 +537,17 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
   	}
 		dd->do_snapshot = 0;
   }
-  if (recording_stopped) {
-    if (pthread_mutex_trylock(&dd->video_thread_info.lock) == 0) {
+  if (dd->recording_stopped) {
+		if (pthread_mutex_trylock(&dd->video_thread_info.lock) == 0) {
       pthread_cond_signal(&dd->video_thread_info.data_ready);
       pthread_mutex_unlock(&dd->video_thread_info.lock);
-    }
+		}
   }
-  if (!recording_started || recording_stopped) return;
+  if (!dd->recording_started || dd->recording_stopped) return;
   if (first_call) {
     first_call = 0;
     dd->video_thread_info.stream.first_time = dd->out_frame_ts;
-    can_capture = 1;
+    dd->can_capture = 1;
   }
   tsize = drawing_size + sizeof(struct timespec);
   if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
@@ -629,10 +611,10 @@ int process(jack_nframes_t nframes, void *arg) {
   int chn;
   size_t i;
   static int first_call = 1;
-  if (can_process) {
+  if (dd->can_process) {
     midi_process_output(nframes, dd);
-    for (chn = 0; chn < nports; chn++) {
-      in[chn] = jack_port_get_buffer(in_ports[chn], nframes);
+    for (chn = 0; chn < dd->nports; chn++) {
+      in[chn] = jack_port_get_buffer(dd->in_ports[chn], nframes);
       kmeter_process(&dd->meters[chn], in[chn], nframes);
     }
     if (nframes >= FFT_SIZE) {
@@ -643,7 +625,7 @@ int process(jack_nframes_t nframes, void *arg) {
       fftw_execute(p);
     }
   }
-  if ((!can_process) || (!can_capture) || (audio_done)) return 0;
+  if ((!dd->can_process) || (!dd->can_capture) || (dd->audio_done)) return 0;
   if (first_call) {
     struct timespec *ats = &dd->audio_thread_info.stream.first_time;
     clock_gettime(CLOCK_MONOTONIC, ats);
@@ -651,10 +633,10 @@ int process(jack_nframes_t nframes, void *arg) {
     first_call = 0;
   }
   for (i = 0; i < nframes; i++) {
-    for (chn = 0; chn < nports; chn++) {
+    for (chn = 0; chn < dd->nports; chn++) {
       if (jack_ringbuffer_write (audio_ring_buf, (void *) (in[chn]+i),
        sample_size) < sample_size) {
-        printf("jack overrun: %ld\n", ++jack_overruns);
+        printf("jack overrun: %ld\n", ++dd->jack_overruns);
       }
     }
   }
@@ -673,7 +655,8 @@ void jack_shutdown (void *arg) {
 void setup_jack(dingle_dots_t *dd) {
   unsigned int i;
   size_t in_size;
-  can_process = 0;
+  dd->can_process = 0;
+	dd->jack_overruns = 0;
   if ((dd->client = jack_client_open("v4l2_wayland",
 	 JackNoStartServer, NULL)) == 0) {
     printf("jack server not running?\n");
@@ -684,11 +667,11 @@ void setup_jack(dingle_dots_t *dd) {
   if (jack_activate(dd->client)) {
     printf("cannot activate jack client\n");
   }
-  in_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * nports);
-  out_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * nports);
-  in_size =  nports * sizeof (jack_default_audio_sample_t *);
+  dd->in_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * dd->nports);
+  dd->out_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * dd->nports);
+  in_size =  dd->nports * sizeof (jack_default_audio_sample_t *);
   in = (jack_default_audio_sample_t **) malloc (in_size);
-  audio_ring_buf = jack_ringbuffer_create (nports * sample_size *
+  audio_ring_buf = jack_ringbuffer_create (dd->nports * sample_size *
    16384);
   memset(in, 0, in_size);
   memset(audio_ring_buf->buf, 0, audio_ring_buf->size);
@@ -696,17 +679,17 @@ void setup_jack(dingle_dots_t *dd) {
   fftw_in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
   fftw_out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
   p = fftw_plan_dft_1d(FFT_SIZE, fftw_in, fftw_out, FFTW_FORWARD, FFTW_ESTIMATE);
-  for (i = 0; i < nports; i++) {
+  for (i = 0; i < dd->nports; i++) {
     char name[64];
     sprintf(name, "input%d", i + 1);
-    if ((in_ports[i] = jack_port_register (dd->client, name, JACK_DEFAULT_AUDIO_TYPE,
+    if ((dd->in_ports[i] = jack_port_register (dd->client, name, JACK_DEFAULT_AUDIO_TYPE,
      JackPortIsInput, 0)) == 0) {
       printf("cannot register input port \"%s\"!\n", name);
       jack_client_close(dd->client);
       exit(1);
     }
     sprintf(name, "output%d", i + 1);
-    if ((out_ports[i] = jack_port_register (dd->client, name, JACK_DEFAULT_AUDIO_TYPE,
+    if ((dd->out_ports[i] = jack_port_register (dd->client, name, JACK_DEFAULT_AUDIO_TYPE,
      JackPortIsOutput, 0)) == 0) {
       printf("cannot register output port \"%s\"!\n", name);
       jack_client_close(dd->client);
@@ -715,7 +698,7 @@ void setup_jack(dingle_dots_t *dd) {
   }
   dd->midi_port = jack_port_register(dd->client, "output_midi",
    JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
-  can_process = 1;
+  dd->can_process = 1;
 }
 
 void teardown_jack(dingle_dots_t *dd) {
@@ -729,7 +712,7 @@ void teardown_jack(dingle_dots_t *dd) {
 }
 
 void start_recording_threads(dingle_dots_t *dd) {
-  recording_started = 1;
+  dd->recording_started = 1;
   pthread_create(&dd->audio_thread_info.thread_id, NULL, audio_disk_thread,
    dd);
   pthread_create(&dd->video_thread_info.thread_id, NULL, video_disk_thread,
@@ -1017,7 +1000,7 @@ static gboolean button_release_event_cb(GtkWidget *widget,
   	return TRUE;
   } else if (!shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
     dd->smdown = 0;
-    make_new_tld = 1;
+    dd->make_new_tld = 1;
     dd->doing_tld = 1;
   	return TRUE;
   }
@@ -1036,7 +1019,7 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
   	return TRUE;
   } else if (event->keyval == GDK_KEY_r && (first_r == -1)) {
     first_r = 0;
-    recording_stopped = 1;
+    dd->recording_stopped = 1;
   	return TRUE;
   } else if (event->keyval == GDK_KEY_Shift_L ||
    event->keyval == GDK_KEY_Shift_R) {
@@ -1080,6 +1063,19 @@ static gboolean motion_cb(GtkWidget *widget, gpointer data) {
 	return TRUE;
 }
 
+static gboolean rand_color_cb(GtkWidget *widget, gpointer data) {
+  dingle_dots_t * dd;
+  dd = (dingle_dots_t *)data;
+  if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+		dd->use_rand_color_for_scale = 1;
+		gtk_widget_set_sensitive(dd->scale_color_button, 0);
+	} else {
+		dd->use_rand_color_for_scale = 0;
+		gtk_widget_set_sensitive(dd->scale_color_button, 1);
+	}
+	return TRUE;
+}
+
 static gboolean snapshot_cb(GtkWidget *widget, gpointer data) {
   dingle_dots_t * dd;
   dd = (dingle_dots_t *)data;
@@ -1089,7 +1085,10 @@ static gboolean snapshot_cb(GtkWidget *widget, gpointer data) {
 
 static gboolean make_scale_cb(GtkWidget *widget, gpointer data) {
   dingle_dots_t * dd;
-  dd = (dingle_dots_t *)data;
+  GdkRGBA gc;
+	struct hsva h;
+	color c;
+	dd = (dingle_dots_t *)data;
 	char *text_scale;
 	char text_note[4];
 	text_scale =
@@ -1099,7 +1098,17 @@ static gboolean make_scale_cb(GtkWidget *widget, gpointer data) {
 	midi_key_t key;
 	midi_key_init_by_scale_id(&key, atoi(text_note),
 	 midi_scale_text_to_id(text_scale));
-	dingle_dots_add_scale(dd, &key);
+ 	if (dd->use_rand_color_for_scale) {
+	 	h.h = (double) rand() / RAND_MAX;
+		h.v = 0.45;
+		h.s = 1.0;
+		h.a = 0.5;
+		c = hsv2rgb(&h);
+	} else {
+		gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(dd->scale_color_button), &gc);
+		color_init(&c, gc.red, gc.green, gc.blue, 0.5);
+	}
+	dingle_dots_add_scale(dd, &key, &c);
   return TRUE;
 }
 
@@ -1112,7 +1121,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   GtkWidget *rbutton;
   GtkWidget *qbutton;
   GtkWidget *mbutton;
-	GtkWidget *snapshot_button;
+  GtkWidget *snapshot_button;
   GtkWidget *make_scale_button;
 	GtkWidget *aspect;
 	dingle_dots_t *dd;
@@ -1184,10 +1193,14 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	}
 	gtk_combo_box_set_active(GTK_COMBO_BOX(dd->note_combo), 60);
   make_scale_button = gtk_button_new_with_label("MAKE SCALE");
+  dd->rand_color_button = gtk_check_button_new_with_label("RANDOM COLOR");
+	dd->scale_color_button = gtk_color_button_new();
   gtk_box_pack_start(GTK_BOX(vbox), note_hbox, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->scale_combo, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->note_combo, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), make_scale_button, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(note_hbox), dd->scale_color_button, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(note_hbox), dd->rand_color_button, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), qbutton, FALSE, FALSE, 0);
 	gtk_container_add (GTK_CONTAINER (window), aspect);
   gtk_container_add (GTK_CONTAINER (ctl_window), vbox);
@@ -1198,6 +1211,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   g_signal_connect(snapshot_button, "clicked", G_CALLBACK(snapshot_cb), dd);
   g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);
   g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
+  g_signal_connect(dd->rand_color_button, "toggled", G_CALLBACK(rand_color_cb), dd);
   g_signal_connect (drawing_area, "draw",
    G_CALLBACK (draw_cb), dd);
   g_signal_connect (drawing_area,"configure-event",
@@ -1268,7 +1282,7 @@ static void uninit_device(void)
   free(buffers);
 }
 
-static void init_mmap(void)
+static void init_mmap(char *dev_name)
 {
   struct v4l2_requestbuffers req;
   CLEAR(req);
@@ -1315,7 +1329,7 @@ static void init_mmap(void)
 }
 
 
-static void init_device(int width, int height)
+static void init_device(char *dev_name, int width, int height)
 {
   struct v4l2_capability cap;
   struct v4l2_cropcap cropcap;
@@ -1375,7 +1389,7 @@ static void init_device(int width, int height)
   min = fmt.fmt.pix.bytesperline * fmt.fmt.pix.height;
   if (fmt.fmt.pix.sizeimage < min)
     fmt.fmt.pix.sizeimage = min;*/
-  init_mmap();
+  init_mmap(dev_name);
 }
 
 static void close_device(void)
@@ -1385,7 +1399,7 @@ static void close_device(void)
   fd = -1;
 }
 
-static void open_device(void)
+static void open_device(char *dev_name)
 {
   struct stat st;
   if (-1 == stat(dev_name, &st)) {
@@ -1421,7 +1435,7 @@ static void isort(void *base, size_t nmemb, size_t size,
   }
 }
 
-static void usage(FILE *fp, int argc, char **argv)
+static void usage(dingle_dots_t *dd, FILE *fp, int argc, char **argv)
 {
   fprintf(fp,
       "Usage: %s [options]\n\n"
@@ -1431,7 +1445,7 @@ static void usage(FILE *fp, int argc, char **argv)
       "-o | --output        filename of video file output\n"
       "-b | --bitrate       bit rate of video file output\n"
       "",
-      argv[0], dev_name);
+      argv[0], dd->dev_name);
 }
 
 static const char short_options[] = "d:ho:b:w:g:x:y:";
@@ -1451,11 +1465,18 @@ long_options[] = {
 
 int main(int argc, char **argv) {
   dingle_dots_t dingle_dots;
-  out_file_name = "testington.webm";
-  dev_name = "/dev/video0";
+  char *video_file_name;
+	char default_video_name[STR_LEN];
+	struct timespec ts;
 	int width = 1280;
 	int height = 720;
-  for (;;) {
+	int video_bitrate = 1000000;
+  char *dev_name = "/dev/video0";
+	srand(time(NULL));
+	clock_gettime(CLOCK_REALTIME, &ts);
+	timespec2file_name(default_video_name, STR_LEN, "Videos", "webm", &ts);
+	video_file_name = default_video_name;
+	for (;;) {
     int idx;
     int c;
     c = getopt_long(argc, argv,
@@ -1469,10 +1490,10 @@ int main(int argc, char **argv) {
         dev_name = optarg;
         break;
       case 'o':
-        out_file_name = optarg;
+        video_file_name = optarg;
         break;
       case 'b':
-        stream_bitrate = atoi(optarg);
+        video_bitrate = atoi(optarg);
         break;
       case 'w':
         width = atoi(optarg);
@@ -1481,18 +1502,18 @@ int main(int argc, char **argv) {
         height = atoi(optarg);
         break;
       case 'h':
-        usage(stdout, argc, argv);
+        usage(&dingle_dots, stdout, argc, argv);
         exit(EXIT_SUCCESS);
       default:
-        usage(stderr, argc, argv);
+        usage(&dingle_dots, stderr, argc, argv);
         exit(EXIT_FAILURE);
     }
   }
-  dingle_dots_init(&dingle_dots, width, height);
+  dingle_dots_init(&dingle_dots, dev_name, width, height, video_file_name, video_bitrate);
   setup_jack(&dingle_dots);
   setup_signal_handler();
-  open_device();
-  init_device(width, height);
+  open_device(dingle_dots.dev_name);
+  init_device(dingle_dots.dev_name, width, height);
   start_capturing();
   mainloop(&dingle_dots);
   stop_capturing();
