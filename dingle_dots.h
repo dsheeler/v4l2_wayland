@@ -66,6 +66,7 @@ struct dingle_dots_t {
 	GtkWidget *note_combo;
 	GtkWidget *rand_color_button;
 	GtkWidget *scale_color_button;
+	GtkWidget *record_button;
 	cairo_surface_t *csurface;
   cairo_t *cr;
   long jack_overruns;

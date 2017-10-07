@@ -711,12 +711,25 @@ void teardown_jack(dingle_dots_t *dd) {
 	jack_client_close(dd->client);
 }
 
-void start_recording_threads(dingle_dots_t *dd) {
-  dd->recording_started = 1;
-  pthread_create(&dd->audio_thread_info.thread_id, NULL, audio_disk_thread,
+void start_recording(dingle_dots_t *dd) {
+	struct timespec ts;
+	if (strlen(dd->video_file_name) == 0) {
+		clock_gettime(CLOCK_REALTIME, &ts);
+		timespec2file_name(dd->video_file_name, STR_LEN, "Videos", "webm", &ts);
+	}
+  init_output(dd);
+	dd->recording_started = 1;
+	dd->recording_stopped = 0;
+	pthread_create(&dd->audio_thread_info.thread_id, NULL, audio_disk_thread,
    dd);
   pthread_create(&dd->video_thread_info.thread_id, NULL, video_disk_thread,
    dd);
+}
+
+void stop_recording(dingle_dots_t *dd) {
+	dd->recording_stopped = 1;
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dd->record_button), 0);
+	gtk_widget_set_sensitive(dd->record_button, 0);
 }
 
 static gboolean configure_event_cb (GtkWidget *widget,
@@ -1010,16 +1023,14 @@ static gboolean button_release_event_cb(GtkWidget *widget,
 static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
  gpointer data) {
   dingle_dots_t *dd = (dingle_dots_t *)data;
-  static int first_r = 1;
-  if (event->keyval == GDK_KEY_q && (first_r != -1)) {
+  if (event->keyval == GDK_KEY_q && (!dd->recording_started ||
+	 dd->recording_stopped)) {
   	g_application_quit(dd->app);
-	} else if (event->keyval == GDK_KEY_r && (first_r == 1)) {
-    first_r = -1;
-    start_recording_threads(dd);
+	} else if (event->keyval == GDK_KEY_r && (!dd->recording_started)) {
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dd->record_button), 1);
   	return TRUE;
-  } else if (event->keyval == GDK_KEY_r && (first_r == -1)) {
-    first_r = 0;
-    dd->recording_stopped = 1;
+  } else if (event->keyval == GDK_KEY_r && (dd->recording_started)) {
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dd->record_button), 0);
   	return TRUE;
   } else if (event->keyval == GDK_KEY_Shift_L ||
    event->keyval == GDK_KEY_Shift_R) {
@@ -1043,6 +1054,17 @@ static gboolean on_key_release(GtkWidget *widget, GdkEventKey *event,
   	return TRUE;
   }
 	return FALSE;
+}
+
+static gboolean record_cb(GtkWidget *widget, gpointer data) {
+  dingle_dots_t * dd;
+  dd = (dingle_dots_t *)data;
+  if (!dd->recording_started && !dd->recording_stopped) {
+		start_recording(dd);
+	} else if (dd->recording_started && !dd->recording_stopped) {
+		stop_recording(dd);
+	}
+  return TRUE;
 }
 
 static gboolean quit_cb(GtkWidget *widget, gpointer data) {
@@ -1118,7 +1140,6 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	GtkWidget *drawing_area;
 	GtkWidget *note_hbox;
   GtkWidget *vbox;
-  GtkWidget *rbutton;
   GtkWidget *qbutton;
   GtkWidget *mbutton;
   GtkWidget *snapshot_button;
@@ -1142,7 +1163,6 @@ static void activate(GtkApplication *app, gpointer user_data) {
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
   }
-  init_output(dd);
   uint32_t rb_size = 200 * 4 * 640 * 360;
   video_ring_buf = jack_ringbuffer_create(rb_size);
   memset(video_ring_buf->buf, 0, video_ring_buf->size);
@@ -1169,11 +1189,11 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_container_add(GTK_CONTAINER(aspect), drawing_area);
   note_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
   vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-  rbutton = gtk_toggle_button_new_with_label("RECORD");
+  dd->record_button = gtk_toggle_button_new_with_label("RECORD");
   qbutton = gtk_button_new_with_label("QUIT");
   mbutton = gtk_check_button_new_with_label("MOTION DETECTION");
   snapshot_button = gtk_button_new_with_label("TAKE SNAPSHOT");
-	gtk_box_pack_start(GTK_BOX(vbox), rbutton, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(vbox), dd->record_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), snapshot_button, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), mbutton, FALSE, FALSE, 0);
   dd->scale_combo = gtk_combo_box_text_new();
@@ -1198,15 +1218,16 @@ static void activate(GtkApplication *app, gpointer user_data) {
   gtk_box_pack_start(GTK_BOX(vbox), note_hbox, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->scale_combo, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->note_combo, FALSE, FALSE, 0);
-	gtk_box_pack_start(GTK_BOX(note_hbox), make_scale_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->scale_color_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->rand_color_button, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(note_hbox), make_scale_button, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), qbutton, FALSE, FALSE, 0);
 	gtk_container_add (GTK_CONTAINER (window), aspect);
   gtk_container_add (GTK_CONTAINER (ctl_window), vbox);
 
   /* Signals used to handle the backing surface */
   g_timeout_add(16, (GSourceFunc)on_timeout, (gpointer)drawing_area);
+  g_signal_connect(dd->record_button, "clicked", G_CALLBACK(record_cb), dd);
   g_signal_connect(qbutton, "clicked", G_CALLBACK(quit_cb), dd);
   g_signal_connect(snapshot_button, "clicked", G_CALLBACK(snapshot_cb), dd);
   g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);
@@ -1466,16 +1487,12 @@ long_options[] = {
 int main(int argc, char **argv) {
   dingle_dots_t dingle_dots;
   char *video_file_name;
-	char default_video_name[STR_LEN];
-	struct timespec ts;
 	int width = 1280;
 	int height = 720;
 	int video_bitrate = 1000000;
   char *dev_name = "/dev/video0";
 	srand(time(NULL));
-	clock_gettime(CLOCK_REALTIME, &ts);
-	timespec2file_name(default_video_name, STR_LEN, "Videos", "webm", &ts);
-	video_file_name = default_video_name;
+	video_file_name = "";
 	for (;;) {
     int idx;
     int c;
