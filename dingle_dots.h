@@ -71,6 +71,8 @@ struct dingle_dots_t {
   cairo_t *cr;
   long jack_overruns;
 	int nports;
+	jack_default_audio_sample_t **in;
+	jack_default_audio_sample_t **out;
   jack_port_t **in_ports;
 	jack_port_t **out_ports;
 	jack_client_t *client;

@@ -62,7 +62,6 @@ struct buffer            *buffers;
 static unsigned int       n_buffers;
 
 jack_ringbuffer_t        *video_ring_buf, *audio_ring_buf;
-jack_default_audio_sample_t **in;
 const size_t              sample_size = sizeof(jack_default_audio_sample_t);
 pthread_mutex_t           av_thread_lock = PTHREAD_MUTEX_INITIALIZER;
 
@@ -235,7 +234,7 @@ ccv_tld_t *new_tld(int x, int y, int w, int h, dingle_dots_t *dd) {
 static void render_detection_box(cairo_t *cr, int initializing,
  int x, int y, int w, int h) {
   double minimum = min(w, h);
-  double r = 0.1 * minimum;
+  double r = 0.05 * minimum;
   cairo_save(cr);
   cairo_new_sub_path(cr);
   cairo_arc(cr, x + r, y + r, r, M_PI, 1.5 * M_PI);
@@ -611,21 +610,20 @@ int process(jack_nframes_t nframes, void *arg) {
   int chn;
   size_t i;
   static int first_call = 1;
-  if (dd->can_process) {
-    midi_process_output(nframes, dd);
-    for (chn = 0; chn < dd->nports; chn++) {
-      in[chn] = jack_port_get_buffer(dd->in_ports[chn], nframes);
-      kmeter_process(&dd->meters[chn], in[chn], nframes);
-    }
-    if (nframes >= FFT_SIZE) {
-      for (i = 0; i < FFT_SIZE; i++) {
-        fftw_in[i][0] = in[0][i] * hanning_window(i, FFT_SIZE);
-        fftw_in[i][1] = 0.0;
-      }
-      fftw_execute(p);
-    }
+	if (!dd->can_process) return 0;
+  midi_process_output(nframes, dd);
+  for (chn = 0; chn < dd->nports; chn++) {
+    dd->in[chn] = jack_port_get_buffer(dd->in_ports[chn], nframes);
+    dd->out[chn] = jack_port_get_buffer(dd->out_ports[chn], nframes);
+   	kmeter_process(&dd->meters[chn], dd->in[chn], nframes);
   }
-  if ((!dd->can_process) || (!dd->can_capture) || (dd->audio_done)) return 0;
+  if (nframes >= FFT_SIZE) {
+    for (i = 0; i < FFT_SIZE; i++) {
+      fftw_in[i][0] = dd->in[0][i] * hanning_window(i, FFT_SIZE);
+      fftw_in[i][1] = 0.0;
+    }
+    fftw_execute(p);
+  }
   if (first_call) {
     struct timespec *ats = &dd->audio_thread_info.stream.first_time;
     clock_gettime(CLOCK_MONOTONIC, ats);
@@ -634,16 +632,23 @@ int process(jack_nframes_t nframes, void *arg) {
   }
   for (i = 0; i < nframes; i++) {
     for (chn = 0; chn < dd->nports; chn++) {
-      if (jack_ringbuffer_write (audio_ring_buf, (void *) (in[chn]+i),
-       sample_size) < sample_size) {
-        printf("jack overrun: %ld\n", ++dd->jack_overruns);
-      }
-    }
-  }
-  if (pthread_mutex_trylock (&dd->audio_thread_info.lock) == 0) {
-    pthread_cond_signal (&dd->audio_thread_info.data_ready);
-    pthread_mutex_unlock (&dd->audio_thread_info.lock);
-  }
+      dd->out[chn][i] = dd->in[chn][i];
+		}
+	}
+	if (dd->recording_started && !dd->audio_done) {
+	  for (i = 0; i < nframes; i++) {
+  	  for (chn = 0; chn < dd->nports; chn++) {
+				if (jack_ringbuffer_write (audio_ring_buf, (void *) (dd->in[chn]+i),
+       	sample_size) < sample_size) {
+        	printf("jack overrun: %ld\n", ++dd->jack_overruns);
+      	}
+    	}
+  	}
+  	if (pthread_mutex_trylock (&dd->audio_thread_info.lock) == 0) {
+  	  pthread_cond_signal (&dd->audio_thread_info.data_ready);
+  	  pthread_mutex_unlock (&dd->audio_thread_info.lock);
+  	}
+	}
   return 0;
 }
 
@@ -670,10 +675,12 @@ void setup_jack(dingle_dots_t *dd) {
   dd->in_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * dd->nports);
   dd->out_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * dd->nports);
   in_size =  dd->nports * sizeof (jack_default_audio_sample_t *);
-  in = (jack_default_audio_sample_t **) malloc (in_size);
+  dd->in = (jack_default_audio_sample_t **) malloc (in_size);
+  dd->out = (jack_default_audio_sample_t **) malloc (in_size);
   audio_ring_buf = jack_ringbuffer_create (dd->nports * sample_size *
    16384);
-  memset(in, 0, in_size);
+  memset(dd->in, 0, in_size);
+  memset(dd->out, 0, in_size);
   memset(audio_ring_buf->buf, 0, audio_ring_buf->size);
   dd->midi_ring_buf = jack_ringbuffer_create(MIDI_RB_SIZE);
   fftw_in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
@@ -1128,7 +1135,7 @@ static gboolean make_scale_cb(GtkWidget *widget, gpointer data) {
 		c = hsv2rgb(&h);
 	} else {
 		gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(dd->scale_color_button), &gc);
-		color_init(&c, gc.red, gc.green, gc.blue, 0.5);
+		color_init(&c, gc.red, gc.green, gc.blue, gc.alpha);
 	}
 	dingle_dots_add_scale(dd, &key, &c);
   return TRUE;
@@ -1214,7 +1221,14 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_combo_box_set_active(GTK_COMBO_BOX(dd->note_combo), 60);
   make_scale_button = gtk_button_new_with_label("MAKE SCALE");
   dd->rand_color_button = gtk_check_button_new_with_label("RANDOM COLOR");
-	dd->scale_color_button = gtk_color_button_new();
+  GdkRGBA gc;
+	gc.red = 0;
+	gc.green = 0.2;
+	gc.blue = 0.3;
+	gc.alpha = 0.5;
+	dd->scale_color_button = gtk_color_button_new_with_rgba(&gc);
+	gtk_color_chooser_set_use_alpha(GTK_COLOR_CHOOSER(dd->scale_color_button),
+	 TRUE);
   gtk_box_pack_start(GTK_BOX(vbox), note_hbox, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->scale_combo, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->note_combo, FALSE, FALSE, 0);
