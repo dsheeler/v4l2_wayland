@@ -17,7 +17,8 @@ typedef struct midi_key_t midi_key_t;
 typedef enum {
 	MAJOR = 0,
 	MINOR,
-	CHROMATIC
+	CHROMATIC,
+	SINGLE
 } scales;
 
 struct midi_message {

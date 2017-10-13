@@ -109,6 +109,10 @@ void midi_key_init_by_scale_id(midi_key_t *key, uint8_t base_note,
 			key->steps[11] = 11;
 			key->steps[12] = 12;
 			break;
+		case SINGLE:
+			key->num_steps = 1;
+			key->steps[0] = 0;
+			break;
 		default:
 			key->num_steps = 0;
 	}
@@ -125,6 +129,8 @@ int midi_scale_text_to_id(char *name) {
 		return MINOR;
 	} else if (strcmp(name, "Chromatic") == 0) {
 		return CHROMATIC;
+	} else if (strcmp(name, "Single") == 0) {
+		return SINGLE;
 	}
 	return -1;
 }
@@ -137,6 +143,8 @@ char *midi_scale_id_to_text(int scaleid) {
 			return "Minor";
 		case CHROMATIC:
 			return "Chromatic";
+		case SINGLE:
+			return "Single";
 		default:
 			return "None";
 	}
