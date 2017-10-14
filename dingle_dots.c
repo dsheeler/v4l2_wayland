@@ -87,7 +87,6 @@ int dingle_dots_free(dingle_dots_t *dd) {
 void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key, color *c) {
 	int i;
   double x_delta;
-	struct hsva h;
 	x_delta = 1. / (key->num_steps + 1);
 	for (i = 0; i < key->num_steps; i++) {
 		char key_name[NCHAR];

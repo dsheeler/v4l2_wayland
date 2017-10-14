@@ -55,7 +55,6 @@ fftw_complex                   *fftw_in, *fftw_out;
 fftw_plan                      p;
 static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
 static ccv_tld_t               *tld = 0;
-static int                      shift_pressed = 0;
 
 static int                fd = -1;
 struct buffer            *buffers;
@@ -930,43 +929,47 @@ static gboolean double_press_event_cb(GtkWidget *widget,
 }
 
 static gboolean button_press_event_cb(GtkWidget *widget,
- GdkEventButton *event, gpointer data) {
-  int i;
-  dingle_dots_t * dd = (dingle_dots_t *)data;
-  dd->mouse_pos.x = event->x * dd->camera_rect.width / dd->screen_frame->width;
-  dd->mouse_pos.y = event->y * dd->camera_rect.height / dd->screen_frame->height;
+		GdkEventButton *event, gpointer data) {
+	int i;
+	dingle_dots_t * dd = (dingle_dots_t *)data;
+	dd->mouse_pos.x = event->x * dd->camera_rect.width / dd->screen_frame->width;
+	dd->mouse_pos.y = event->y * dd->camera_rect.height / dd->screen_frame->height;
 	if (event->button == GDK_BUTTON_PRIMARY) {
-    dd->mdown = 1;
-    dd->mdown_pos.x = dd->mouse_pos.x;
-    dd->mdown_pos.y = dd->mouse_pos.y;
-    isort(dd->sound_shapes, MAX_NSOUND_SHAPES,
-     sizeof(sound_shape), cmp_z_order);
-    for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
-      if (!dd->sound_shapes[i].active) continue;
-      if (sound_shape_in(&dd->sound_shapes[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
-        if (!dd->sound_shapes[i].selected) {
-					for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
-						if (!dd->sound_shapes[j].active) continue;
-						dd->sound_shapes[j].selected = 0;
+		dd->mdown = 1;
+		dd->mdown_pos.x = dd->mouse_pos.x;
+		dd->mdown_pos.y = dd->mouse_pos.y;
+		isort(dd->sound_shapes, MAX_NSOUND_SHAPES,
+				sizeof(sound_shape), cmp_z_order);
+		for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
+			if (!dd->sound_shapes[i].active) continue;
+			if (sound_shape_in(&dd->sound_shapes[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
+				if (dd->delete_active) {
+					sound_shape_deactivate(&dd->sound_shapes[i]);
+				} else {
+					if (!dd->sound_shapes[i].selected) {
+						for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
+							if (!dd->sound_shapes[j].active) continue;
+							dd->sound_shapes[j].selected = 0;
+						}
+						dd->sound_shapes[i].selected = 1;
 					}
-					dd->sound_shapes[i].selected = 1;
-				}
-				dd->sound_shapes[i].mdown = 1;
-        dd->sound_shapes[i].mdown_pos.x = dd->mouse_pos.x;
-        dd->sound_shapes[i].mdown_pos.y = dd->mouse_pos.y;
-        dd->sound_shapes[i].down_pos.x = dd->sound_shapes[i].x;
-        dd->sound_shapes[i].down_pos.y = dd->sound_shapes[i].y;
-     		if (dd->sound_shapes[i].selected) {
-					for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
-						if (!dd->sound_shapes[j].active) continue;
-						if (dd->sound_shapes[j].selected) {
-							dd->sound_shapes[j].z = dd->next_z++;
-							dd->sound_shapes[j].selected_pos.x = dd->sound_shapes[j].x;
-							dd->sound_shapes[j].selected_pos.y = dd->sound_shapes[j].y;
+					dd->sound_shapes[i].mdown = 1;
+					dd->sound_shapes[i].mdown_pos.x = dd->mouse_pos.x;
+					dd->sound_shapes[i].mdown_pos.y = dd->mouse_pos.y;
+					dd->sound_shapes[i].down_pos.x = dd->sound_shapes[i].x;
+					dd->sound_shapes[i].down_pos.y = dd->sound_shapes[i].y;
+					if (dd->sound_shapes[i].selected) {
+						for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
+							if (!dd->sound_shapes[j].active) continue;
+							if (dd->sound_shapes[j].selected) {
+								dd->sound_shapes[j].z = dd->next_z++;
+								dd->sound_shapes[j].selected_pos.x = dd->sound_shapes[j].x;
+								dd->sound_shapes[j].selected_pos.y = dd->sound_shapes[j].y;
+							}
 						}
 					}
+					dd->sound_shapes[i].z = dd->next_z++;
 				}
-        dd->sound_shapes[i].z = dd->next_z++;
 				return FALSE;
       }
     }
@@ -977,7 +980,7 @@ static gboolean button_press_event_cb(GtkWidget *widget,
 		dd->selection_rect.height = 0;
 		return FALSE;
   }
-  if (!shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
+  if (!dd->shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
     dd->smdown = 1;
     dd->mdown_pos.x = dd->mouse_pos.x;
     dd->mdown_pos.y = dd->mouse_pos.y;
@@ -987,7 +990,7 @@ static gboolean button_press_event_cb(GtkWidget *widget,
     dd->user_tld_rect.height = 20 * dd->ascale_factor_y;
 		return TRUE;
   }
-  if (dd->doing_tld && shift_pressed) {
+  if (dd->doing_tld && dd->shift_pressed) {
     if (event->button == GDK_BUTTON_SECONDARY) {
       dd->doing_tld = 0;
 			return TRUE;
@@ -1018,7 +1021,7 @@ static gboolean button_release_event_cb(GtkWidget *widget,
 		dd->dragging = 0;
 		dd->selection_in_progress = 0;
   	return TRUE;
-  } else if (!shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
+  } else if (!dd->shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
     dd->smdown = 0;
     dd->make_new_tld = 1;
     dd->doing_tld = 1;
@@ -1039,9 +1042,15 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
   } else if (event->keyval == GDK_KEY_r && (dd->recording_started)) {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dd->record_button), 0);
   	return TRUE;
-  } else if (event->keyval == GDK_KEY_Shift_L ||
+	} else if (event->keyval == GDK_KEY_d) {
+  	if (!dd->delete_active) {
+			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dd->delete_button), 1);
+		} else {
+			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dd->delete_button), 0);
+		}
+	} else if (event->keyval == GDK_KEY_Shift_L ||
    event->keyval == GDK_KEY_Shift_R) {
-    shift_pressed = 1;
+    dd->shift_pressed = 1;
   	return TRUE;
   } else if (event->keyval == GDK_KEY_Escape && dd->fullscreen) {
 		GtkWidget *toplevel = gtk_widget_get_toplevel(widget);
@@ -1055,12 +1064,24 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
 
 static gboolean on_key_release(GtkWidget *widget, GdkEventKey *event,
  gpointer data) {
+	dingle_dots_t *dd = (dingle_dots_t *)data;
   if (event->keyval == GDK_KEY_Shift_L ||
    event->keyval == GDK_KEY_Shift_R) {
-    shift_pressed = 0;
+    dd->shift_pressed = 0;
   	return TRUE;
   }
 	return FALSE;
+}
+
+static gboolean delete_cb(GtkWidget *widget, gpointer data) {
+  dingle_dots_t * dd;
+  dd = (dingle_dots_t *)data;
+  if (!dd->delete_active) {
+		dd->delete_active = 1;
+	} else {
+		dd->delete_active = 0;
+	}
+  return TRUE;
 }
 
 static gboolean record_cb(GtkWidget *widget, gpointer data) {
@@ -1197,6 +1218,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   note_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
   vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
   dd->record_button = gtk_toggle_button_new_with_label("RECORD");
+  dd->delete_button = gtk_toggle_button_new_with_label("DELETE");
   qbutton = gtk_button_new_with_label("QUIT");
   mbutton = gtk_check_button_new_with_label("MOTION DETECTION");
   snapshot_button = gtk_button_new_with_label("TAKE SNAPSHOT");
@@ -1235,6 +1257,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->scale_color_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->rand_color_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), make_scale_button, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(vbox), dd->delete_button, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), qbutton, FALSE, FALSE, 0);
 	gtk_container_add (GTK_CONTAINER (window), aspect);
   gtk_container_add (GTK_CONTAINER (ctl_window), vbox);
@@ -1242,6 +1265,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   /* Signals used to handle the backing surface */
   g_timeout_add(16, (GSourceFunc)on_timeout, (gpointer)drawing_area);
   g_signal_connect(dd->record_button, "clicked", G_CALLBACK(record_cb), dd);
+  g_signal_connect(dd->delete_button, "clicked", G_CALLBACK(delete_cb), dd);
   g_signal_connect(qbutton, "clicked", G_CALLBACK(quit_cb), dd);
   g_signal_connect(snapshot_button, "clicked", G_CALLBACK(snapshot_cb), dd);
   g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);

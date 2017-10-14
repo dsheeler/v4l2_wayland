@@ -32,6 +32,8 @@ struct dingle_dots_t {
   int trailer_written;
   int make_new_tld;
 	int use_rand_color_for_scale;
+  int shift_pressed;
+	int delete_active;
 	uint32_t video_bitrate;
 	AVFormatContext *video_output_context;
 	struct timespec out_frame_ts;
@@ -67,6 +69,7 @@ struct dingle_dots_t {
 	GtkWidget *rand_color_button;
 	GtkWidget *scale_color_button;
 	GtkWidget *record_button;
+	GtkWidget *delete_button;
 	cairo_surface_t *csurface;
   cairo_t *cr;
   long jack_overruns;
