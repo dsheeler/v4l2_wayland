@@ -117,6 +117,36 @@ int sound_shape_off(sound_shape *ss) {
   return 0;
 }
 
+void sound_shape_tick(sound_shape *ss) {
+	if (ss->motion_state_to_off) {
+		sound_shape_set_motion_state(ss, 0);
+	}
+}
+
+void sound_shape_set_motion_state(sound_shape *ss, uint8_t state) {
+	if (state) {
+		ss->motion_state = 1;
+		ss->motion_state_to_off = 0;
+		clock_gettime(CLOCK_MONOTONIC, &ss->motion_ts);
+	} else {
+		if (ss->motion_state) {
+			struct timespec now_ts;
+			struct timespec diff_ts;
+			double diff_sec;
+			clock_gettime(CLOCK_MONOTONIC, &now_ts);
+			timespec_diff(&ss->motion_ts, &now_ts, &diff_ts);
+			diff_sec = timespec_to_seconds(&diff_ts);
+			printf("seconds since last turned on %f\n", diff_sec);
+			if (diff_sec >= 0.2) {
+				ss->motion_state = 0;
+				ss->motion_state_to_off = 0;
+			} else {
+				ss->motion_state_to_off = 1;
+			}
+		}
+	}
+}
+
 int color_init(color *c, double r, double g, double b, double a) {
   c->r = r;
   c->g = g;

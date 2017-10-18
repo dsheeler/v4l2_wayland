@@ -95,12 +95,41 @@ static int open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
   return 0;
 }
 
-video_file_t *video_file_create(char *name) {
-	int ret;
-	video_file_t *vf;
-	vf = (video_file_t *)calloc(1, sizeof(*vf));
+void video_file_create(video_file_t *vf, char *name) {
+	printf("vfcreate\n");
+	memset(vf, 0, sizeof(*vf));
 	strncpy(vf->name, name, 255);
+	pthread_create(&vf->thread_id, NULL, video_file_thread, vf);
+}
+
+int video_file_destroy(video_file_t *vf) {
+	avcodec_close(vf->video_dec_ctx);
+	avformat_close_input(&vf->fmt_ctx);
+	av_frame_free(&vf->frame);
+	av_free(vf->video_dst_data[0]);
+	av_freep(&vf->decoded_frame->data[0]);
+	av_frame_free(&vf->decoded_frame);
+	jack_ringbuffer_free(vf->vbuf);
+	pthread_cancel(vf->thread_id);
+	memset(vf, 0, sizeof(*vf));
+	return 0;
+}
+
+int video_file_play(video_file_t *vf) {
+	printf("play\n");
+	vf->playing = 1;
+		vf->current_playtime = 0;
+		clock_gettime(CLOCK_MONOTONIC, &vf->play_start_ts);
+	return 0;
+}
+
+void *video_file_thread(void *arg) {
+  int ret;
+	int got_frame;
+	got_frame = 0;
+  video_file_t *vf = (video_file_t *)arg;
 	av_register_all();
+	vf->fmt_ctx = NULL;
   if (avformat_open_input(&vf->fmt_ctx, vf->name, NULL, NULL) < 0) {
 		printf("cannot open file: %s\n", vf->name);
 		return NULL;
@@ -117,7 +146,7 @@ video_file_t *video_file_create(char *name) {
 		vf->height = vf->video_dec_ctx->height;
 		vf->pix_fmt = vf->video_dec_ctx->pix_fmt;
 		ret = av_image_alloc(vf->video_dst_data, vf->video_dst_linesize,
-		 vf->width, vf->height, AV_PIX_FMT_RGBA, 1);
+		 vf->width, vf->height, AV_PIX_FMT_BGRA, 1);
 		if (ret < 0) {
 			printf("could not allocate raw video buffer\n");
 			video_file_destroy(vf);
@@ -126,46 +155,29 @@ video_file_t *video_file_create(char *name) {
 		vf->video_dst_bufsize = ret;
 	}
 	vf->resample = sws_getContext(vf->width, vf->height, vf->pix_fmt,
-	 vf->width, vf->height, AV_PIX_FMT_RGBA, SWS_BICUBIC, NULL, NULL, NULL);
+	 vf->width, vf->height, AV_PIX_FMT_BGRA, SWS_BICUBIC, NULL, NULL, NULL);
 	vf->frame = av_frame_alloc();
 	av_init_packet(&vf->pkt);
 	vf->pkt.data = NULL;
 	vf->pkt.size = 0;
   pthread_mutex_init(&vf->lock, NULL);
   pthread_cond_init(&vf->data_ready, NULL);
-	printf("bufsize %d\n", vf->video_dst_bufsize);
 	vf->vbuf = jack_ringbuffer_create(5*vf->video_dst_bufsize);
-	printf("ringbufsize %d\n", vf->vbuf->size);
 	memset(vf->vbuf->buf, 0, vf->vbuf->size);
-	return vf;
-}
-
-int video_file_destroy(video_file_t *vf) {
-	avcodec_free_context(&vf->video_dec_ctx);
-	avformat_close_input(&vf->fmt_ctx);
-	av_frame_free(&vf->frame);
-	av_free(vf->video_dst_data[0]);
-	return 0;
-}
-
-int video_file_play(video_file_t *vf) {
-	if (!vf->playing) {
-		vf->playing = 1;
-		vf->current_playtime = 0;
-		clock_gettime(CLOCK_MONOTONIC, &vf->play_start_ts);
-	}
-	return 0;
-}
-
-void *video_file_thread(void *arg) {
-  int ret;
-	int got_frame;
-	got_frame = 0;
-  video_file_t *vf = (video_file_t *)arg;
-  pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+  vf->decoded_frame = av_frame_alloc();
+  vf->decoded_frame->format = AV_PIX_FMT_ARGB;
+  vf->decoded_frame->width = vf->width;
+  vf->decoded_frame->height = vf->height;
+  av_image_alloc(vf->decoded_frame->data, vf->decoded_frame->linesize,
+	 vf->decoded_frame->width, vf->decoded_frame->height, vf->decoded_frame->format, 1);
+  vf->allocated = 1;
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
   pthread_mutex_lock(&vf->lock);
 	double pts;
-  while(av_read_frame(vf->fmt_ctx, &vf->pkt) >= 0) {
+	video_file_play(vf);
+	vf->playing = 1;
+	while(av_read_frame(vf->fmt_ctx, &vf->pkt) >= 0) {
+		vf->decoding_started = 1;
 		if (vf->pkt.stream_index == vf->video_stream_idx) {
 			vf->frame = av_frame_alloc();
 			ret = avcodec_decode_video2(vf->video_dec_ctx, vf->frame,
@@ -179,29 +191,24 @@ void *video_file_thread(void *arg) {
 				pts = 0;
 			}
 			pts *= av_q2d(vf->video_stream->time_base);
-			printf("bufsize: %d, %d\n", vf->video_dst_bufsize, 
-			 vf->width * 4 * vf->height);
 			if (got_frame) {
 				sws_scale(vf->resample, (uint8_t const * const *)vf->frame->data,
 	 			 vf->frame->linesize, 0, vf->frame->height, vf->video_dst_data,
 	 			 vf->video_dst_linesize);
 				int space = vf->video_dst_bufsize + sizeof(double);
 				int buf_space = jack_ringbuffer_write_space(vf->vbuf);
-				printf("buf_space %d, space %d\n", buf_space, space);
 				while (buf_space < space) {
-					printf("waiting\n");
 					pthread_cond_wait(&vf->data_ready, &vf->lock);
 					buf_space = jack_ringbuffer_write_space(vf->vbuf);
-					printf("woken\n");
   			}
-				printf("writing\n");
 				jack_ringbuffer_write(vf->vbuf, (void *)&pts, sizeof(double));
 				jack_ringbuffer_write(vf->vbuf, (void *)vf->video_dst_data[0],
 				 vf->video_dst_bufsize);
 			}
-				av_frame_unref(vf->frame);
+			av_frame_unref(vf->frame);
 		}
-			av_free_packet(&vf->pkt);
+		av_free_packet(&vf->pkt);
+		vf->decoding_finished = 1;
 	}
   pthread_mutex_unlock(&vf->lock);
 	return 0;
@@ -451,6 +458,24 @@ static void render_pointer(cairo_t *cr, double x, double y) {
   cairo_restore(cr);
 }
 
+void timespec_diff(struct timespec *start, struct timespec *stop,
+ struct timespec *result) {
+  if ((stop->tv_nsec - start->tv_nsec) < 0) {
+    result->tv_sec = stop->tv_sec - start->tv_sec - 1;
+    result->tv_nsec = stop->tv_nsec - start->tv_nsec + 1000000000;
+  } else {
+    result->tv_sec = stop->tv_sec - start->tv_sec;
+    result->tv_nsec = stop->tv_nsec - start->tv_nsec;
+	}
+    return;
+}
+
+double timespec_to_seconds(struct timespec *ts) {
+	double ret;
+	ret = ts->tv_sec + ts->tv_nsec / 1000000000.;
+	return ret;
+}
+
 static void process_image(cairo_t *cr, const void *p, const int size, int do_tld,
  void *arg) {
   dingle_dots_t *dd = (dingle_dots_t *)arg;
@@ -462,7 +487,9 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
   static int save_size = 0;
   static ccv_comp_t newbox;
   static int made_first_tld = 0;
-  int nij,s, i,j;
+	static double pts_previous;
+  int saved = 0;
+	int nij,s, i,j;
 	float sum, bw, bw2, diff, fr, fg, fb;
 	int istart, jstart, iend, jend;
 	int npts;
@@ -473,11 +500,12 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
   unsigned char *ptr = (unsigned char *) p;
 	//if (video_done) return;
   if (size != 0) {
-    save_size = size;
-  	if (!first_data) {
+   	if (!first_data) {
+			saved = 1;
 			memcpy(save_buf2, save_buf, 4 * dd->camera_rect.width *
 			 dd->camera_rect.height);
-		}
+	 	}
+   	save_size = size;
 		for (n = 0; n < save_size; n += 4) {
       nij = (int) n / 2;
       i = nij%dd->camera_rect.width;
@@ -491,9 +519,63 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
       YUV2RGB(y1, u, v, &r, &g, &b);
       save_buf[dd->camera_rect.width - 1 - (i+1) + j*dd->camera_rect.width] = 255 << 24 | r << 16 | g << 8 | b;
     }
-  }
+	}
+  if (dd->vf.playing) {
+	struct timespec current_ts;
+	struct timespec diff_ts;
+	double diff_sec;
+	clock_gettime(CLOCK_MONOTONIC, &current_ts);
+	timespec_diff(&dd->vf.play_start_ts, &current_ts, &diff_ts);
+	diff_sec = timespec_to_seconds(&diff_ts);
+	cairo_surface_t *save_buf_surf;
+	cairo_t *save_buf_cr;
+	save_buf_surf = cairo_image_surface_create_for_data((unsigned char *)save_buf,
+   CAIRO_FORMAT_ARGB32, dd->camera_rect.width, dd->camera_rect.height,
+	 4*dd->camera_rect.width);
+	save_buf_cr = cairo_create(save_buf_surf);
+	double pts;
+	double pts_diff;
+	if (dd->vf.decoding_started) {
+	if (dd->vf.decoding_finished && jack_ringbuffer_read_space(dd->vf.vbuf) == 0) {
+		dd->vf.playing = 0;
+	} else {
+		while (jack_ringbuffer_read_space(dd->vf.vbuf) >= (dd->vf.video_dst_bufsize + sizeof(double))) {
+    jack_ringbuffer_peek(dd->vf.vbuf, (char *)&pts, sizeof(double));
+		if (diff_sec >= pts) {
+	  	if (!first_data) {
+				pts_diff = pts - pts_previous;
+				pts_previous = pts;
+				if (!saved) {
+					memcpy(save_buf2, save_buf, 4 * dd->camera_rect.width *
+					 dd->camera_rect.height);
+				}
+			}
+			jack_ringbuffer_read_advance(dd->vf.vbuf, sizeof(double));
+    	jack_ringbuffer_read(dd->vf.vbuf, (char *)dd->vf.decoded_frame->data[0],
+    	 dd->vf.video_dst_bufsize);
+			if (pthread_mutex_trylock(&dd->vf.lock) == 0) {
+    	  pthread_cond_signal(&dd->vf.data_ready);
+				pthread_mutex_unlock(&dd->vf.lock);
+			}
+		} else {
+			break;
+		}
+	}
+	}
+	cairo_surface_t *tsurf;
+ 	tsurf = cairo_image_surface_create_for_data(
+	 (unsigned char *)dd->vf.decoded_frame->data[0], CAIRO_FORMAT_ARGB32,
+	 dd->vf.decoded_frame->width, dd->vf.decoded_frame->height, dd->vf.decoded_frame->linesize[0]);
+ 	cairo_set_source_surface(save_buf_cr, tsurf, 0.0, 0.0);
+	cairo_paint(save_buf_cr);
+	cairo_surface_destroy(tsurf);
+	cairo_destroy(save_buf_cr);
+	cairo_surface_destroy(save_buf_surf);
+	}
+	}
 	if (first_data) {
 		first_data = 0;
+		pts_previous = 0;
 		memcpy(save_buf2, save_buf, 4 * dd->camera_rect.width *
 		 dd->camera_rect.height);
 	}
@@ -505,25 +587,6 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 	 4*dd->camera_rect.width);
   cairo_t *tcr;
   tcr = cairo_create(csurf);
-  int buf_space = jack_ringbuffer_read_space(dd->vf->vbuf);
-	double pts;
-	if (buf_space >= (dd->vf->video_dst_bufsize + sizeof(double))) {
-    jack_ringbuffer_read(dd->vf->vbuf, (char *)&pts, sizeof(double));
-    jack_ringbuffer_read(dd->vf->vbuf, (char *)dd->video_frame->data[0],
-     dd->vf->video_dst_bufsize);
-		printf("pts: %f, bufsize: %d\n", pts, jack_ringbuffer_read_space(dd->vf->vbuf));
-	  if (pthread_mutex_trylock(&dd->vf->lock) == 0) {
-      pthread_cond_signal(&dd->vf->data_ready);
-      pthread_mutex_unlock(&dd->vf->lock);
-		}
-	}
-	cairo_surface_t *tsurf;
-  tsurf = cairo_image_surface_create_for_data(
-	 (unsigned char *)dd->video_frame->data[0], CAIRO_FORMAT_ARGB32,
-	 dd->video_frame->width, dd->video_frame->height, dd->video_frame->linesize[0]);
- 	cairo_set_source_surface(tcr, tsurf, 0.0, 0.0);
-	cairo_paint(tcr);
-	cairo_surface_destroy(tsurf);
 	/*pb = gdk_pixbuf_new_from_data(tvideo_frame->data[0], GDK_COLORSPACE_RGB,
    TRUE, 8, tvideo_frame->width, tvideo_frame->height, 4*tvideo_frame->width,
    NULL, NULL);
@@ -562,15 +625,18 @@ static void process_image(cairo_t *cr, const void *p, const int size, int do_tld
 				}
 			}
 			if ((sum / npts) > dd->motion_threshold) {
-				dd->sound_shapes[s].motion_state = 1;
+				sound_shape_set_motion_state(&dd->sound_shapes[s], 1);
 			} else {
-				dd->sound_shapes[s].motion_state = 0;
+				sound_shape_set_motion_state(&dd->sound_shapes[s], 0);
 			}
 		}
 	} else {
 		for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
-			dd->sound_shapes[s].motion_state = 0;
+			sound_shape_set_motion_state(&dd->sound_shapes[s], 0);
 		}
+	}
+	for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
+			sound_shape_tick(&dd->sound_shapes[s]);
 	}
 	if (dd->doing_tld) {
     if (do_tld) {
@@ -1307,10 +1373,37 @@ static gboolean quit_cb(GtkWidget *widget, gpointer data) {
   return TRUE;
 }
 
-static gboolean motion_cb(GtkWidget *widget, gpointer data) {
+static gboolean play_file_cb(GtkWidget *widget, gpointer data) {
   dingle_dots_t * dd;
   dd = (dingle_dots_t *)data;
-  if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+	GtkWidget *dialog;
+	GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_OPEN;
+	gint res;
+	dialog = gtk_file_chooser_dialog_new ("Open File",
+			dd->ctl_window,
+			action,
+			"Cancel",
+			GTK_RESPONSE_CANCEL,
+			"Open",
+			GTK_RESPONSE_ACCEPT,
+			NULL);
+	res = gtk_dialog_run (GTK_DIALOG (dialog));
+	if (res == GTK_RESPONSE_ACCEPT) {
+		char *filename;
+		GtkFileChooser *chooser = GTK_FILE_CHOOSER (dialog);
+		filename = gtk_file_chooser_get_filename (chooser);
+		if( dd->vf.allocated) {
+			video_file_destroy(&dd->vf);
+		}
+		video_file_create(&dd->vf, filename);
+		g_free (filename);
+	}
+	gtk_widget_destroy (dialog);
+}
+
+static gboolean motion_cb(GtkWidget *widget, gpointer data) {
+	dingle_dots_t *dd = (dingle_dots_t*) data;
+	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
 		dd->doing_motion = 1;
 	} else {
 		dd->doing_motion = 0;
@@ -1369,12 +1462,12 @@ static gboolean make_scale_cb(GtkWidget *widget, gpointer data) {
 
 static void activate(GtkApplication *app, gpointer user_data) {
   GtkWidget *window;
-  GtkWidget *ctl_window;
 	GtkWidget *drawing_area;
 	GtkWidget *note_hbox;
   GtkWidget *vbox;
   GtkWidget *qbutton;
   GtkWidget *mbutton;
+	GtkWidget *play_file_button;
   GtkWidget *snapshot_button;
   GtkWidget *make_scale_button;
 	GtkWidget *aspect;
@@ -1406,11 +1499,11 @@ static void activate(GtkApplication *app, gpointer user_data) {
   gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
   gtk_window_set_deletable(GTK_WINDOW (window), TRUE);
   gtk_window_set_default_size(GTK_WINDOW(window), dd->camera_rect.width, dd->camera_rect.height);
-	ctl_window = gtk_application_window_new(app);
-	gtk_window_set_keep_above(GTK_WINDOW(ctl_window), TRUE);
-  gtk_window_set_title(GTK_WINDOW (ctl_window), "Controls");
+	dd->ctl_window = gtk_application_window_new(app);
+	gtk_window_set_keep_above(GTK_WINDOW(dd->ctl_window), TRUE);
+  gtk_window_set_title(GTK_WINDOW (dd->ctl_window), "Controls");
   g_signal_connect (window, "destroy", G_CALLBACK (quit_cb), dd);
-  g_signal_connect (ctl_window, "destroy", G_CALLBACK (quit_cb), dd);
+  g_signal_connect (dd->ctl_window, "destroy", G_CALLBACK (quit_cb), dd);
   aspect = gtk_aspect_frame_new(NULL, 0.5, 0.5, ((float)dd->camera_rect.width)/dd->camera_rect.height, FALSE);
   gtk_frame_set_shadow_type(GTK_FRAME(aspect), GTK_SHADOW_NONE);
 	drawing_area = gtk_drawing_area_new();
@@ -1426,10 +1519,12 @@ static void activate(GtkApplication *app, gpointer user_data) {
   dd->delete_button = gtk_toggle_button_new_with_label("DELETE");
   qbutton = gtk_button_new_with_label("QUIT");
   mbutton = gtk_check_button_new_with_label("MOTION DETECTION");
+  play_file_button = gtk_button_new_with_label("PLAY VIDEO FILE");
   snapshot_button = gtk_button_new_with_label("TAKE SNAPSHOT");
 	gtk_box_pack_start(GTK_BOX(vbox), dd->record_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), snapshot_button, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), mbutton, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), play_file_button, FALSE, FALSE, 0);
   dd->scale_combo = gtk_combo_box_text_new();
 	int i = 0;
 	char *name = midi_scale_id_to_text(i);
@@ -1465,7 +1560,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_box_pack_start(GTK_BOX(vbox), dd->delete_button, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), qbutton, FALSE, FALSE, 0);
 	gtk_container_add (GTK_CONTAINER (window), aspect);
-  gtk_container_add (GTK_CONTAINER (ctl_window), vbox);
+  gtk_container_add (GTK_CONTAINER (dd->ctl_window), vbox);
 
   /* Signals used to handle the backing surface */
   g_timeout_add(16, (GSourceFunc)on_timeout, (gpointer)drawing_area);
@@ -1475,6 +1570,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   g_signal_connect(snapshot_button, "clicked", G_CALLBACK(snapshot_cb), dd);
   g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);
   g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
+  g_signal_connect(play_file_button, "clicked", G_CALLBACK(play_file_cb), dd);
   g_signal_connect(dd->rand_color_button, "toggled", G_CALLBACK(rand_color_cb), dd);
   g_signal_connect (drawing_area, "draw",
    G_CALLBACK (draw_cb), dd);
@@ -1501,7 +1597,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	 | GDK_POINTER_MOTION_MASK | GDK_BUTTON_RELEASE_MASK
    | GDK_KEY_PRESS_MASK | GDK_KEY_RELEASE_MASK);
   gtk_widget_show_all (window);
-  gtk_widget_show_all (ctl_window);
+  gtk_widget_show_all (dd->ctl_window);
 }
 
 static void mainloop(dingle_dots_t *dd) {
@@ -1771,14 +1867,6 @@ int main(int argc, char **argv) {
   }
   dingle_dots_init(&dingle_dots, dev_name, width, height, video_file_name, video_bitrate);
   setup_jack(&dingle_dots);
-  dingle_dots.vf = video_file_create("/store/Videos/King of the Hill/King of the Hill/Season 07/708 - Full Metal Dust Jacket.mkv");
-  dingle_dots.video_frame = av_frame_alloc();
-  dingle_dots.video_frame->format = AV_PIX_FMT_ARGB;
-  dingle_dots.video_frame->width = dingle_dots.vf->width;
-  dingle_dots.video_frame->height = dingle_dots.vf->height;
-  av_image_alloc(dingle_dots.video_frame->data, dingle_dots.video_frame->linesize,
-   dingle_dots.video_frame->width, dingle_dots.video_frame->height, dingle_dots.video_frame->format, 1);
-	pthread_create(&dingle_dots.vf->thread_id, NULL, video_file_thread, dingle_dots.vf);
   setup_signal_handler();
   open_device(dingle_dots.dev_name);
   init_device(dingle_dots.dev_name, width, height);

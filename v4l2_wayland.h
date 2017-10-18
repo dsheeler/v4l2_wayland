@@ -6,6 +6,7 @@
 #include <jack/ringbuffer.h>
 
 void *snapshot_disk_thread(void *);
+void *video_file_thread(void *);
 
 typedef struct output_frame {
   uint32_t *data;
@@ -36,6 +37,7 @@ typedef struct disk_thread_info {
 } disk_thread_info_t;
 
 typedef struct video_file {
+	uint8_t allocated;
 	char name[256];
 	AVFormatContext *fmt_ctx;
 	AVCodecContext *video_dec_ctx;
@@ -49,21 +51,26 @@ typedef struct video_file {
 	int video_dst_linesize[4];
 	int video_dst_bufsize;
 	AVFrame *frame;
+	AVFrame *decoded_frame;
 	AVPacket pkt;
   pthread_t thread_id;
   pthread_mutex_t lock;
   pthread_cond_t data_ready;
 	int playing;
+	int decoding_started;
+	int decoding_finished;
 	double total_playtime;
 	double current_playtime;
 	struct timespec play_start_ts;
 	jack_ringbuffer_t *vbuf;
 } video_file_t;
 
-video_file_t *video_file_create(char *name);
+void video_file_create(video_file_t *vf, char *name);
 int video_file_destroy(video_file_t *video_file);
 int video_file_play(video_file_t *vf);
-
+void timespec_diff(struct timespec *start, struct timespec *stop,
+ struct timespec *result);
+double timespec_to_seconds(struct timespec *ts);
 int timespec2file_name(char *buf, uint len, char *dir, char *extension,
  struct timespec *ts);
 #endif
