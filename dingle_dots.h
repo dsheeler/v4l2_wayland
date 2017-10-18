@@ -45,9 +45,11 @@ struct dingle_dots_t {
   struct SwsContext *analysis_resize;
  	AVFrame *screen_frame;
   struct SwsContext *screen_resize;
- 	sound_shape sound_shapes[MAX_NSOUND_SHAPES];
+ 	AVFrame *video_frame;
+	video_file_t vf;
+	sound_shape sound_shapes[MAX_NSOUND_SHAPES];
   kmeter meters[2];
- 	GdkRectangle camera_rect;
+	GdkRectangle camera_rect;
 	int doing_motion;
 	int doing_tld;
 	uint8_t do_snapshot;
@@ -64,6 +66,7 @@ struct dingle_dots_t {
 	uint8_t dragging;
 	uint8_t smdown;
 	GdkPoint mdown_pos;
+  GtkWidget *ctl_window;
 	GtkWidget *scale_combo;
 	GtkWidget *note_combo;
 	GtkWidget *rand_color_button;

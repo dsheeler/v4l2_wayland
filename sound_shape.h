@@ -38,6 +38,8 @@ struct sound_shape {
 	uint8_t selected;
 	uint8_t hovered;
 	uint8_t motion_state;
+	uint8_t motion_state_to_off;
+	struct timespec motion_ts;
 	uint8_t tld_state;
 	GdkPoint selected_pos;
 	double x;
@@ -62,6 +64,8 @@ int sound_shape_deactivate(sound_shape *ss);
 int sound_shape_in(sound_shape *ss, double x, double y);
 int sound_shape_on(sound_shape *ss);
 int sound_shape_off(sound_shape *ss);
+void sound_shape_tick(sound_shape *ss);
+void sound_shape_set_motion_state(sound_shape *ss, uint8_t state);
 int color_init(color *c, double r, double g, double b, double a);
 color color_copy(color *c);
 struct hsva rgb2hsv(color *c);
