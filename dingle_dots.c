@@ -16,7 +16,6 @@ int dingle_dots_init(dingle_dots_t *dd, char *dev_name, int width, int height,
   dd->recording_stopped = 0;
 	dd->nports = 2;
 	dd->make_new_tld = 0;
-	dd->dev_name = dev_name;
 	strncpy(dd->video_file_name, video_file_name, STR_LEN);
 	dd->video_bitrate = video_bitrate;
 	dd->analysis_rect.width = 260;

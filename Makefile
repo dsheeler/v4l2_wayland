@@ -23,9 +23,9 @@ CFLAGS =-g -Wall \
 				 $(shell pkg-config --cflags pangocairo) \
 				 $(shell pkg-config --cflags gtk+-3.0) \
 				 $(shell pkg-config --cflags fftw3)
-SRCS = v4l2_wayland.c muxing.c sound_shape.c midi.c kmeter.c dingle_dots.c
+SRCS = v4l2_wayland.c muxing.c sound_shape.c midi.c kmeter.c dingle_dots.c v4l2.c
 OBJS = $(SRCS:.c=.o)
-HDRS = muxing.h sound_shape.h midi.h v4l2_wayland.h kmeter.h dingle_dots.h
+HDRS = muxing.h sound_shape.h midi.h v4l2_wayland.h kmeter.h dingle_dots.h v4l2.h
 
 .SUFFIXES:
 

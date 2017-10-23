@@ -136,7 +136,6 @@ void sound_shape_set_motion_state(sound_shape *ss, uint8_t state) {
 			clock_gettime(CLOCK_MONOTONIC, &now_ts);
 			timespec_diff(&ss->motion_ts, &now_ts, &diff_ts);
 			diff_sec = timespec_to_seconds(&diff_ts);
-			printf("seconds since last turned on %f\n", diff_sec);
 			if (diff_sec >= 0.2) {
 				ss->motion_state = 0;
 				ss->motion_state_to_off = 0;

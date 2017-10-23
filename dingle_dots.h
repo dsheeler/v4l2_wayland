@@ -6,21 +6,18 @@
 #include "sound_shape.h"
 #include "kmeter.h"
 #include "midi.h"
+#include "v4l2.h"
 
 #define STR_LEN 80
+#define MAX_NUM_V4L2 2
 
 typedef struct sound_shape sound_shape;
 typedef struct dingle_dots_t dingle_dots_t;
 typedef struct midi_key_t midi_key_t;
-
-struct buffer {
-  void   *start;
-  size_t  length;
-};
+typedef struct dd_v4l2_t dd_v4l2_t;
 
 struct dingle_dots_t {
   GApplication *app;
-	char *dev_name;
 	gboolean fullscreen;
 	char video_file_name[STR_LEN];
 	int recording_started;
@@ -47,6 +44,7 @@ struct dingle_dots_t {
   struct SwsContext *screen_resize;
  	AVFrame *video_frame;
 	video_file_t vf;
+	dd_v4l2_t dd_v4l2[MAX_NUM_V4L2];
 	sound_shape sound_shapes[MAX_NSOUND_SHAPES];
   kmeter meters[2];
 	GdkRectangle camera_rect;

@@ -4,9 +4,11 @@
 #include <pthread.h>
 #include <libavformat/avformat.h>
 #include <jack/ringbuffer.h>
+#include <cairo.h>
 
 void *snapshot_disk_thread(void *);
 void *video_file_thread(void *);
+void *dd_v4l2_thread(void *);
 
 typedef struct output_frame {
   uint32_t *data;
@@ -73,4 +75,6 @@ void timespec_diff(struct timespec *start, struct timespec *stop,
 double timespec_to_seconds(struct timespec *ts);
 int timespec2file_name(char *buf, uint len, char *dir, char *extension,
  struct timespec *ts);
+void process_image(cairo_t *cr, void *arg);
+void errno_exit(const char *s);
 #endif
