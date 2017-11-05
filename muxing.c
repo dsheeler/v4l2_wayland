@@ -429,15 +429,15 @@ int init_output(dingle_dots_t *dd) {
     return 1;
   fmt = dd->video_output_context->oformat;
   add_stream(&dd->video_thread_info.stream, dd->video_output_context,
-   &video_codec, fmt->video_codec, dd->camera_rect.width,
-	 dd->camera_rect.height, dd->video_bitrate);
+   &video_codec, fmt->video_codec, dd->drawing_rect.width,
+	 dd->drawing_rect.height, dd->video_bitrate);
   if (fmt->audio_codec != AV_CODEC_ID_NONE) {
     add_stream(&dd->audio_thread_info.stream, dd->video_output_context,
      &audio_codec, fmt->audio_codec, 0, 0, 0);
   }
   av_dict_set(&opt, "cpu-used", "-8", 0);
   av_dict_set(&opt, "deadline", "realtime", 0);
-  open_video(dd->camera_rect.width, dd->camera_rect.height,
+  open_video(dd->drawing_rect.width, dd->drawing_rect.height,
 	 dd->video_output_context, video_codec, &dd->video_thread_info.stream, opt);
   open_audio(dd->video_output_context, audio_codec, &dd->audio_thread_info.stream, opt);
   av_dump_format(dd->video_output_context, 0, filename, 1);

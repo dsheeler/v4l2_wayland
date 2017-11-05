@@ -2,20 +2,18 @@
 #include "midi.h"
 
 int sound_shape_init(sound_shape *ss, char *label,
- uint8_t midi_note, double x, double y, double r,
+ uint8_t midi_note, uint8_t midi_channel, double x, double y, double r,
  color *c, dingle_dots_t *dd) {
-  ss->dd = dd;
+	draggable_init(ss, x, y, dd->next_z++);
+	ss->dd = dd;
 	ss->active = 0;
-  ss->x = x;
-  ss->y = y;
   ss->r = r;
-  ss->z = dd->next_z++;
   strncpy(ss->label, label, NCHAR);
   ss->midi_note = midi_note;
+	ss->midi_channel = midi_channel;
   ss->normal = color_copy(c);
   ss->playing = color_lighten(c, 0.95);
   ss->on = 0;
-  ss->mdown = 0;
   return 0;
 }
 
@@ -35,7 +33,7 @@ static void sound_shape_render_label(sound_shape *ss, cairo_t *cr) {
   ss->on ? cairo_set_source_rgba(cr, 0., 0., 0., ss->playing.a) :
    cairo_set_source_rgba(cr, 1., 1., 1., ss->normal.a);
   pango_layout_get_size(layout, &width, &height);
-  cairo_translate(cr, ss->x - 0.5*width/PANGO_SCALE, ss->y
+  cairo_translate(cr, ss->dr.pos.x - 0.5*width/PANGO_SCALE, ss->dr.pos.y
    - 0.5*height/PANGO_SCALE);
   pango_cairo_show_layout(cr, layout);
   cairo_restore(cr);
@@ -47,7 +45,7 @@ int sound_shape_render(sound_shape *ss, cairo_t *cr) {
   c = &ss->normal;
   cairo_save(cr);
 	cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
-  cairo_translate(cr, ss->x, ss->y);
+  cairo_translate(cr, ss->dr.pos.x, ss->dr.pos.y);
   cairo_arc(cr, 0, 0, ss->r*0.975, 0, 2 * M_PI);
   cairo_fill(cr);
   cairo_arc(cr, 0, 0, ss->r, 0, 2 * M_PI);
@@ -91,13 +89,13 @@ int sound_shape_deactivate(sound_shape *ss) {
 	ss->hovered = 0;
 	ss->motion_state = 0;
 	ss->tld_state = 0;
-	ss->mdown = 0;
+	ss->dr.mdown = 0;
 	ss->active = 0;
   return 0;
 }
 
 int sound_shape_in(sound_shape *ss, double x, double y) {
-  if (sqrt(pow((x - ss->x), 2) + pow(y - ss->y, 2)) <= ss->r) {
+  if (sqrt(pow((x - ss->dr.pos.x), 2) + pow(y - ss->dr.pos.y, 2)) <= ss->r) {
     return 1;
   } else {
     return 0;
@@ -106,14 +104,14 @@ int sound_shape_in(sound_shape *ss, double x, double y) {
 
 int sound_shape_on(sound_shape *ss) {
   ss->on = 1;
-  midi_queue_new_message(0x90, ss->midi_note, 64, ss->dd);
+  midi_queue_new_message(0x90 | ss->midi_channel, ss->midi_note, 64, ss->dd);
   return 0;
 }
 
 int sound_shape_off(sound_shape *ss) {
   ss->on = 0;
 	ss->double_clicked_on = 0;
-  midi_queue_new_message(0x80, ss->midi_note, 0, ss->dd);
+  midi_queue_new_message(0x80 | ss->midi_channel, ss->midi_note, 0, ss->dd);
   return 0;
 }
 

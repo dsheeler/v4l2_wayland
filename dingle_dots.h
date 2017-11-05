@@ -7,6 +7,7 @@
 #include "kmeter.h"
 #include "midi.h"
 #include "v4l2.h"
+#include "video_file_source.h"
 
 #define STR_LEN 80
 #define MAX_NUM_V4L2 2
@@ -37,17 +38,20 @@ struct dingle_dots_t {
   disk_thread_info_t audio_thread_info;
   disk_thread_info_t video_thread_info;
 	disk_thread_info_t snapshot_thread_info;
+	AVFrame *sources_frame;
 	AVFrame *drawing_frame;
 	AVFrame *analysis_frame;
   struct SwsContext *analysis_resize;
  	AVFrame *screen_frame;
   struct SwsContext *screen_resize;
  	AVFrame *video_frame;
-	video_file_t vf;
+	double scale;
+	video_file_t vf[MAX_NUM_VIDEO_FILES];
+	int current_video_file_source_index;
 	dd_v4l2_t dd_v4l2[MAX_NUM_V4L2];
 	sound_shape sound_shapes[MAX_NSOUND_SHAPES];
   kmeter meters[2];
-	GdkRectangle camera_rect;
+	GdkRectangle drawing_rect;
 	int doing_motion;
 	int doing_tld;
 	uint8_t do_snapshot;
@@ -89,6 +93,7 @@ int dingle_dots_init(dingle_dots_t *dd, char *dev_name, int width, int height,
 int dingle_dots_free(dingle_dots_t *dd);
 int dingle_dots_deactivate_sound_shapes(dingle_dots_t *dd);
 int dingle_dots_add_note(dingle_dots_t *dd, char *scale_name,
- int scale_num, int midi_note, double x, double y, double r, color *c);
-void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key, color *c);
+ int scale_num, int midi_note, int midi_channel, double x, double y, double r, color *c);
+void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key, int midi_channel,
+ color *c);
 #endif

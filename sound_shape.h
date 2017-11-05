@@ -7,7 +7,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <gdk/gdk.h>
-
+#include "draggable.h"
 #include "v4l2_wayland.h"
 
 #define NCHAR 32
@@ -31,6 +31,7 @@ struct hsva {
 };
 
 struct sound_shape {
+	draggable dr;
 	dingle_dots_t *dd;
 	uint8_t active;
   uint8_t on;
@@ -42,21 +43,16 @@ struct sound_shape {
 	struct timespec motion_ts;
 	uint8_t tld_state;
 	GdkPoint selected_pos;
-	double x;
-  double y;
-  double r;
-  uint64_t z;
+	double r;
   char label[NCHAR];
   uint8_t midi_note;
+  uint8_t midi_channel;
   color normal;
   color playing;
-	uint8_t mdown;
-  GdkPoint mdown_pos;
-  GdkPoint down_pos;
 };
 
 int sound_shape_init(sound_shape *ss, char *label,
- uint8_t midi_note, double x, double y, double r,
+ uint8_t midi_note, uint8_t midi_channel, double x, double y, double r,
  color *c, dingle_dots_t *dd);
 int sound_shape_render(sound_shape *ss, cairo_t *cr);
 int sound_shape_activate(sound_shape *ss);

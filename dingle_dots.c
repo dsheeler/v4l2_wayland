@@ -10,8 +10,8 @@ int dingle_dots_init(dingle_dots_t *dd, char *dev_name, int width, int height,
  char *video_file_name, int video_bitrate) {
 	memset(dd, 0, sizeof(dingle_dots_t));
 	int ret;
-	dd->camera_rect.width = width;
-	dd->camera_rect.height = height;
+	dd->drawing_rect.width = width;
+	dd->drawing_rect.height = height;
 	dd->recording_started = 0;
   dd->recording_stopped = 0;
 	dd->nports = 2;
@@ -20,8 +20,8 @@ int dingle_dots_init(dingle_dots_t *dd, char *dev_name, int width, int height,
 	dd->video_bitrate = video_bitrate;
 	dd->analysis_rect.width = 260;
 	dd->analysis_rect.height = 148;
-	dd->ascale_factor_x = dd->camera_rect.width / (double)dd->analysis_rect.width;
-  dd->ascale_factor_y = ((double)dd->camera_rect.height) / dd->analysis_rect.height;
+	dd->ascale_factor_x = dd->drawing_rect.width / (double)dd->analysis_rect.width;
+  dd->ascale_factor_y = ((double)dd->drawing_rect.height) / dd->analysis_rect.height;
   dd->analysis_frame = av_frame_alloc();
   dd->analysis_frame->format = AV_PIX_FMT_ARGB;
   dd->analysis_frame->width = dd->analysis_rect.width;
@@ -32,7 +32,7 @@ int dingle_dots_init(dingle_dots_t *dd, char *dev_name, int width, int height,
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
   }
-	dd->analysis_resize = sws_getContext(dd->camera_rect.width, dd->camera_rect.height, AV_PIX_FMT_ARGB, dd->analysis_rect.width,
+	dd->analysis_resize = sws_getContext(dd->drawing_rect.width, dd->drawing_rect.height, AV_PIX_FMT_ARGB, dd->analysis_rect.width,
    dd->analysis_rect.height, AV_PIX_FMT_ARGB, SWS_BICUBIC, NULL, NULL, NULL);
 	dd->doing_tld = 0;
 	dd->doing_motion = 0;
@@ -83,7 +83,8 @@ int dingle_dots_free(dingle_dots_t *dd) {
 	return 0;
 }
 
-void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key, color *c) {
+void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key, int midi_channel,
+ color *c) {
 	int i;
   double x_delta;
 	x_delta = 1. / (key->num_steps + 1);
@@ -95,14 +96,14 @@ void dingle_dots_add_scale(dingle_dots_t *dd, midi_key_t *key, color *c) {
 		scale = midi_scale_id_to_text(key->scaleid);
 		sprintf(key_name, "%s %s", base_name, scale);
 		dingle_dots_add_note(dd, key_name, i + 1,
-		 key->base_note + key->steps[i],
-		 x_delta * (i + 1) * dd->camera_rect.width, dd->camera_rect.height / 2.,
-		 dd->camera_rect.width/32, c);
+		 key->base_note + key->steps[i], midi_channel,
+		 x_delta * (i + 1) * dd->drawing_rect.width, dd->drawing_rect.height / 2.,
+		 dd->drawing_rect.width/32, c);
 	}
 }
 
 int dingle_dots_add_note(dingle_dots_t *dd, char *scale_name,
- int scale_num, int midi_note, double x, double y, double r, color *c) {
+ int scale_num, int midi_note, int midi_channel, double x, double y, double r, color *c) {
   char label[NCHAR], snum[NCHAR], octave_name[NCHAR];
   int i;
   double freq;
@@ -117,7 +118,7 @@ int dingle_dots_add_note(dingle_dots_t *dd, char *scale_name,
 	sprintf(label, "%.2f\n%s\n%d\n%s", freq, snum, scale_num, octave_name);
 	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
 		if (dd->sound_shapes[i].active) continue;
-		sound_shape_init(&dd->sound_shapes[i], label, midi_note,
+		sound_shape_init(&dd->sound_shapes[i], label, midi_note, midi_channel,
 		 x, y, r, c, dd);
 		sound_shape_activate(&dd->sound_shapes[i]);
 		return 0;

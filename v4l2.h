@@ -10,7 +10,6 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <fcntl.h>
-#include <sys/epoll.h>
 #include <jack/ringbuffer.h>
 #include <errno.h>
 #include <string.h>
@@ -22,6 +21,7 @@
 #include <gtk/gtk.h>
 
 #include "v4l2_wayland.h"
+#include "draggable.h"
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 #define CLIPVALUE(v) ((v) < 255 ? (v) : 255)
@@ -37,9 +37,12 @@ struct dd_v4l2_buffer {
 };
 
 struct dd_v4l2_t {
+	draggable dr;
 	char dev_name[DD_V4L2_MAX_STR_LEN];
 	int fd;
-	GdkRectangle rect;
+	int active;
+	int width;
+	int height;
 	struct dd_v4l2_buffer *buffers;
 	unsigned int n_buffers;
   uint32_t *save_buf;
@@ -52,6 +55,7 @@ struct dd_v4l2_t {
 };
 
 int dd_v4l2_read_frames(dd_v4l2_t *v);
+int dd_v4l2_in(dd_v4l2_t *v, double x, double y);
 void dd_v4l2_stop_capturing(dd_v4l2_t *v);
 void dd_v4l2_start_capturing(dd_v4l2_t *v);
 void dd_v4l2_uninit_device(dd_v4l2_t *v);

@@ -36,7 +36,6 @@ int dd_v4l2_read_frames(dd_v4l2_t *v4l2) {
   unsigned char y0, y1, u, v;
   unsigned char r, g, b;
 	unsigned char *ptr;
-	int eagain = 0;
 	int i, j, nij;
 	int n;
 	for (;;) {
@@ -44,10 +43,10 @@ int dd_v4l2_read_frames(dd_v4l2_t *v4l2) {
 		CLEAR(buf);
 	  buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	  buf.memory = V4L2_MEMORY_MMAP;
-	  if (-1 == xioctl(v4l2->fd, VIDIOC_DQBUF, &buf)) {
+	  if (!v4l2->active) continue;
+		if (-1 == xioctl(v4l2->fd, VIDIOC_DQBUF, &buf)) {
 	    switch (errno) {
 	      case EAGAIN:
-	        eagain = 1;
 	        break;
 	      case EIO:
 	        /* Could ignore EIO, see spec. */
@@ -57,29 +56,29 @@ int dd_v4l2_read_frames(dd_v4l2_t *v4l2) {
 	    }
 	  }
 		ptr = (unsigned char *)v4l2->buffers[buf.index].start;
-		for (n = 0; n < 2*v4l2->rect.width*v4l2->rect.height; n += 4) {
+		for (n = 0; n < 2*v4l2->width*v4l2->height; n += 4) {
 			nij = (int) n / 2;
-			i = nij%v4l2->rect.width;
-			j = nij/v4l2->rect.width;
+			i = nij%v4l2->width;
+			j = nij/v4l2->width;
 			y0 = (unsigned char)ptr[n + 0];
 			u = (unsigned char)ptr[n + 1];
 			y1 = (unsigned char)ptr[n + 2];
 			v = (unsigned char)ptr[n + 3];
 			YUV2RGB(y0, u, v, &r, &g, &b);
-			v4l2->save_buf[v4l2->rect.width - 1 - i + j*v4l2->rect.width] = 255 << 24 | r << 16 | g << 8 | b;
+			v4l2->save_buf[v4l2->width - 1 - i + j*v4l2->width] = 255 << 24 | r << 16 | g << 8 | b;
 			YUV2RGB(y1, u, v, &r, &g, &b);
-			v4l2->save_buf[v4l2->rect.width - 1 - (i+1) + j*v4l2->rect.width] = 255 << 24 | r << 16 | g << 8 | b;
+			v4l2->save_buf[v4l2->width - 1 - (i+1) + j*v4l2->width] = 255 << 24 | r << 16 | g << 8 | b;
 		}
 		assert(buf.index < v4l2->n_buffers);
 		clock_gettime(CLOCK_MONOTONIC, &ts);
-		int space = 4 * v4l2->rect.width * v4l2->rect.height + sizeof(struct timespec);
+		int space = 4 * v4l2->width * v4l2->height + sizeof(struct timespec);
 		int buf_space = jack_ringbuffer_write_space(v4l2->rbuf);
 		while (buf_space < space) {
 			pthread_cond_wait(&v4l2->data_ready, &v4l2->lock);
 			buf_space = jack_ringbuffer_write_space(v4l2->rbuf);
 		}
 		jack_ringbuffer_write(v4l2->rbuf, (void *)&ts, sizeof(struct timespec));
-		jack_ringbuffer_write(v4l2->rbuf, (void *)v4l2->save_buf, 4 * v4l2->rect.width * v4l2->rect.height);
+		jack_ringbuffer_write(v4l2->rbuf, (void *)v4l2->save_buf, 4 * v4l2->width * v4l2->height);
 		if (-1 == xioctl(v4l2->fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
 	}
@@ -208,8 +207,8 @@ void dd_v4l2_init_device(dd_v4l2_t *v) {
   }
   CLEAR(fmt);
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  fmt.fmt.pix.width       = v->rect.width;
-  fmt.fmt.pix.height      = v->rect.height;
+  fmt.fmt.pix.width       = v->width;
+  fmt.fmt.pix.height      = v->height;
   fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
   fmt.fmt.pix.field       = V4L2_FIELD_ANY;
   if (-1 == xioctl(v->fd, VIDIOC_S_FMT, &fmt))
@@ -232,7 +231,6 @@ void dd_v4l2_close_device(dd_v4l2_t *v) {
 }
 
 void dd_v4l2_open_device(dd_v4l2_t *v) {
-  int ret;
 	struct stat st;
   if (-1 == stat(v->dev_name, &st)) {
     fprintf(stderr, "Cannot identify '%s': %d, %s\n",
@@ -243,7 +241,7 @@ void dd_v4l2_open_device(dd_v4l2_t *v) {
     fprintf(stderr, "%s is no device\n", v->dev_name);
     exit(EXIT_FAILURE);
   }
-  v->fd = open(v->dev_name, O_RDWR /* required *//* | O_NONBLOCK*/, 0);
+  v->fd = open(v->dev_name, O_RDWR /* required */ | O_NONBLOCK, 0);
   if (-1 == v->fd) {
     fprintf(stderr, "Cannot open '%s': %d, %s\n",
         v->dev_name, errno, strerror(errno));
@@ -254,4 +252,11 @@ void dd_v4l2_open_device(dd_v4l2_t *v) {
 	v->pfd->events = POLLIN;
 }
 
-
+int dd_v4l2_in(dd_v4l2_t *v, double x, double y) {
+	if ((x >= ((draggable *)v)->pos.x && x <= v->dr.pos.x + v->width) &&
+			(y >= v->dr.pos.y && y <= v->dr.pos.y + v->height)) {
+		return 1;
+	} else {
+		return 0;
+	}
+}
