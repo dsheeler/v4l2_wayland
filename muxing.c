@@ -6,12 +6,21 @@ extern OutputStream video_st;
 static void log_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt)
 {
   AVRational *time_base = &fmt_ctx->streams[pkt->stream_index]->time_base;
-  printf("pts:%s pts_time:%s dts:%s dts_time:%s duration:%s"
+	char pts[AV_TS_MAX_STRING_SIZE];
+	char dts[AV_TS_MAX_STRING_SIZE];
+	char dur[AV_TS_MAX_STRING_SIZE];
+	char pts_str[AV_TS_MAX_STRING_SIZE];
+	char dts_str[AV_TS_MAX_STRING_SIZE];
+	char dur_str[AV_TS_MAX_STRING_SIZE];
+	av_ts_make_string(pts, pkt->pts);
+	av_ts_make_time_string(pts_str, pkt->pts, time_base);
+	av_ts_make_string(dts, pkt->dts);
+	av_ts_make_time_string(dts_str, pkt->dts, time_base);
+	av_ts_make_string(dur, pkt->duration);
+	av_ts_make_time_string(dur_str, pkt->duration, time_base);
+		printf("pts:%s pts_time:%s dts:%s dts_time:%s duration:%s"
    " duration_time:%s stream_index:%d\n",
-   av_ts2str(pkt->pts), av_ts2timestr(pkt->pts, time_base),
-   av_ts2str(pkt->dts), av_ts2timestr(pkt->dts, time_base),
-   av_ts2str(pkt->duration), av_ts2timestr(pkt->duration, time_base),
-   pkt->stream_index);
+   pts, pts_str, dts, dts_str, dur, dur_str, pkt->stream_index);
 }
 
 static int write_frame(AVFormatContext *fmt_ctx,
@@ -132,13 +141,15 @@ static void open_audio(AVFormatContext *oc, AVCodec *codec, OutputStream *ost,
   AVCodecContext *c;
   int nb_samples;
   int ret;
+	char err[AV_ERROR_MAX_STRING_SIZE];
   AVDictionary *opt = NULL;
   c = ost->enc;
   av_dict_copy(&opt, opt_arg, 0);
   ret = avcodec_open2(c, codec, &opt);
   av_dict_free(&opt);
   if (ret < 0) {
-    fprintf(stderr, "Could not open audio codec: %s\n", av_err2str(ret));
+		av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
+    fprintf(stderr, "Could not open audio codec: %s\n", err);
     exit(1);
   }
   if (c->codec->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE)
@@ -209,6 +220,7 @@ int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
   AVFrame *frame;
   int ret;
   int dst_nb_samples;
+	char err[AV_ERROR_MAX_STRING_SIZE];
   c = ost->enc;
   ret = get_audio_frame(dd, ost, &frame);
   if (ret < 0) {
@@ -236,14 +248,15 @@ int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
     ret = avcodec_send_frame(c, frame);
     ost->samples_count += dst_nb_samples;
     if (ret < 0) {
-      fprintf(stderr, "Error encoding audio frame: %s\n", av_err2str(ret));
+			av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
+      fprintf(stderr, "Error encoding audio frame: %s\n", err);
       exit(1);
     }
     while(avcodec_receive_packet(c, &pkt) >= 0) {
       ret = write_frame(oc, &c->time_base, ost->st, &pkt);
       if (ret < 0) {
-        fprintf(stderr, "Error while writing audio frame: %s\n",
-        av_err2str(ret));
+				av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
+        fprintf(stderr, "Error while writing audio frame: %s\n", err);
         exit(1);
       }
     }
@@ -257,6 +270,7 @@ int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
 static void open_video(int width, int height, AVFormatContext *oc, AVCodec *codec, OutputStream *ost, AVDictionary *opt_arg)
 {
     int ret;
+		char err[AV_ERROR_MAX_STRING_SIZE];
     AVCodecContext *c = ost->enc;
     AVDictionary *opt = NULL;
 
@@ -266,7 +280,8 @@ static void open_video(int width, int height, AVFormatContext *oc, AVCodec *code
     ret = avcodec_open2(c, codec, &opt);
     av_dict_free(&opt);
     if (ret < 0) {
-        fprintf(stderr, "Could not open video codec: %s\n", av_err2str(ret));
+				av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
+        fprintf(stderr, "Could not open video codec: %s\n", err);
         exit(1);
     }
 
@@ -280,9 +295,9 @@ static void open_video(int width, int height, AVFormatContext *oc, AVCodec *code
     ost->frame->width = width;
     ost->frame->height = height;
     ost->out_frame.size = 4 * width * height;
-    ost->out_frame.data = calloc(1, ost->out_frame.size);
+    ost->out_frame.data = (uint32_t *)calloc(1, ost->out_frame.size);
     av_image_fill_arrays(ost->frame->data, ost->frame->linesize,
-     (const unsigned char *)ost->out_frame.data, ost->frame->format,
+     (const unsigned char *)ost->out_frame.data, (AVPixelFormat)ost->frame->format,
      ost->frame->width, ost->frame->height, 32);
     /* If the output format is not YUV420P, then a temporary YUV420P
      * picture is needed too. It is then converted to the required
@@ -293,7 +308,7 @@ static void open_video(int width, int height, AVFormatContext *oc, AVCodec *code
     ost->tmp_frame->height = height;
     ost->tmp_frame->format = AV_PIX_FMT_YUV420P;
     av_image_alloc(ost->tmp_frame->data, ost->tmp_frame->linesize,
-     ost->tmp_frame->width, ost->tmp_frame->height, ost->tmp_frame->format, 1);
+     ost->tmp_frame->width, ost->tmp_frame->height, (AVPixelFormat)ost->tmp_frame->format, 1);
     //ost->tmp_frame = alloc_picture(AV_PIX_FMT_YUV420P, c->width, c->height);
     if (!ost->tmp_frame) {
         fprintf(stderr, "Could not allocate temporary picture\n");
@@ -332,7 +347,7 @@ int get_video_frame(dingle_dots_t *dd, OutputStream *ost, AVFrame **ret_frame) {
     ost->next_pts = (int) c->time_base.den * diff / c->time_base.num;
     if (!ost->sws_ctx) {
       ost->sws_ctx = sws_getContext(c->width, c->height,
-       ost->frame->format, c->width, c->height, c->pix_fmt,
+       (AVPixelFormat)ost->frame->format, c->width, c->height, c->pix_fmt,
        SCALE_FLAGS, NULL, NULL, NULL);
       if (!ost->sws_ctx) {
         fprintf(stderr,
@@ -359,6 +374,7 @@ int write_video_frame(dingle_dots_t *dd, AVFormatContext *oc, OutputStream *ost)
   AVCodecContext *c;
   AVFrame *tframe;
   AVPacket pkt;
+	char err[AV_ERROR_MAX_STRING_SIZE];
   c = ost->enc;
   ret = get_video_frame(dd, ost, &tframe);
   if (ret < 0) {
@@ -370,13 +386,15 @@ int write_video_frame(dingle_dots_t *dd, AVFormatContext *oc, OutputStream *ost)
     av_init_packet(&pkt);
     ret = avcodec_send_frame(c, tframe);
     if (ret < 0) {
-      fprintf(stderr, "Error encoding video frame: %s\n", av_err2str(ret));
+			av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
+      fprintf(stderr, "Error encoding video frame: %s\n", err);
       exit(1);
     }
     while (avcodec_receive_packet(c, &pkt) >= 0) {
       ret = write_frame(oc, &c->time_base, ost->st, &pkt);
       if (ret < 0) {
-        fprintf(stderr, "Error while writing video frame: %s\n", av_err2str(ret));
+				av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
+        fprintf(stderr, "Error while writing video frame: %s\n", err);
         exit(1);
       }
     }
@@ -386,13 +404,15 @@ int write_video_frame(dingle_dots_t *dd, AVFormatContext *oc, OutputStream *ost)
     /* encode the image */
     ret = avcodec_send_frame(c, tframe);
     if (ret < 0) {
-      fprintf(stderr, "Error encoding video frame: %s\n", av_err2str(ret));
+			av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
+      fprintf(stderr, "Error encoding video frame: %s\n", err);
       exit(1);
     }
     while (avcodec_receive_packet(c, &pkt) >= 0) {
       ret = write_frame(oc, &c->time_base, ost->st, &pkt);
       if (ret < 0) {
-        fprintf(stderr, "Error while writing video frame: %s\n", av_err2str(ret));
+				av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
+        fprintf(stderr, "Error while writing video frame: %s\n", err);
         exit(1);
       }
     }
@@ -417,6 +437,7 @@ int init_output(dingle_dots_t *dd) {
   AVOutputFormat *fmt;
   AVCodec *audio_codec, *video_codec;
   int ret;
+	char err[AV_ERROR_MAX_STRING_SIZE];
   AVDictionary *opt = NULL;
   av_register_all();
   filename = dd->video_file_name;
@@ -444,8 +465,9 @@ int init_output(dingle_dots_t *dd) {
   if (!(fmt->flags & AVFMT_NOFILE)) {
     ret = avio_open(&dd->video_output_context->pb, filename, AVIO_FLAG_WRITE);
     if (ret < 0) {
+			av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
       fprintf(stderr, "Could not open '%s': %s\n", filename,
-          av_err2str(ret));
+          err);
       return 1;
     }
   }
@@ -453,8 +475,9 @@ int init_output(dingle_dots_t *dd) {
   /* Write the stream header, if any. */
   ret = avformat_write_header(dd->video_output_context, &opt);
   if (ret < 0) {
+		av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
     fprintf(stderr, "Error occurred when opening output file: %s\n",
-     av_err2str(ret));
+     err);
     return 1;
   }
 

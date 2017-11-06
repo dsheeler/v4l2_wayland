@@ -77,8 +77,8 @@ int dd_v4l2_read_frames(dd_v4l2_t *v4l2) {
 			pthread_cond_wait(&v4l2->data_ready, &v4l2->lock);
 			buf_space = jack_ringbuffer_write_space(v4l2->rbuf);
 		}
-		jack_ringbuffer_write(v4l2->rbuf, (void *)&ts, sizeof(struct timespec));
-		jack_ringbuffer_write(v4l2->rbuf, (void *)v4l2->save_buf, 4 * v4l2->width * v4l2->height);
+		jack_ringbuffer_write(v4l2->rbuf, (const char *)&ts, sizeof(struct timespec));
+		jack_ringbuffer_write(v4l2->rbuf, (const char *)v4l2->save_buf, 4 * v4l2->width * v4l2->height);
 		if (-1 == xioctl(v4l2->fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
 	}
@@ -136,7 +136,7 @@ void dd_v4l2_init_mmap(dd_v4l2_t *v) {
         v->dev_name);
     exit(EXIT_FAILURE);
   }
-  v->buffers = calloc(req.count, sizeof(*v->buffers));
+  v->buffers = (struct dd_v4l2_buffer *)calloc(req.count, sizeof(*v->buffers));
   if (!v->buffers) {
     fprintf(stderr, "Out of memory\n");
     exit(EXIT_FAILURE);

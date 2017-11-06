@@ -1,6 +1,4 @@
 #include <jack/jack.h>
-#include <libswscale/swscale.h>
-#include <libavutil/imgutils.h>
 
 #include "v4l2_wayland.h"
 #include "dingle_dots.h"
@@ -27,7 +25,7 @@ int dingle_dots_init(dingle_dots_t *dd, char *dev_name, int width, int height,
   dd->analysis_frame->width = dd->analysis_rect.width;
   dd->analysis_frame->height = dd->analysis_rect.height;
   ret = av_image_alloc(dd->analysis_frame->data, dd->analysis_frame->linesize,
-   dd->analysis_frame->width, dd->analysis_frame->height, dd->analysis_frame->format, 1);
+   dd->analysis_frame->width, dd->analysis_frame->height, (AVPixelFormat)dd->analysis_frame->format, 1);
   if (ret < 0) {
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);

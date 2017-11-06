@@ -1,3 +1,4 @@
+CC=$(CXX)
 PREFIX=/usr
 APPDIR=$(PREFIX)/share/applications
 BINDIR=$(PREFIX)/bin

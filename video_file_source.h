@@ -1,10 +1,17 @@
 #if !defined(_VIDEO_FILE_SOURCE_H)
 #define _VIDEO_FILE_SOURCE_H (1)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <jack/ringbuffer.h>
 #include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
+#ifdef __cplusplus
+}
+#endif
+#include <jack/ringbuffer.h>
 #include <pthread.h>
 
 #include "draggable.h"

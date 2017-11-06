@@ -1,6 +1,17 @@
 #if !defined(_DINGLE_DOTS_H)
 #define _DINGLE_DOTS_H (1)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/opt.h>
+#include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
+#ifdef __cplusplus
+}
+#endif
 #include <gtk/gtk.h>
 #include "v4l2_wayland.h"
 #include "sound_shape.h"

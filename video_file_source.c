@@ -88,6 +88,7 @@ int video_file_in(video_file_t *v, double x, double y) {
 void *video_file_thread(void *arg) {
   int ret;
 	int got_frame;
+	char err[AV_ERROR_MAX_STRING_SIZE];
 	got_frame = 0;
   video_file_t *vf = (video_file_t *)arg;
 	av_register_all();
@@ -131,7 +132,7 @@ void *video_file_thread(void *arg) {
   vf->decoded_frame->width = vf->width;
   vf->decoded_frame->height = vf->height;
   av_image_alloc(vf->decoded_frame->data, vf->decoded_frame->linesize,
-	 vf->decoded_frame->width, vf->decoded_frame->height, vf->decoded_frame->format, 1);
+	 vf->decoded_frame->width, vf->decoded_frame->height, (AVPixelFormat)vf->decoded_frame->format, 1);
   vf->allocated = 1;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
   pthread_mutex_lock(&vf->lock);
@@ -146,7 +147,8 @@ void *video_file_thread(void *arg) {
 			ret = avcodec_decode_video2(vf->video_dec_ctx, vf->frame,
 		   &got_frame, &vf->pkt);
 			if (ret < 0) {
-				printf("Error decoding video frame (%s)\n", av_err2str(ret));
+				av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
+				printf("Error decoding video frame (%s)\n", err);
 			}
 			if (vf->pkt.dts != AV_NOPTS_VALUE) {
 				pts = av_frame_get_best_effort_timestamp(vf->frame);
@@ -166,8 +168,8 @@ void *video_file_thread(void *arg) {
 					pthread_cond_wait(&vf->data_ready, &vf->lock);
 					buf_space = jack_ringbuffer_write_space(vf->vbuf);
   			}
-				jack_ringbuffer_write(vf->vbuf, (void *)&pts, sizeof(double));
-				jack_ringbuffer_write(vf->vbuf, (void *)vf->video_dst_data[0],
+				jack_ringbuffer_write(vf->vbuf, (const char *)&pts, sizeof(double));
+				jack_ringbuffer_write(vf->vbuf, (const char *)vf->video_dst_data[0],
 				 vf->video_dst_bufsize);
 			}
 			av_frame_unref(vf->frame);

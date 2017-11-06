@@ -2,7 +2,18 @@
 #define _V4L2_WAYLAND_H (1)
 
 #include <pthread.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
+#include <libswscale/swscale.h>
+#include <ccv/ccv.h>
+#ifdef __cplusplus
+}
+#endif
 #include <jack/ringbuffer.h>
 #include <cairo.h>
 

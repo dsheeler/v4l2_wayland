@@ -17,16 +17,10 @@
 #include <sys/time.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
-#include <libavcodec/avcodec.h>
-#include <libavutil/imgutils.h>
-#include <libavutil/opt.h>
-#include <libswscale/swscale.h>
-
 #include <jack/jack.h>
 #include <jack/ringbuffer.h>
 #include <jack/midiport.h>
 #include <linux/input.h>
-#include <ccv/ccv.h>
 #include <cairo/cairo.h>
 #include <fftw3.h>
 
@@ -59,8 +53,8 @@ void *dd_v4l2_thread(void *arg) {
   dd_v4l2_t *v = (dd_v4l2_t *)arg;
 	v->rbuf = jack_ringbuffer_create(5*4*v->width*v->height);
 	memset(v->rbuf->buf, 0, v->rbuf->size);
-	v->read_buf = (malloc(4 * v->width * v->height));
-	v->save_buf = (malloc(4 * v->width * v->height));
+	v->read_buf = (uint32_t *)(malloc(4 * v->width * v->height));
+	v->save_buf = (uint32_t *)(malloc(4 * v->width * v->height));
 	v->active = 1;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	dd_v4l2_open_device(v);
@@ -186,7 +180,7 @@ void *snapshot_disk_thread (void *arg) {
   frame->height = dd->drawing_rect.height;
   frame->format = AV_PIX_FMT_ARGB;
   av_image_alloc(frame->data, frame->linesize,
-   frame->width, frame->height, frame->format, 1);
+   frame->width, frame->height, (AVPixelFormat)frame->format, 1);
   if (!frame) {
     fprintf(stderr, "Could not allocate temporary picture\n");
     exit(1);
@@ -319,7 +313,6 @@ void process_image(cairo_t *screen_cr, void *arg) {
   static ccv_comp_t newbox;
   static int made_first_tld = 0;
   pair_int_int pairs[MAX_NUM_V4L2 + MAX_NUM_VIDEO_FILES];
-	int saved = 0;
 	int s, i,j,k;
 	float sum, bw, bw2, diff, fr, fg, fb;
 	int istart, jstart, iend, jend;
@@ -327,17 +320,16 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	uint32_t val;
 	static uint32_t *save_buf;
 	int do_tld;
-	int render_drawing_surf = 1;
+	int render_drawing_surf = 0;
 	cairo_t *sources_cr;
 	cairo_surface_t *sources_surf;
 	cairo_t *drawing_cr;
 	cairo_surface_t *drawing_surf;
 	do_tld = 0;
 	if (first_data) {
-		save_buf = malloc(dd->sources_frame->linesize[0] * dd->sources_frame->height);
+		save_buf = (uint32_t *)malloc(dd->sources_frame->linesize[0] * dd->sources_frame->height);
 	}
-	if (!first_data) {
-		saved = 1;
+	if (!first_data && dd->doing_motion) {
 		memcpy(save_buf, dd->sources_frame->data[0], 4 * dd->sources_frame->width *
 		 dd->sources_frame->height);
 	}
@@ -359,6 +351,9 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	cairo_set_operator(screen_cr, CAIRO_OPERATOR_CLEAR);
 	cairo_paint(screen_cr);
 	cairo_restore(screen_cr);
+	if (dd->do_snapshot || (dd->recording_started && !dd->recording_stopped)) {
+		render_drawing_surf = 1;
+	}
 	for (i = 0; i < MAX_NUM_V4L2; i++) {
   	pairs[i].z = dd->dd_v4l2[i].dr.z;
 		pairs[i].index = i;
@@ -415,12 +410,6 @@ void process_image(cairo_t *screen_cr, void *arg) {
 							while (jack_ringbuffer_read_space(dd->vf[index].vbuf) >= (dd->vf[index].video_dst_bufsize + sizeof(double))) {
 								jack_ringbuffer_peek(dd->vf[index].vbuf, (char *)&pts, sizeof(double));
 								if (diff_sec >= pts) {
-									if (!first_data) {
-										if (!saved) {
-											/*memcpy(save_buf2, save_buf, 4 * dd->drawing_rect.width *
-												dd->drawing_rect.height);*/
-										}
-									}
 									jack_ringbuffer_read_advance(dd->vf[index].vbuf, sizeof(double));
 									jack_ringbuffer_read(dd->vf[index].vbuf, (char *)dd->vf[index].decoded_frame->data[0],
 											dd->vf[index].video_dst_bufsize);
@@ -447,6 +436,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			}
 		}
 	}
+
   if (render_drawing_surf) {
 		cairo_save(drawing_cr);
 		cairo_set_source_surface(drawing_cr, sources_surf, 0.0, 0.0);
@@ -456,8 +446,6 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	}
 	if (first_data) {
 		first_data = 0;
-		/*memcpy(save_buf2, save_buf, 4 * dd->drawing_rect.width *
-			dd->drawing_rect.height);*/
 	}
 	if (dd->doing_motion) {
 		for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
@@ -667,17 +655,18 @@ void process_image(cairo_t *screen_cr, void *arg) {
    CAIRO_FORMAT_ARGB32, dd->screen_frame->width, dd->screen_frame->height,
 	 dd->screen_frame->linesize[0]);
 	cairo_set_source_surface(cr, screen_surf, 0.0, 0.0);*/
-	//cairo_destroy(tcr);
-	//cairo_surface_destroy(screen_surf);
-	//cairo_surface_destroy(csurf);
+	cairo_destroy(sources_cr);
+	cairo_destroy(drawing_cr);
+	cairo_surface_destroy(sources_surf);
+	cairo_surface_destroy(drawing_surf);
 	clock_gettime(CLOCK_REALTIME, &snapshot_ts);
 	int drawing_size = 4 * dd->drawing_frame->width * dd->drawing_frame->height;
   int tsize = drawing_size + sizeof(struct timespec);
 	if (dd->do_snapshot) {
 		if (jack_ringbuffer_write_space(dd->snapshot_thread_info.ring_buf) >= tsize) {
-			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (void *)dd->drawing_frame->data[0],
+			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (const char *)dd->drawing_frame->data[0],
     	 drawing_size);
-			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (void *)&snapshot_ts,
+			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (const char *)&snapshot_ts,
     	 sizeof(ts));
     	if (pthread_mutex_trylock(&dd->snapshot_thread_info.lock) == 0) {
     	  pthread_cond_signal(&dd->snapshot_thread_info.data_ready);
@@ -701,9 +690,9 @@ void process_image(cairo_t *screen_cr, void *arg) {
   }
   tsize = drawing_size + sizeof(struct timespec);
   if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
-    jack_ringbuffer_write(video_ring_buf, (void *)dd->drawing_frame->data[0],
+    jack_ringbuffer_write(video_ring_buf, (const char *)dd->drawing_frame->data[0],
      drawing_size);
-    jack_ringbuffer_write(video_ring_buf, (void *)&ts,
+    jack_ringbuffer_write(video_ring_buf, (const char *)&ts,
      sizeof(struct timespec));
     if (pthread_mutex_trylock(&dd->video_thread_info.lock) == 0) {
       pthread_cond_signal(&dd->video_thread_info.data_ready);
@@ -724,8 +713,8 @@ int process(jack_nframes_t nframes, void *arg) {
 	if (!dd->can_process) return 0;
   midi_process_output(nframes, dd);
   for (chn = 0; chn < dd->nports; chn++) {
-    dd->in[chn] = jack_port_get_buffer(dd->in_ports[chn], nframes);
-    dd->out[chn] = jack_port_get_buffer(dd->out_ports[chn], nframes);
+    dd->in[chn] = (jack_default_audio_sample_t *)jack_port_get_buffer(dd->in_ports[chn], nframes);
+    dd->out[chn] = (jack_default_audio_sample_t *)jack_port_get_buffer(dd->out_ports[chn], nframes);
    	kmeter_process(&dd->meters[chn], dd->in[chn], nframes);
   }
   if (nframes >= FFT_SIZE) {
@@ -749,7 +738,7 @@ int process(jack_nframes_t nframes, void *arg) {
 	if (dd->recording_started && !dd->audio_done) {
 	  for (i = 0; i < nframes; i++) {
   	  for (chn = 0; chn < dd->nports; chn++) {
-				if (jack_ringbuffer_write (audio_ring_buf, (void *) (dd->in[chn]+i),
+				if (jack_ringbuffer_write (audio_ring_buf, (const char *) (dd->in[chn]+i),
        	sample_size) < sample_size) {
         	printf("jack overrun: %ld\n", ++dd->jack_overruns);
       	}
@@ -867,7 +856,7 @@ static gboolean configure_event_cb (GtkWidget *widget,
   dd->screen_frame->height = event->height;
   ret = av_image_alloc(dd->screen_frame->data, dd->screen_frame->linesize,
    dd->screen_frame->width, dd->screen_frame->height,
-	 dd->screen_frame->format, 32);
+	 (AVPixelFormat)dd->screen_frame->format, 32);
   if (ret < 0) {
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
@@ -1332,7 +1321,7 @@ static gboolean camera_cb(GtkWidget *widget, gpointer data) {
 	GtkWidget *dialog_content;
 	GtkWidget *combo;
 	int res;
-	GtkDialogFlags flags = GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT;
+	GtkDialogFlags flags = (GtkDialogFlags)(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT);
 	dialog = gtk_dialog_new_with_buttons("Open Camera", GTK_WINDOW(dd->ctl_window),
 	 flags, "Open", GTK_RESPONSE_ACCEPT, "Cancel", GTK_RESPONSE_REJECT, NULL);
 	dialog_content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
@@ -1417,7 +1406,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   dd->drawing_frame->width = dd->drawing_rect.width;
   dd->drawing_frame->height = dd->drawing_rect.height;
   ret = av_image_alloc(dd->drawing_frame->data, dd->drawing_frame->linesize,
-   dd->drawing_frame->width, dd->drawing_frame->height, dd->drawing_frame->format, 1);
+   dd->drawing_frame->width, dd->drawing_frame->height, (AVPixelFormat)dd->drawing_frame->format, 1);
   if (ret < 0) {
     fprintf(stderr, "Could not allocate raw picture buffer\n");
     exit(1);
@@ -1427,7 +1416,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   dd->sources_frame->width = dd->drawing_rect.width;
   dd->sources_frame->height = dd->drawing_rect.height;
   ret = av_image_alloc(dd->sources_frame->data, dd->sources_frame->linesize,
-   dd->sources_frame->width, dd->sources_frame->height, dd->sources_frame->format, 1);
+   dd->sources_frame->width, dd->sources_frame->height, (AVPixelFormat)dd->sources_frame->format, 1);
   if (ret < 0) {
     fprintf(stderr, "Could not allocate sources buffer\n");
     exit(1);
