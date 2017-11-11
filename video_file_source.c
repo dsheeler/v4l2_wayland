@@ -1,6 +1,6 @@
 #include "video_file_source.h"
 
-static int open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
+int open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
  AVFormatContext *fmt_ctx, enum AVMediaType type) {
   int ret, stream_index;
   AVStream *st;
@@ -48,49 +48,44 @@ static int open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
   return 0;
 }
 
-void video_file_create(video_file_t *vf, char *name, uint64_t z) {
-	memset(vf, 0, sizeof(*vf));
-	printf("video_file_create %d\n", z);
-	strncpy(vf->name, name, 254);
-	((draggable *)vf)->z = z;
-	pthread_create(&vf->thread_id, NULL, video_file_thread, vf);
+VideoFile::VideoFile(char *name) {
+	strncpy(this->name, name, 254);
+	pthread_create(&this->thread_id, NULL, VideoFile::thread, this);
 }
 
-int video_file_destroy(video_file_t *vf) {
-	avcodec_close(vf->video_dec_ctx);
-	avformat_close_input(&vf->fmt_ctx);
-	av_frame_free(&vf->frame);
-	av_free(vf->video_dst_data[0]);
-	av_freep(&vf->decoded_frame->data[0]);
-	av_frame_free(&vf->decoded_frame);
-	jack_ringbuffer_free(vf->vbuf);
-	pthread_cancel(vf->thread_id);
-	memset(vf, 0, sizeof(*vf));
+int VideoFile::destroy() {
+	avcodec_close(this->video_dec_ctx);
+	avformat_close_input(&this->fmt_ctx);
+	av_frame_free(&this->frame);
+	av_freep(this->video_dst_data[0]);
+	av_freep(&this->decoded_frame->data[0]);
+	av_frame_free(&this->decoded_frame);
+	jack_ringbuffer_free(this->vbuf);
+	pthread_cancel(this->thread_id);
 	return 0;
 }
 
-int video_file_play(video_file_t *vf) {
-	printf("play\n");
-	vf->current_playtime = 0;
-	clock_gettime(CLOCK_MONOTONIC, &vf->play_start_ts);
+int VideoFile::play() {
+	this->current_playtime = 0;
+	clock_gettime(CLOCK_MONOTONIC, &this->play_start_ts);
 	return 0;
 }
 
-int video_file_in(video_file_t *v, double x, double y) {
-		if ((x >= ((draggable *)v)->pos.x && x <= v->dr.pos.x + v->width) &&
-			(y >= ((draggable *)v)->pos.y && y <= ((draggable *)v)->pos.y + v->height)) {
+int VideoFile::in(double x, double y) {
+		if ((x >= this->pos.x && x <= this->pos.x + this->width) &&
+			(y >= this->pos.y && y <= this->pos.y + this->height)) {
 		return 1;
 	} else {
 		return 0;
 	}
 }
 
-void *video_file_thread(void *arg) {
+void *thread(void *arg) {
   int ret;
 	int got_frame;
 	char err[AV_ERROR_MAX_STRING_SIZE];
 	got_frame = 0;
-  video_file_t *vf = (video_file_t *)arg;
+  VideoFile *vf = (VideoFile *)arg;
 	av_register_all();
 	vf->fmt_ctx = NULL;
   if (avformat_open_input(&vf->fmt_ctx, vf->name, NULL, NULL) < 0) {
@@ -112,7 +107,6 @@ void *video_file_thread(void *arg) {
 		 vf->width, vf->height, AV_PIX_FMT_ARGB, 1);
 		if (ret < 0) {
 			printf("could not allocate raw video buffer\n");
-			video_file_destroy(vf);
 			return NULL;
 		}
 		vf->video_dst_bufsize = ret;
@@ -137,7 +131,7 @@ void *video_file_thread(void *arg) {
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
   pthread_mutex_lock(&vf->lock);
 	double pts;
-	video_file_play(vf);
+	vf->play();
 	vf->playing = 1;
 	vf->active = 1;
 	while(av_read_frame(vf->fmt_ctx, &vf->pkt) >= 0) {
@@ -157,14 +151,12 @@ void *video_file_thread(void *arg) {
 			}
 			pts *= av_q2d(vf->video_stream->time_base);
 			if (got_frame) {
-	printf("z: %d\n", ((draggable *)vf)->z);
 				sws_scale(vf->resample, (uint8_t const * const *)vf->frame->data,
 	 			 vf->frame->linesize, 0, vf->frame->height, vf->video_dst_data,
 	 			 vf->video_dst_linesize);
 				int space = vf->video_dst_bufsize + sizeof(double);
 				int buf_space = jack_ringbuffer_write_space(vf->vbuf);
 				while (buf_space < space) {
-					printf("video_file wait\n");
 					pthread_cond_wait(&vf->data_ready, &vf->lock);
 					buf_space = jack_ringbuffer_write_space(vf->vbuf);
   			}

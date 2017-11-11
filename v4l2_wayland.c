@@ -40,15 +40,6 @@
 #define FFT_SIZE 256
 #define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
 
-void dd_v4l2_create(dd_v4l2_t *v, char *dev_name, int width, int height, uint64_t z) {
-	memset(v, 0, sizeof(*v));
-	strncpy(v->dev_name, dev_name, DD_V4L2_MAX_STR_LEN-1);
-  draggable_init(v, 0, 0, z);
-  v->width = width;
-  v->height = height;
-	pthread_create(&v->thread_id, NULL, dd_v4l2_thread, v);
-}
-
 void *dd_v4l2_thread(void *arg) {
   dd_v4l2_t *v = (dd_v4l2_t *)arg;
 	v->rbuf = jack_ringbuffer_create(5*4*v->width*v->height);
@@ -269,9 +260,9 @@ static int pair_int_int_cmp_z_order(const void *p1, const void *p2) {
 
 static int cmp_z_order(const void *p1, const void *p2) {
   int ret;
-  if (((const draggable *)p1)->z > ((const draggable *)p2)->z) ret = 1;
-  if (((const draggable *)p1)->z == ((const draggable *)p2)->z) ret = 0;
-  if (((const draggable *)p1)->z < ((const draggable *)p2)->z) ret = -1;
+  if (((const Draggable *)p1)->z > ((const Draggable *)p2)->z) ret = 1;
+  if (((const Draggable *)p1)->z == ((const Draggable *)p2)->z) ret = 0;
+  if (((const Draggable *)p1)->z < ((const Draggable *)p2)->z) ret = -1;
   return ret;
 }
 

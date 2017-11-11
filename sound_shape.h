@@ -5,17 +5,19 @@
 #include <pango/pangocairo.h>
 #include <math.h>
 #include <string.h>
+#include <string>
 #include <stdint.h>
 #include <gdk/gdk.h>
+#include "dingle_dots.h"
 #include "draggable.h"
 #include "v4l2_wayland.h"
 
 #define NCHAR 32
 #define MAX_NSOUND_SHAPES 256
 
-typedef struct sound_shape sound_shape;
-typedef struct dingle_dots_t dingle_dots_t;
-
+#ifdef __cplusplus
+using namespace std;
+#endif
 typedef struct {
   double r;
   double g;
@@ -30,43 +32,43 @@ struct hsva {
   double a;
 };
 
-struct sound_shape {
-	draggable dr;
-	dingle_dots_t *dd;
-	uint8_t active;
-  uint8_t on;
-	uint8_t double_clicked_on;
-	uint8_t selected;
-	uint8_t hovered;
-	uint8_t motion_state;
-	uint8_t motion_state_to_off;
-	struct timespec motion_ts;
-	uint8_t tld_state;
-	GdkPoint selected_pos;
-	double r;
-  char label[NCHAR];
-  uint8_t midi_note;
-  uint8_t midi_channel;
-  color normal;
-  color playing;
+class SoundShape : Draggable {
+	public:
+		SoundShape(string &label, uint8_t midi_note, uint8_t midi_channel,
+				double x, double y, double r, color *c, dingle_dots_t *dd);
+		int render(cairo_t *cr);
+		int activate();
+		int deactivate();
+		int in(double x, double y);
+		int set_on();
+		int set_off();
+		void tick();
+		int is_on(); 
+		void set_motion_state(uint8_t state);
+	private:
+		dingle_dots_t *dd;
+		uint8_t active;
+		uint8_t on;
+		uint8_t double_clicked_on;
+		uint8_t selected;
+		uint8_t hovered;
+		uint8_t motion_state;
+		uint8_t motion_state_to_off;
+		struct timespec motion_ts;
+		uint8_t tld_state;
+		GdkPoint selected_pos;
+		double r;
+		string label[NCHAR];
+		uint8_t midi_note;
+		uint8_t midi_channel;
+		color normal;
+		color playing;
 };
 
-int sound_shape_init(sound_shape *ss, char *label,
- uint8_t midi_note, uint8_t midi_channel, double x, double y, double r,
- color *c, dingle_dots_t *dd);
-int sound_shape_render(sound_shape *ss, cairo_t *cr);
-int sound_shape_activate(sound_shape *ss);
-int sound_shape_deactivate(sound_shape *ss);
-int sound_shape_in(sound_shape *ss, double x, double y);
-int sound_shape_on(sound_shape *ss);
-int sound_shape_off(sound_shape *ss);
-void sound_shape_tick(sound_shape *ss);
-void sound_shape_set_motion_state(sound_shape *ss, uint8_t state);
 int color_init(color *c, double r, double g, double b, double a);
 color color_copy(color *c);
 struct hsva rgb2hsv(color *c);
 color hsv2rgb(struct hsva *in);
 color color_lighten(color *in, double mag);
-extern uint64_t next_z;
 
 #endif
