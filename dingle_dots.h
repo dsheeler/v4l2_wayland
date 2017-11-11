@@ -21,7 +21,7 @@ extern "C" {
 #include "video_file_source.h"
 
 #define STR_LEN 80
-#define MAX_NUM_V4L2 2
+#define MAX_NUM_V4L2 3
 
 typedef struct sound_shape sound_shape;
 typedef struct dingle_dots_t dingle_dots_t;

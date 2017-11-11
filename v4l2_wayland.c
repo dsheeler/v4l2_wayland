@@ -1107,22 +1107,25 @@ static gboolean button_press_event_cb(GtkWidget *widget,
 				return FALSE;
       }
     }
-		for (i = MAX_NUM_V4L2-1; i > -1; i--) {
-			if (!dd->dd_v4l2[i].active) continue;
-			if (dd_v4l2_in(&dd->dd_v4l2[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
-				draggable_set_mdown(&dd->dd_v4l2[i], dd->mouse_pos.x, dd->mouse_pos.y,
-				 dd->next_z++);
-				return FALSE;
+		if (event->state & GDK_CONTROL_MASK) {
+			for (i = MAX_NUM_V4L2-1; i > -1; i--) {
+				if (!dd->dd_v4l2[i].active) continue;
+				if (dd_v4l2_in(&dd->dd_v4l2[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
+					draggable_set_mdown(&dd->dd_v4l2[i], dd->mouse_pos.x, dd->mouse_pos.y,
+							dd->next_z++);
+					return FALSE;
+				}
+			}
+			for (i = MAX_NUM_VIDEO_FILES-1; i > -1; i--) {
+				if (!dd->vf[i].active) continue;
+				if (video_file_in(&dd->vf[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
+					draggable_set_mdown(&dd->vf[i], dd->mouse_pos.x, dd->mouse_pos.y,
+							dd->next_z++);
+					return FALSE;
+				}
 			}
 		}
-		for (i = MAX_NUM_VIDEO_FILES-1; i > -1; i--) {
-			if (!dd->vf[i].active) continue;
-			if (video_file_in(&dd->vf[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
-				draggable_set_mdown(&dd->vf[i], dd->mouse_pos.x, dd->mouse_pos.y,
-				 dd->next_z++);
-				return FALSE;
-			}
-		}
+
 		dd->selection_in_progress = 1;
 		dd->selection_rect.x = dd->mouse_pos.x;
 		dd->selection_rect.y = dd->mouse_pos.y;
@@ -1328,6 +1331,7 @@ static gboolean camera_cb(GtkWidget *widget, gpointer data) {
   combo = gtk_combo_box_text_new();
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "0", "/dev/video0");
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "1", "/dev/video1");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "2", "/dev/video2");
 	gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 0);
 	gtk_container_add(GTK_CONTAINER(dialog_content), combo);
 	gtk_widget_show_all(dialog);
