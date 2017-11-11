@@ -1,48 +1,47 @@
 #include "sound_shape.h"
 #include "midi.h"
 
-int sound_shape_init(sound_shape *ss, char *label,
- uint8_t midi_note, uint8_t midi_channel, double x, double y, double r,
- color *c, dingle_dots_t *dd) {
-	draggable_init(ss, x, y, dd->next_z++);
-	ss->dd = dd;
-	ss->active = 0;
-  ss->r = r;
-  strncpy(ss->label, label, NCHAR);
-  ss->midi_note = midi_note;
-	ss->midi_channel = midi_channel;
-  ss->normal = color_copy(c);
-  ss->playing = color_lighten(c, 0.95);
-  ss->on = 0;
+SoundShape::SoundShape(string &label, uint8_t midi_note, uint8_t midi_channel,
+		double x, double y, double r, color *c, dingle_dots_t *dd)
+	: Draggable(x, y, 0) {
+	dd = dd;
+	active = 0;
+  r = r;
+  label = string(label);
+  midi_note = midi_note;
+	midi_channel = midi_channel;
+  normal = color_copy(c);
+  playing = color_lighten(c, 0.95);
+  on = 0;
   return 0;
 }
 
-static void sound_shape_render_label(sound_shape *ss, cairo_t *cr) {
+void SoundShape::render_label(cairo_t *cr) {
   PangoLayout *layout;
   PangoFontDescription *desc;
   int width, height;
   char font[32];
-  sprintf(font, "Agave %d", (int)ceil(0.2 * ss->r));
+  sprintf(font, "Agave %d", (int)ceil(0.2 * this->r));
   layout = pango_cairo_create_layout(cr);
   pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
-  pango_layout_set_text(layout, ss->label, -1);
+  pango_layout_set_text(layout, this.label.c_str(), -1);
   desc = pango_font_description_from_string(font);
   pango_layout_set_font_description(layout, desc);
   pango_font_description_free(desc);
   cairo_save(cr);
-  ss->on ? cairo_set_source_rgba(cr, 0., 0., 0., ss->playing.a) :
+  this->is_on() ? cairo_set_source_rgba(cr, 0., 0., 0., this->playing.a) :
    cairo_set_source_rgba(cr, 1., 1., 1., ss->normal.a);
   pango_layout_get_size(layout, &width, &height);
-  cairo_translate(cr, ss->dr.pos.x - 0.5*width/PANGO_SCALE, ss->dr.pos.y
+  cairo_translate(cr, this.pos.x - 0.5*width/PANGO_SCALE, this.pos.y
    - 0.5*height/PANGO_SCALE);
   pango_cairo_show_layout(cr, layout);
   cairo_restore(cr);
   g_object_unref(layout);
 }
 
-int sound_shape_render(sound_shape *ss, cairo_t *cr) {
+int SoundShape::render(cairo_t *cr) {
   color *c;
-  c = &ss->normal;
+  c = &this->normal;
   cairo_save(cr);
 	cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
   cairo_translate(cr, ss->dr.pos.x, ss->dr.pos.y);

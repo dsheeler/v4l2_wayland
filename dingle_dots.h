@@ -14,6 +14,9 @@ extern "C" {
 #endif
 #include <gtk/gtk.h>
 #include "v4l2_wayland.h"
+typedef struct dingle_dots_t dingle_dots_t;
+typedef struct midi_key_t midi_key_t;
+typedef struct dd_v4l2_t dd_v4l2_t;
 #include "sound_shape.h"
 #include "kmeter.h"
 #include "midi.h"
@@ -22,11 +25,6 @@ extern "C" {
 
 #define STR_LEN 80
 #define MAX_NUM_V4L2 2
-
-typedef struct sound_shape sound_shape;
-typedef struct dingle_dots_t dingle_dots_t;
-typedef struct midi_key_t midi_key_t;
-typedef struct dd_v4l2_t dd_v4l2_t;
 
 struct dingle_dots_t {
   GApplication *app;
@@ -57,10 +55,10 @@ struct dingle_dots_t {
   struct SwsContext *screen_resize;
  	AVFrame *video_frame;
 	double scale;
-	video_file_t vf[MAX_NUM_VIDEO_FILES];
+	VideoFile *vf[MAX_NUM_VIDEO_FILES];
 	int current_video_file_source_index;
-	dd_v4l2_t dd_v4l2[MAX_NUM_V4L2];
-	sound_shape sound_shapes[MAX_NSOUND_SHAPES];
+	V4l2 *v4l2[MAX_NUM_V4L2];
+	SoundShape sound_shapes[MAX_NSOUND_SHAPES];
   kmeter meters[2];
 	GdkRectangle drawing_rect;
 	int doing_motion;
