@@ -1,6 +1,7 @@
 #include "video_file_source.h"
 
-int open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
+VideoFile::VideoFile() { }
+int VideoFile::open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
  AVFormatContext *fmt_ctx, enum AVMediaType type) {
   int ret, stream_index;
   AVStream *st;
@@ -48,7 +49,7 @@ int open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
   return 0;
 }
 
-VideoFile::VideoFile(char *name) {
+int VideoFile::create(char *name) {
 	strncpy(this->name, name, 254);
 	pthread_create(&this->thread_id, NULL, VideoFile::thread, this);
 }
@@ -80,7 +81,7 @@ int VideoFile::in(double x, double y) {
 	}
 }
 
-void *thread(void *arg) {
+void *VideoFile::thread(void *arg) {
   int ret;
 	int got_frame;
 	char err[AV_ERROR_MAX_STRING_SIZE];

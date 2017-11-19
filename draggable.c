@@ -10,13 +10,13 @@ Draggable::Draggable() {
 Draggable::Draggable(double x, double y, uint64_t z) {
 	pos.x = x;
 	pos.y = y;
-	z = z;
+	this->z = z;
 	mdown = 0;
 }
 
 void Draggable::set_mdown(double x, double y, uint64_t z) {
 	mdown = 1;
-	z = z;
+	this->z = z;
 	mdown_pos.x = x;
 	mdown_pos.y = y;
 	down_pos.x = pos.x;

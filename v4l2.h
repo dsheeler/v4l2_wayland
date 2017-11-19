@@ -23,6 +23,7 @@
 #include "v4l2_wayland.h"
 #include "draggable.h"
 
+
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 #define CLIPVALUE(v) ((v) < 255 ? (v) : 255)
 
@@ -34,9 +35,11 @@ struct dd_v4l2_buffer {
   size_t  length;
 };
 
-class V4l2 : Draggable {
+class DingleDots;
+class V4l2 : public Draggable {
 	public:
 		V4l2();
+		void create(DingleDots *dd, char *name, double w, double h, uint64_t z);
 		int read_frames();
 		int in(double x, double y);
 		void stop_capturing();
@@ -47,10 +50,13 @@ class V4l2 : Draggable {
 		void open_device();
 		void init_mmap();
 	private:
+		static void* thread(void *v);
 		static int xioctl(int fh, int request, void *arg);
 		static void YUV2RGB(const unsigned char y, const unsigned char u,
 		 const unsigned char v, unsigned char* r, unsigned char* g,
 		 unsigned char* b);
+	public:
+		DingleDots *dd;
 		char dev_name[DD_V4L2_MAX_STR_LEN];
 		int fd;
 		int active;

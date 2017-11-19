@@ -16,10 +16,11 @@ extern "C" {
 
 #include "draggable.h"
 
-class VideoFile : Draggable {
+class VideoFile : public Draggable {
 	public:
-		VideoFile(char *name);
+		VideoFile();
 		int in(double x, double y);
+		int create(char *name);
 		int destroy();
 		int play();
 		static void *thread(void *arg);

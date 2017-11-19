@@ -1,4 +1,7 @@
+#include "dingle_dots.h"
 #include "v4l2.h"
+
+V4l2::V4l2() { }
 
 int V4l2::xioctl(int fh, int request, void *arg) {
   int r;
@@ -30,6 +33,38 @@ void V4l2::YUV2RGB(const unsigned char y, const unsigned char u,
   *b = CLIPVALUE(b2);
 }
 
+void V4l2::create(DingleDots *dd, char *dev_name, double width, double height, uint64_t z) {
+	memset(this, 0, sizeof(*this));
+	this->dd = dd;
+	strncpy(this->dev_name, dev_name, DD_V4L2_MAX_STR_LEN-1);
+  this->z = z;
+	this->pos.x = 0;
+	this->pos.y = 0;
+  this->width = width;
+  this->height = height;
+	pthread_create(&this->thread_id, NULL, V4l2::thread, this);
+}
+
+void *V4l2::thread(void *arg) {
+  V4l2 *v = (V4l2 *)arg;
+	v->rbuf = jack_ringbuffer_create(5*4*v->width*v->height);
+	memset(v->rbuf->buf, 0, v->rbuf->size);
+	v->read_buf = (uint32_t *)(malloc(4 * v->width * v->height));
+	v->save_buf = (uint32_t *)(malloc(4 * v->width * v->height));
+	v->active = 1;
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	v->open_device();
+  v->init_device();
+  v->start_capturing();
+  pthread_mutex_lock(&v->lock);
+	v->read_frames();
+  pthread_mutex_unlock(&v->lock);
+  v->stop_capturing();
+  v->uninit_device();
+  v->close_device();
+	return 0;
+}
+
 int V4l2::read_frames() {
   struct v4l2_buffer buf;
 	struct timespec ts;
@@ -40,6 +75,7 @@ int V4l2::read_frames() {
 	int n;
 	for (;;) {
 		poll(this->pfd, 1, -1);
+		gtk_widget_queue_draw(this->dd->drawing_area);
 		CLEAR(buf);
 	  buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	  buf.memory = V4L2_MEMORY_MMAP;

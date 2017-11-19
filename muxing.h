@@ -28,18 +28,18 @@ extern "C" {
 #include <jack/jack.h>
 #include <jack/ringbuffer.h>
 #include "v4l2_wayland.h"
-#include "dingle_dots.h"
+//#include "dingle_dots.h"
 
 #define STREAM_FRAME_RATE 60
 #define STREAM_PIX_FMT AV_PIX_FMT_RGB32
 
 #define SCALE_FLAGS SWS_BICUBIC
-
-int write_video_frame(dingle_dots_t *dd, AVFormatContext *oc,
+class DingleDots;
+int write_video_frame(DingleDots *dd, AVFormatContext *oc,
  OutputStream *ost);
-int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
+int write_audio_frame(DingleDots *dd, AVFormatContext *oc,
  OutputStream *ost);
-int init_output(dingle_dots_t *dd);
+int init_output(DingleDots *dd);
 void close_stream(AVFormatContext *oc, OutputStream *ost);
 extern jack_ringbuffer_t *video_ring_buf, *audio_ring_buf;
 extern volatile int can_capture;

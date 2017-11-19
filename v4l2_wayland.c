@@ -34,6 +34,7 @@
 #include "draggable.h"
 #include "video_file_source.h"
 
+
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define max(a, b) ((a) > (b) ? (a) : (b))
 
@@ -41,22 +42,22 @@
 #define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
 
 void *dd_v4l2_thread(void *arg) {
-  dd_v4l2_t *v = (dd_v4l2_t *)arg;
+  V4l2 *v = (V4l2 *)arg;
 	v->rbuf = jack_ringbuffer_create(5*4*v->width*v->height);
 	memset(v->rbuf->buf, 0, v->rbuf->size);
 	v->read_buf = (uint32_t *)(malloc(4 * v->width * v->height));
 	v->save_buf = (uint32_t *)(malloc(4 * v->width * v->height));
 	v->active = 1;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-	dd_v4l2_open_device(v);
-  dd_v4l2_init_device(v);
-  dd_v4l2_start_capturing(v);
+	v->open_device();
+  v->init_device();
+  v->start_capturing();
   pthread_mutex_lock(&v->lock);
-	dd_v4l2_read_frames(v);
+	v->read_frames();
   pthread_mutex_unlock(&v->lock);
-  dd_v4l2_stop_capturing(v);
-  dd_v4l2_uninit_device(v);
-  dd_v4l2_close_device(v);
+  v->stop_capturing();
+  v->uninit_device();
+  v->close_device();
 	return 0;
 }
 
@@ -83,7 +84,7 @@ void errno_exit(const char *s) {
 
 void *audio_disk_thread(void *arg) {
   int ret;
-  dingle_dots_t *dd = (dingle_dots_t *)arg;
+  DingleDots *dd = (DingleDots *)arg;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
   pthread_mutex_lock(&dd->audio_thread_info.lock);
   while(1) {
@@ -106,7 +107,7 @@ void *audio_disk_thread(void *arg) {
 
 void *video_disk_thread (void *arg) {
   int ret;
-  dingle_dots_t *dd = (dingle_dots_t *)arg;
+  DingleDots *dd = (DingleDots *)arg;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
   pthread_mutex_lock(&dd->video_thread_info.lock);
   while(1) {
@@ -162,7 +163,7 @@ void *snapshot_disk_thread (void *arg) {
 	struct timespec ts;
   char timestr[STR_LEN+1];
 	tzset();
-  dingle_dots_t *dd = (dingle_dots_t *)arg;
+  DingleDots *dd = (DingleDots *)arg;
   pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
   pthread_mutex_lock(&dd->snapshot_thread_info.lock);
   frame = NULL;
@@ -202,7 +203,7 @@ void *snapshot_disk_thread (void *arg) {
 	return 0;
 }
 
-ccv_tld_t *new_tld(int x, int y, int w, int h, dingle_dots_t *dd) {
+ccv_tld_t *new_tld(int x, int y, int w, int h, DingleDots *dd) {
   ccv_tld_param_t p = ccv_tld_default_params;
   ccv_rect_t box = ccv_rect(x, y, w, h);
   ccv_read(dd->analysis_frame->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY,
@@ -238,7 +239,7 @@ static void render_detection_box(cairo_t *cr, int initializing,
   cairo_restore(cr);
 }
 
-static void render_selection_box(cairo_t *cr, dingle_dots_t *dd) {
+static void render_selection_box(cairo_t *cr, DingleDots *dd) {
   cairo_save(cr);
   cairo_rectangle(cr, dd->selection_rect.x, dd->selection_rect.y,
 	 dd->selection_rect.width, dd->selection_rect.height);
@@ -297,7 +298,7 @@ double timespec_to_seconds(struct timespec *ts) {
 }
 
 void process_image(cairo_t *screen_cr, void *arg) {
-  dingle_dots_t *dd = (dingle_dots_t *)arg;
+  DingleDots *dd = (DingleDots *)arg;
   static int first_call = 1;
   static int first_data = 1;
   static struct timespec ts, snapshot_ts;
@@ -346,37 +347,37 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		render_drawing_surf = 1;
 	}
 	for (i = 0; i < MAX_NUM_V4L2; i++) {
-  	pairs[i].z = dd->dd_v4l2[i].dr.z;
+  	pairs[i].z = dd->v4l2[i].z;
 		pairs[i].index = i;
 	}
 	for (j = 0; j < MAX_NUM_VIDEO_FILES; j++) {
-		pairs[i+j].z = dd->vf[j].dr.z;
+		pairs[i+j].z = dd->vf[j].z;
 		pairs[i+j].index = j;
 	}
 	isort(pairs, MAX_NUM_V4L2 + MAX_NUM_VIDEO_FILES, sizeof(pair_int_int), pair_int_int_cmp_z_order);
 	for (int p = 0; p < MAX_NUM_V4L2 + MAX_NUM_VIDEO_FILES; p++) {
 		for (int j = 0; j < MAX_NUM_V4L2; j++) {
-			if (dd->dd_v4l2[j].dr.z == pairs[p].z) {
+			if (dd->v4l2[j].z == pairs[p].z) {
 				i = pairs[p].index;
-				if (dd->dd_v4l2[i].active) {
-					if (jack_ringbuffer_read_space(dd->dd_v4l2[i].rbuf) >= (4*dd->dd_v4l2[i].width*dd->dd_v4l2[i].height + sizeof(struct timespec))) {
+				if (dd->v4l2[i].active) {
+					if (jack_ringbuffer_read_space(dd->v4l2[i].rbuf) >= (4*dd->v4l2[i].width*dd->v4l2[i].height + sizeof(struct timespec))) {
 						do_tld = 1;
-						jack_ringbuffer_read(dd->dd_v4l2[i].rbuf, (char *)&ts, sizeof(struct timespec));
-						jack_ringbuffer_read(dd->dd_v4l2[i].rbuf, (char *)dd->dd_v4l2[i].read_buf, 4*dd->dd_v4l2[i].width*dd->dd_v4l2[i].height);
-						if (pthread_mutex_trylock(&dd->dd_v4l2[i].lock) == 0) {
-							pthread_cond_signal(&dd->dd_v4l2[i].data_ready);
-							pthread_mutex_unlock(&dd->dd_v4l2[i].lock);
+						jack_ringbuffer_read(dd->v4l2[i].rbuf, (char *)&ts, sizeof(struct timespec));
+						jack_ringbuffer_read(dd->v4l2[i].rbuf, (char *)dd->v4l2[i].read_buf, 4*dd->v4l2[i].width*dd->v4l2[i].height);
+						if (pthread_mutex_trylock(&dd->v4l2[i].lock) == 0) {
+							pthread_cond_signal(&dd->v4l2[i].data_ready);
+							pthread_mutex_unlock(&dd->v4l2[i].lock);
 						}
 					}
 					cairo_surface_t *tsurf;
 					tsurf = cairo_image_surface_create_for_data(
-							(unsigned char *)dd->dd_v4l2[i].read_buf, CAIRO_FORMAT_ARGB32,
-							dd->dd_v4l2[i].width, dd->dd_v4l2[i].height, 4 * dd->dd_v4l2[i].width);
-					cairo_set_source_surface(sources_cr, tsurf, dd->dd_v4l2[i].dr.pos.x,
-							dd->dd_v4l2[i].dr.pos.y);
+							(unsigned char *)dd->v4l2[i].read_buf, CAIRO_FORMAT_ARGB32,
+							dd->v4l2[i].width, dd->v4l2[i].height, 4 * dd->v4l2[i].width);
+					cairo_set_source_surface(sources_cr, tsurf, dd->v4l2[i].pos.x,
+							dd->v4l2[i].pos.y);
 					cairo_paint(sources_cr);
-					cairo_set_source_surface(screen_cr, tsurf, dd->dd_v4l2[i].dr.pos.x,
-							dd->dd_v4l2[i].dr.pos.y);
+					cairo_set_source_surface(screen_cr, tsurf, dd->v4l2[i].pos.x,
+							dd->v4l2[i].pos.y);
 					cairo_paint(screen_cr);
 					cairo_surface_destroy(tsurf);
 				}
@@ -384,7 +385,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		}
 		for (int k = 0; k < MAX_NUM_VIDEO_FILES; k++) {
 			if (dd->vf[k].playing) {
-				if (dd->vf[k].dr.z == pairs[p].z) {
+				if (dd->vf[k].z == pairs[p].z) {
 					int index = k;
 					struct timespec current_ts;
 					struct timespec diff_ts;
@@ -417,9 +418,9 @@ void process_image(cairo_t *screen_cr, void *arg) {
 						tsurf = cairo_image_surface_create_for_data(
 								(unsigned char *)dd->vf[index].decoded_frame->data[0], CAIRO_FORMAT_ARGB32,
 								dd->vf[index].decoded_frame->width, dd->vf[index].decoded_frame->height, dd->vf[index].decoded_frame->linesize[0]);
-						cairo_set_source_surface(sources_cr, tsurf, dd->vf[index].dr.pos.x, dd->vf[index].dr.pos.y);
+						cairo_set_source_surface(sources_cr, tsurf, dd->vf[index].pos.x, dd->vf[index].pos.y);
 						cairo_paint(sources_cr);
-						cairo_set_source_surface(screen_cr, tsurf, dd->vf[index].dr.pos.x, dd->vf[index].dr.pos.y);
+						cairo_set_source_surface(screen_cr, tsurf, dd->vf[index].pos.x, dd->vf[index].pos.y);
 						cairo_paint(screen_cr);
 						cairo_surface_destroy(tsurf);
 					}
@@ -443,17 +444,17 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			if (!dd->sound_shapes[s].active) continue;
 			sum = 0;
 			npts = 0;
-			istart = min(dd->drawing_rect.width, max(0, round(dd->sound_shapes[s].dr.pos.x -
+			istart = min(dd->drawing_rect.width, max(0, round(dd->sound_shapes[s].pos.x -
 							dd->sound_shapes[s].r)));
-			jstart = min(dd->drawing_rect.height, max(0, round(dd->sound_shapes[s].dr.pos.y -
+			jstart = min(dd->drawing_rect.height, max(0, round(dd->sound_shapes[s].pos.y -
 							dd->sound_shapes[s].r)));
-			iend = max(0, min(dd->drawing_rect.width, round(dd->sound_shapes[s].dr.pos.x +
+			iend = max(0, min(dd->drawing_rect.width, round(dd->sound_shapes[s].pos.x +
 							dd->sound_shapes[s].r)));
-			jend = max(0, min(dd->drawing_rect.height, round(dd->sound_shapes[s].dr.pos.y +
+			jend = max(0, min(dd->drawing_rect.height, round(dd->sound_shapes[s].pos.y +
 							dd->sound_shapes[s].r)));
 			for (i = istart; i < iend; i++) {
 				for (j = jstart; j < jend; j++) {
-					if (sound_shape_in(&dd->sound_shapes[s], i, j)) {
+					if (dd->sound_shapes[s].in(i, j)) {
 						val = save_buf[i + j * dd->sources_frame->width];
 						fr = ((val & 0x00ff0000) >> 16) / 256.;
 						fg = ((val & 0x0000ff00) >> 8) / 256.;
@@ -471,18 +472,18 @@ void process_image(cairo_t *screen_cr, void *arg) {
 				}
 			}
 			if ((sum / npts) > dd->motion_threshold) {
-				sound_shape_set_motion_state(&dd->sound_shapes[s], 1);
+				dd->sound_shapes[s].set_motion_state(1);
 			} else {
-				sound_shape_set_motion_state(&dd->sound_shapes[s], 0);
+				dd->sound_shapes[s].set_motion_state(0);
 			}
 		}
 	} else {
 		for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
-			sound_shape_set_motion_state(&dd->sound_shapes[s], 0);
+			dd->sound_shapes[s].set_motion_state(0);
 		}
 	}
 	for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
-		sound_shape_tick(&dd->sound_shapes[s]);
+		dd->sound_shapes[s].tick();
 	}
 	if (dd->doing_tld) {
 		if (do_tld) {
@@ -517,8 +518,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 				made_first_tld && tld->found) {
 			for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
 				if (!dd->sound_shapes[i].active) continue;
-				if (sound_shape_in(&dd->sound_shapes[i],
-							dd->ascale_factor_x*newbox.rect.x +
+				if (dd->sound_shapes[i].in(dd->ascale_factor_x*newbox.rect.x +
 							0.5*dd->ascale_factor_x*newbox.rect.width,
 							dd->ascale_factor_y*newbox.rect.y +
 							0.5*dd->ascale_factor_y*newbox.rect.height)) {
@@ -541,23 +541,23 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		if (dd->sound_shapes[i].double_clicked_on || dd->sound_shapes[i].motion_state
 				|| dd->sound_shapes[i].tld_state) {
 			if (!dd->sound_shapes[i].on) {
-				sound_shape_on(&dd->sound_shapes[i]);
+				dd->sound_shapes[i].set_on();
 			}
 		}
 		if (!dd->sound_shapes[i].double_clicked_on && !dd->sound_shapes[i].motion_state
 				&& !dd->sound_shapes[i].tld_state) {
 			if (dd->sound_shapes[i].on) {
-				sound_shape_off(&dd->sound_shapes[i]);
+				dd->sound_shapes[i].set_off();
 			}
 		}
 	}
-	isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
+	isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(SoundShape), cmp_z_order);
 	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
 		if (!dd->sound_shapes[i].active) continue;
   	if (render_drawing_surf) {
-			sound_shape_render(&dd->sound_shapes[i], drawing_cr);
+			dd->sound_shapes[i].render(drawing_cr);
 		}
-		sound_shape_render(&dd->sound_shapes[i], screen_cr);
+		dd->sound_shapes[i].render(screen_cr);
 	}
 #if defined(RENDER_KMETERS)
 	for (i = 0; i < 2; i++) {
@@ -604,14 +604,14 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
 			if (!dd->sound_shapes[i].active) continue;
   		GdkRectangle ss_rect;
-			ss_rect.x = dd->sound_shapes[i].dr.pos.x - dd->sound_shapes[i].r;
-			ss_rect.y = dd->sound_shapes[i].dr.pos.y - dd->sound_shapes[i].r;
+			ss_rect.x = dd->sound_shapes[i].pos.x - dd->sound_shapes[i].r;
+			ss_rect.y = dd->sound_shapes[i].pos.y - dd->sound_shapes[i].r;
 			ss_rect.width = 2 * dd->sound_shapes[i].r;
 			ss_rect.height = 2 * dd->sound_shapes[i].r;
 			if (gdk_rectangle_intersect(&ss_rect, &dd->selection_rect, NULL)) {
 				dd->sound_shapes[i].selected = 1;
-				dd->sound_shapes[i].selected_pos.x = dd->sound_shapes[i].dr.pos.x;
-				dd->sound_shapes[i].selected_pos.y = dd->sound_shapes[i].dr.pos.y;
+				dd->sound_shapes[i].selected_pos.x = dd->sound_shapes[i].pos.x;
+				dd->sound_shapes[i].selected_pos.y = dd->sound_shapes[i].pos.y;
 			} else {
 				dd->sound_shapes[i].selected = 0;
 			}
@@ -697,7 +697,7 @@ double hanning_window(int i, int N) {
 }
 
 int process(jack_nframes_t nframes, void *arg) {
-  dingle_dots_t *dd = (dingle_dots_t *)arg;
+  DingleDots *dd = (DingleDots *)arg;
   int chn;
   size_t i;
   static int first_call = 1;
@@ -748,7 +748,7 @@ void jack_shutdown (void *arg) {
   abort();
 }
 
-void setup_jack(dingle_dots_t *dd) {
+void setup_jack(DingleDots *dd) {
   unsigned int i;
   size_t in_size;
   dd->can_process = 0;
@@ -799,7 +799,7 @@ void setup_jack(dingle_dots_t *dd) {
   dd->can_process = 1;
 }
 
-void teardown_jack(dingle_dots_t *dd) {
+void teardown_jack(DingleDots *dd) {
 	while (jack_ringbuffer_read_space(dd->midi_ring_buf)) {
 		struct timespec pause;
 		pause.tv_sec = 0;
@@ -809,7 +809,7 @@ void teardown_jack(dingle_dots_t *dd) {
 	jack_client_close(dd->client);
 }
 
-void start_recording(dingle_dots_t *dd) {
+void start_recording(DingleDots *dd) {
 	struct timespec ts;
 	if (strlen(dd->video_file_name) == 0) {
 		clock_gettime(CLOCK_REALTIME, &ts);
@@ -824,7 +824,7 @@ void start_recording(dingle_dots_t *dd) {
    dd);
 }
 
-void stop_recording(dingle_dots_t *dd) {
+void stop_recording(DingleDots *dd) {
 	dd->recording_stopped = 1;
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dd->record_button), 0);
 	gtk_widget_set_sensitive(dd->record_button, 0);
@@ -833,8 +833,8 @@ void stop_recording(dingle_dots_t *dd) {
 static gboolean configure_event_cb (GtkWidget *widget,
  GdkEventConfigure *event, gpointer data) {
   int ret;
-  dingle_dots_t *dd;
-  dd = (dingle_dots_t *)data;
+  DingleDots *dd;
+  dd = (DingleDots *)data;
 	dd->scale = (double)(event->height) / dd->drawing_rect.height;
 	printf("scale %f\n", dd->scale);
   if (dd->screen_frame) {
@@ -891,8 +891,8 @@ static gboolean configure_event_cb (GtkWidget *widget,
 
 static gboolean window_state_event_cb (GtkWidget *widget,
  GdkEventWindowState *event, gpointer   data) {
-  dingle_dots_t *dd;
-  dd = (dingle_dots_t *)data;
+  DingleDots *dd;
+  dd = (DingleDots *)data;
   if (event->new_window_state & GDK_WINDOW_STATE_FULLSCREEN) {
 		dd->fullscreen = TRUE;
 	} else {
@@ -903,21 +903,22 @@ static gboolean window_state_event_cb (GtkWidget *widget,
 
 static gboolean draw_cb (GtkWidget *widget, cairo_t *cr, gpointer   data)
 {
-  dingle_dots_t *dd;
-  dd = (dingle_dots_t *)data;
+  DingleDots *dd;
+  dd = (DingleDots *)data;
   process_image(cr, dd);
   return FALSE;
 }
 
-static gboolean on_timeout(GtkWidget *widget) {
+/*static gboolean on_timeout(GtkWidget *widget) {
   gtk_widget_queue_draw(widget);
   return TRUE;
-}
+}*/
 
 static gboolean motion_notify_event_cb(GtkWidget *widget,
  GdkEventMotion *event, gpointer data) {
   int i;
-  dingle_dots_t *dd = (dingle_dots_t *)data;
+  DingleDots *dd = (DingleDots *)data;
+	gtk_widget_queue_draw(dd->drawing_area);
   dd->mouse_pos.x = event->x * dd->drawing_rect.width / dd->screen_frame->width;
   dd->mouse_pos.y = event->y * dd->drawing_rect.height / dd->screen_frame->height;
 	for (i = 0; i < MAX_NSOUND_SHAPES;i++) {
@@ -926,7 +927,7 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
 	}
 	for (i = MAX_NSOUND_SHAPES; i >= 0; i--) {
     if (!dd->sound_shapes[i].active) continue;
-		if (sound_shape_in(&dd->sound_shapes[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
+		if (dd->sound_shapes[i].in(dd->mouse_pos.x, dd->mouse_pos.y)) {
 			dd->sound_shapes[i].hovered = 1;
 			break;
 		}
@@ -979,41 +980,40 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
 	} else if (dd->mdown) {
 		dd->dragging = 1;
 	}
-  isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
+  isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(SoundShape), cmp_z_order);
   for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
     if (!dd->sound_shapes[i].active) continue;
-    if (dd->sound_shapes[i].dr.mdown) {
+    if (dd->sound_shapes[i].mdown) {
 			if (dd->sound_shapes[i].selected) {
 				for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
 					if (!dd->sound_shapes[j].active) continue;
 					if (dd->sound_shapes[j].selected) {
-						dd->sound_shapes[j].dr.pos.x = dd->mouse_pos.x -
-						 dd->sound_shapes[i].dr.mdown_pos.x +
+						dd->sound_shapes[j].pos.x = dd->mouse_pos.x -
+						 dd->sound_shapes[i].mdown_pos.x +
 						 dd->sound_shapes[j].selected_pos.x;
-						dd->sound_shapes[j].dr.pos.y = dd->mouse_pos.y -
-						 dd->sound_shapes[i].dr.mdown_pos.y +
+						dd->sound_shapes[j].pos.y = dd->mouse_pos.y -
+						 dd->sound_shapes[i].mdown_pos.y +
 						 dd->sound_shapes[j].selected_pos.y;
 					}
 				}
 				return TRUE;
 			} else {
-				draggable_drag(&dd->sound_shapes[i],
-				 dd->mouse_pos.x, dd->mouse_pos.y);
+				dd->sound_shapes[i].drag(dd->mouse_pos.x, dd->mouse_pos.y);
   			return TRUE;
 			}
     }
   }
 	for (i = MAX_NUM_V4L2-1; i > -1; i--) {
-		if (!dd->dd_v4l2[i].active) continue;
-		if (dd->dd_v4l2[i].dr.mdown) {
-			draggable_drag(&dd->dd_v4l2[i], dd->mouse_pos.x, dd->mouse_pos.y);
+		if (!dd->v4l2[i].active) continue;
+		if (dd->v4l2[i].mdown) {
+			dd->v4l2[i].drag(dd->mouse_pos.x, dd->mouse_pos.y);
 			return TRUE;
 		}
 	}
 	for (i = MAX_NUM_VIDEO_FILES-1; i > -1; i--) {
 		if (!dd->vf[i].active) continue;
-		if (dd->vf[i].dr.mdown) {
-			draggable_drag(&dd->vf[i], dd->mouse_pos.x, dd->mouse_pos.y);
+		if (dd->vf[i].mdown) {
+			dd->vf[i].drag(dd->mouse_pos.x, dd->mouse_pos.y);
 			return TRUE;
 		}
 	}
@@ -1022,17 +1022,17 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
 
 static gboolean double_press_event_cb(GtkWidget *widget,
  GdkEventButton *event, gpointer data) {
-  dingle_dots_t * dd = (dingle_dots_t *)data;
+  DingleDots * dd = (DingleDots *)data;
   if (event->type == GDK_2BUTTON_PRESS &&
 	 event->button == GDK_BUTTON_PRIMARY) {
 		uint8_t found = 0;
-		isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(sound_shape), cmp_z_order);
+		isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(SoundShape), cmp_z_order);
   	for (int i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
     	if (!dd->sound_shapes[i].active) continue;
     	double x, y;
 			x = event->x * dd->drawing_rect.width / dd->screen_frame->width;
 			y = event->y * dd->drawing_rect.height / dd->screen_frame->height;
-			if (sound_shape_in(&dd->sound_shapes[i], x, y)) {
+			if (dd->sound_shapes[i].in(x, y)) {
   			found = 1;
 				if (dd->sound_shapes[i].double_clicked_on) {
 					dd->sound_shapes[i].double_clicked_on = 0;
@@ -1055,7 +1055,7 @@ static gboolean double_press_event_cb(GtkWidget *widget,
 static gboolean button_press_event_cb(GtkWidget *widget,
 		GdkEventButton *event, gpointer data) {
 	int i;
-	dingle_dots_t * dd = (dingle_dots_t *)data;
+	DingleDots * dd = (DingleDots *)data;
 	dd->mouse_pos.x = event->x * dd->drawing_rect.width / dd->screen_frame->width;
 	dd->mouse_pos.y = event->y * dd->drawing_rect.height / dd->screen_frame->height;
 	if (event->button == GDK_BUTTON_PRIMARY) {
@@ -1063,12 +1063,12 @@ static gboolean button_press_event_cb(GtkWidget *widget,
 		dd->mdown_pos.x = dd->mouse_pos.x;
 		dd->mdown_pos.y = dd->mouse_pos.y;
 		isort(dd->sound_shapes, MAX_NSOUND_SHAPES,
-				sizeof(sound_shape), cmp_z_order);
+				sizeof(SoundShape), cmp_z_order);
 		for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
 			if (!dd->sound_shapes[i].active) continue;
-			if (sound_shape_in(&dd->sound_shapes[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
+			if (dd->sound_shapes[i].in(dd->mouse_pos.x, dd->mouse_pos.y)) {
 				if (dd->delete_active) {
-					sound_shape_deactivate(&dd->sound_shapes[i]);
+					dd->sound_shapes[i].deactivate();
 				} else {
 					if (!dd->sound_shapes[i].selected) {
 						for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
@@ -1086,13 +1086,13 @@ static gboolean button_press_event_cb(GtkWidget *widget,
 						for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
 							if (!dd->sound_shapes[j].active) continue;
 							if (dd->sound_shapes[j].selected) {
-								dd->sound_shapes[j].dr.z = dd->next_z++;
-								dd->sound_shapes[j].selected_pos.x = dd->sound_shapes[j].dr.pos.x;
-								dd->sound_shapes[j].selected_pos.y = dd->sound_shapes[j].dr.pos.y;
+								dd->sound_shapes[j].z = dd->next_z++;
+								dd->sound_shapes[j].selected_pos.x = dd->sound_shapes[j].pos.x;
+								dd->sound_shapes[j].selected_pos.y = dd->sound_shapes[j].pos.y;
 							}
 						}
 					}
-					draggable_set_mdown(&dd->sound_shapes[i], dd->mouse_pos.x,
+					dd->sound_shapes[i].set_mdown(dd->mouse_pos.x,
 					 dd->mouse_pos.y, dd->next_z++);
 				}
 				return FALSE;
@@ -1100,23 +1100,22 @@ static gboolean button_press_event_cb(GtkWidget *widget,
     }
 		if (event->state & GDK_CONTROL_MASK) {
 			for (i = MAX_NUM_V4L2-1; i > -1; i--) {
-				if (!dd->dd_v4l2[i].active) continue;
-				if (dd_v4l2_in(&dd->dd_v4l2[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
-					draggable_set_mdown(&dd->dd_v4l2[i], dd->mouse_pos.x, dd->mouse_pos.y,
+				if (!dd->v4l2[i].active) continue;
+				if (dd->v4l2[i].in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+					dd->v4l2[i].set_mdown(dd->mouse_pos.x, dd->mouse_pos.y,
 							dd->next_z++);
 					return FALSE;
 				}
 			}
 			for (i = MAX_NUM_VIDEO_FILES-1; i > -1; i--) {
 				if (!dd->vf[i].active) continue;
-				if (video_file_in(&dd->vf[i], dd->mouse_pos.x, dd->mouse_pos.y)) {
-					draggable_set_mdown(&dd->vf[i], dd->mouse_pos.x, dd->mouse_pos.y,
+				if (dd->vf[i].in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+					dd->vf[i].set_mdown(dd->mouse_pos.x, dd->mouse_pos.y,
 							dd->next_z++);
 					return FALSE;
 				}
 			}
 		}
-
 		dd->selection_in_progress = 1;
 		dd->selection_rect.x = dd->mouse_pos.x;
 		dd->selection_rect.y = dd->mouse_pos.y;
@@ -1145,29 +1144,29 @@ static gboolean button_press_event_cb(GtkWidget *widget,
 
 static gboolean button_release_event_cb(GtkWidget *widget,
  GdkEventButton *event, gpointer data) {
-  dingle_dots_t * dd;
+  DingleDots * dd;
   int i;
-  dd = (dingle_dots_t *)data;
+  dd = (DingleDots *)data;
   if (event->button == GDK_BUTTON_PRIMARY) {
  		if (!dd->dragging && !dd->selection_in_progress) {
     	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
       	if (!dd->sound_shapes[i].active) continue;
-      	if (!dd->sound_shapes[i].dr.mdown) {
+      	if (!dd->sound_shapes[i].mdown) {
 					dd->sound_shapes[i].selected = 0;
 				}
     	}
 		}
     for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
       if (!dd->sound_shapes[i].active) continue;
-      dd->sound_shapes[i].dr.mdown = 0;
+      dd->sound_shapes[i].mdown = 0;
     }
     for (i = 0; i < MAX_NUM_V4L2; i++) {
-      if (!dd->dd_v4l2[i].active) continue;
-      dd->dd_v4l2[i].dr.mdown = 0;
+      if (!dd->v4l2[i].active) continue;
+      dd->v4l2[i].mdown = 0;
     }
     for (i = 0; i < MAX_NUM_VIDEO_FILES; i++) {
       if (!dd->vf[i].active) continue;
-      dd->vf[i].dr.mdown = 0;
+      dd->vf[i].mdown = 0;
     }
 		dd->mdown = 0;
 		dd->dragging = 0;
@@ -1184,7 +1183,7 @@ static gboolean button_release_event_cb(GtkWidget *widget,
 
 static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
  gpointer data) {
-  dingle_dots_t *dd = (dingle_dots_t *)data;
+  DingleDots *dd = (DingleDots *)data;
   if (event->keyval == GDK_KEY_q && (!dd->recording_started ||
 	 dd->recording_stopped)) {
   	g_application_quit(dd->app);
@@ -1216,7 +1215,7 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
 
 static gboolean on_key_release(GtkWidget *widget, GdkEventKey *event,
  gpointer data) {
-	dingle_dots_t *dd = (dingle_dots_t *)data;
+	DingleDots *dd = (DingleDots *)data;
   if (event->keyval == GDK_KEY_Shift_L ||
    event->keyval == GDK_KEY_Shift_R) {
     dd->shift_pressed = 0;
@@ -1226,8 +1225,8 @@ static gboolean on_key_release(GtkWidget *widget, GdkEventKey *event,
 }
 
 static gboolean delete_cb(GtkWidget *widget, gpointer data) {
-  dingle_dots_t * dd;
-  dd = (dingle_dots_t *)data;
+  DingleDots * dd;
+  dd = (DingleDots *)data;
   if (!dd->delete_active) {
 		dd->delete_active = 1;
 	} else {
@@ -1237,8 +1236,8 @@ static gboolean delete_cb(GtkWidget *widget, gpointer data) {
 }
 
 static gboolean record_cb(GtkWidget *widget, gpointer data) {
-  dingle_dots_t * dd;
-  dd = (dingle_dots_t *)data;
+  DingleDots * dd;
+  dd = (DingleDots *)data;
   if (!dd->recording_started && !dd->recording_stopped) {
 		start_recording(dd);
 	} else if (dd->recording_started && !dd->recording_stopped) {
@@ -1248,15 +1247,15 @@ static gboolean record_cb(GtkWidget *widget, gpointer data) {
 }
 
 static gboolean quit_cb(GtkWidget *widget, gpointer data) {
-  dingle_dots_t * dd;
-  dd = (dingle_dots_t *)data;
+  DingleDots * dd;
+  dd = (DingleDots *)data;
   g_application_quit(dd->app);
   return TRUE;
 }
 
 static gboolean play_file_cb(GtkWidget *widget, gpointer data) {
-  dingle_dots_t * dd;
-  dd = (dingle_dots_t *)data;
+  DingleDots * dd;
+  dd = (DingleDots *)data;
 	GtkWidget *dialog;
 	GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_OPEN;
 	gint res;
@@ -1276,9 +1275,9 @@ static gboolean play_file_cb(GtkWidget *widget, gpointer data) {
 		int index = dd->current_video_file_source_index++ % MAX_NUM_VIDEO_FILES;
 		if(dd->vf[index].allocated) {
 			printf("video_file %d alloced\n", index);
-			video_file_destroy(&dd->vf[index]);
+			dd->vf[index].destroy();
 		}
-		video_file_create(&dd->vf[index], filename, dd->next_z++);
+		dd->vf[index].create(filename);
 		g_free (filename);
 	}
 	gtk_widget_destroy (dialog);
@@ -1286,7 +1285,7 @@ static gboolean play_file_cb(GtkWidget *widget, gpointer data) {
 }
 
 static gboolean motion_cb(GtkWidget *widget, gpointer data) {
-	dingle_dots_t *dd = (dingle_dots_t*) data;
+	DingleDots *dd = (DingleDots*) data;
 	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
 		dd->doing_motion = 1;
 	} else {
@@ -1296,8 +1295,8 @@ static gboolean motion_cb(GtkWidget *widget, gpointer data) {
 }
 
 static gboolean rand_color_cb(GtkWidget *widget, gpointer data) {
-  dingle_dots_t * dd;
-  dd = (dingle_dots_t *)data;
+  DingleDots * dd;
+  dd = (DingleDots *)data;
   if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
 		dd->use_rand_color_for_scale = 1;
 		gtk_widget_set_sensitive(dd->scale_color_button, 0);
@@ -1309,8 +1308,8 @@ static gboolean rand_color_cb(GtkWidget *widget, gpointer data) {
 }
 
 static gboolean camera_cb(GtkWidget *widget, gpointer data) {
-  dingle_dots_t * dd;
-  dd = (dingle_dots_t *)data;
+  DingleDots * dd;
+  dd = (DingleDots *)data;
 	GtkWidget *dialog;
 	GtkWidget *dialog_content;
 	GtkWidget *combo;
@@ -1330,8 +1329,8 @@ static gboolean camera_cb(GtkWidget *widget, gpointer data) {
 	if (res == GTK_RESPONSE_ACCEPT) {
 		gchar *name = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(combo));
 		for(int i = 0; i < MAX_NUM_V4L2; i++) {
-			if (!dd->dd_v4l2[i].active) {
-				dd_v4l2_create(&dd->dd_v4l2[i], name, dd->drawing_frame->width, dd->drawing_frame->height, dd->next_z++);
+			if (!dd->v4l2[i].active) {
+				dd->v4l2[i].create(dd, name, dd->drawing_frame->width, dd->drawing_frame->height, dd->next_z++);
 				break;
 			}
 		}
@@ -1341,18 +1340,18 @@ static gboolean camera_cb(GtkWidget *widget, gpointer data) {
 }
 
 static gboolean snapshot_cb(GtkWidget *widget, gpointer data) {
-  dingle_dots_t * dd;
-  dd = (dingle_dots_t *)data;
+  DingleDots * dd;
+  dd = (DingleDots *)data;
 	dd->do_snapshot = 1;
 	return TRUE;
 }
 
 static gboolean make_scale_cb(GtkWidget *widget, gpointer data) {
-  dingle_dots_t * dd;
+  DingleDots * dd;
   GdkRGBA gc;
 	struct hsva h;
 	color c;
-	dd = (dingle_dots_t *)data;
+	dd = (DingleDots *)data;
 	char *text_scale;
 	char text_note[4];
 	text_scale =
@@ -1372,7 +1371,7 @@ static gboolean make_scale_cb(GtkWidget *widget, gpointer data) {
 		gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(dd->scale_color_button), &gc);
 		color_init(&c, gc.red, gc.green, gc.blue, gc.alpha);
 	}
-	dingle_dots_add_scale(dd, &key, 1, &c);
+	dd->add_scale(&key, 1, &c);
   return TRUE;
 }
 
@@ -1388,9 +1387,9 @@ static void activate(GtkApplication *app, gpointer user_data) {
   GtkWidget *camera_button;
   GtkWidget *make_scale_button;
 	GtkWidget *aspect;
-	dingle_dots_t *dd;
+	DingleDots *dd;
  	int ret;
-	dd = (dingle_dots_t *)user_data;
+	dd = (DingleDots *)user_data;
   ccv_enable_default_cache();
   dd->user_tld_rect.width = dd->drawing_rect.width/5.;
   dd->user_tld_rect.height = dd->drawing_rect.height/5.;
@@ -1424,7 +1423,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	memset(dd->snapshot_thread_info.ring_buf->buf, 0,
 	 dd->snapshot_thread_info.ring_buf->size);
 	window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-  gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
+	gtk_window_set_resizable(GTK_WINDOW(window), TRUE);
   gtk_window_set_deletable(GTK_WINDOW (window), TRUE);
   gtk_window_set_default_size(GTK_WINDOW(window), dd->drawing_rect.width, dd->drawing_rect.height);
 	dd->ctl_window = gtk_application_window_new(app);
@@ -1435,6 +1434,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   aspect = gtk_aspect_frame_new(NULL, 0.5, 0.5, ((float)dd->drawing_rect.width)/dd->drawing_rect.height, FALSE);
   gtk_frame_set_shadow_type(GTK_FRAME(aspect), GTK_SHADOW_NONE);
 	drawing_area = gtk_drawing_area_new();
+  dd->drawing_area = drawing_area;
 	GdkGeometry size_hints;
 	size_hints.min_aspect = ((double)dd->drawing_rect.width)/dd->drawing_rect.height;
 	size_hints.max_aspect = ((double)dd->drawing_rect.width)/dd->drawing_rect.height;
@@ -1493,7 +1493,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   gtk_container_add (GTK_CONTAINER (dd->ctl_window), vbox);
 
   /* Signals used to handle the backing surface */
-  g_timeout_add(16, (GSourceFunc)on_timeout, (gpointer)drawing_area);
+  /*g_timeout_add(16, (GSourceFunc)on_timeout, (gpointer)drawing_area);*/
   g_signal_connect(dd->record_button, "clicked", G_CALLBACK(record_cb), dd);
   g_signal_connect(dd->delete_button, "clicked", G_CALLBACK(delete_cb), dd);
   g_signal_connect(qbutton, "clicked", G_CALLBACK(quit_cb), dd);
@@ -1531,7 +1531,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   gtk_widget_show_all (dd->ctl_window);
 }
 
-static void mainloop(dingle_dots_t *dd) {
+static void mainloop(DingleDots *dd) {
   dd->app = G_APPLICATION(gtk_application_new("org.dsheeler.v4l2_wayland",
    G_APPLICATION_NON_UNIQUE));
   g_signal_connect(dd->app, "activate", G_CALLBACK (activate), dd);
@@ -1566,7 +1566,7 @@ void setup_signal_handler() {
   signal(SIGINT, signal_handler);
 }
 
-static void usage(dingle_dots_t *dd, FILE *fp, int argc, char **argv)
+static void usage(DingleDots *dd, FILE *fp, int argc, char **argv)
 {
   fprintf(fp,
       "Usage: %s [options]\n\n"
@@ -1595,7 +1595,7 @@ long_options[] = {
 };
 
 int main(int argc, char **argv) {
-  dingle_dots_t dingle_dots;
+  DingleDots dingle_dots;
   char *video_file_name;
 	int width = 1280;
 	int height = 720;
@@ -1636,12 +1636,12 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
   }
-  dingle_dots_init(&dingle_dots, dev_name, width, height, video_file_name, video_bitrate);
+  dingle_dots.init(dev_name, width, height, video_file_name, video_bitrate);
   setup_jack(&dingle_dots);
   setup_signal_handler();
   mainloop(&dingle_dots);
-	dingle_dots_deactivate_sound_shapes(&dingle_dots);
-	dingle_dots_free(&dingle_dots);
+	dingle_dots.deactivate_sound_shapes();
+	dingle_dots.free();
 	teardown_jack(&dingle_dots);
 	fprintf(stderr, "\n");
   return 0;

@@ -7,9 +7,10 @@
 class Draggable {
 	private:
 		void render_label(cairo_t *cr);
+	public:
 		uint64_t z;
 		int mdown;
-	protected:
+	//protected:
 		GdkRectangle pos;
 		GdkRectangle mdown_pos;
 		GdkRectangle down_pos;

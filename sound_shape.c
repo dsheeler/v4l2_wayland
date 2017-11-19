@@ -1,19 +1,25 @@
 #include "sound_shape.h"
 #include "midi.h"
 
-SoundShape::SoundShape(string &label, uint8_t midi_note, uint8_t midi_channel,
-		double x, double y, double r, color *c, dingle_dots_t *dd)
-	: Draggable(x, y, 0) {
-	dd = dd;
-	active = 0;
-  r = r;
-  label = string(label);
-  midi_note = midi_note;
-	midi_channel = midi_channel;
-  normal = color_copy(c);
-  playing = color_lighten(c, 0.95);
-  on = 0;
-  return 0;
+SoundShape::SoundShape() { }
+void SoundShape::init(string &label, uint8_t midi_note, uint8_t midi_channel,
+		double x, double y, double r, color *c, DingleDots *dd) {
+	this->pos.x = x;
+	this->pos.y = y;
+	this->z = dd->next_z++;
+	this->dd = dd;
+	this->active = 0;
+  this->r = r;
+  this->label = string(label);
+  this->midi_note = midi_note;
+	this->midi_channel = midi_channel;
+  this->normal = color_copy(c);
+  this->playing = color_lighten(c, 0.95);
+  this->on = 0;
+}
+
+int SoundShape::is_on() {
+	return this->on;
 }
 
 void SoundShape::render_label(cairo_t *cr) {
@@ -24,15 +30,15 @@ void SoundShape::render_label(cairo_t *cr) {
   sprintf(font, "Agave %d", (int)ceil(0.2 * this->r));
   layout = pango_cairo_create_layout(cr);
   pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
-  pango_layout_set_text(layout, this.label.c_str(), -1);
+  pango_layout_set_text(layout, this->label.c_str(), -1);
   desc = pango_font_description_from_string(font);
   pango_layout_set_font_description(layout, desc);
   pango_font_description_free(desc);
   cairo_save(cr);
   this->is_on() ? cairo_set_source_rgba(cr, 0., 0., 0., this->playing.a) :
-   cairo_set_source_rgba(cr, 1., 1., 1., ss->normal.a);
+   cairo_set_source_rgba(cr, 1., 1., 1., this->normal.a);
   pango_layout_get_size(layout, &width, &height);
-  cairo_translate(cr, this.pos.x - 0.5*width/PANGO_SCALE, this.pos.y
+  cairo_translate(cr, this->pos.x - 0.5*width/PANGO_SCALE, this->pos.y
    - 0.5*height/PANGO_SCALE);
   pango_cairo_show_layout(cr, layout);
   cairo_restore(cr);
@@ -44,100 +50,100 @@ int SoundShape::render(cairo_t *cr) {
   c = &this->normal;
   cairo_save(cr);
 	cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
-  cairo_translate(cr, ss->dr.pos.x, ss->dr.pos.y);
-  cairo_arc(cr, 0, 0, ss->r*0.975, 0, 2 * M_PI);
+  cairo_translate(cr, this->pos.x, this->pos.y);
+  cairo_arc(cr, 0, 0, this->r*0.975, 0, 2 * M_PI);
   cairo_fill(cr);
-  cairo_arc(cr, 0, 0, ss->r, 0, 2 * M_PI);
+  cairo_arc(cr, 0, 0, this->r, 0, 2 * M_PI);
   cairo_set_source_rgba(cr, 0.5*c->r, 0.5*c->g, 0.5*c->b, c->a);
-  cairo_set_line_width(cr, 0.05 * ss->r);
+  cairo_set_line_width(cr, 0.05 * this->r);
 	cairo_stroke(cr);
-	if (ss->on) {
+	if (this->on) {
 		cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
-	 	cairo_arc(cr, 0, 0, ss->r*1.025, 0, 2 * M_PI);
+	 	cairo_arc(cr, 0, 0, this->r*1.025, 0, 2 * M_PI);
 	  cairo_fill(cr);
 	}
-	if (ss->hovered) {
+	if (this->hovered) {
 		cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
-  	cairo_arc(cr, 0, 0, ss->r, 0, 2 * M_PI);
-		cairo_set_line_width(cr, 0.05 * ss->r);
+  	cairo_arc(cr, 0, 0, this->r, 0, 2 * M_PI);
+		cairo_set_line_width(cr, 0.05 * this->r);
   	cairo_stroke(cr);
 		/*cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
-	 	cairo_arc(cr, 0, 0, ss->r * 1.025, 0, 2 * M_PI);
+	 	cairo_arc(cr, 0, 0, this->r * 1.025, 0, 2 * M_PI);
   	cairo_fill(cr);*/
 	}
-	if (ss->selected) {
+	if (this->selected) {
 		cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
-	 	cairo_arc(cr, 0, 0, ss->r*1.025, 0, 2 * M_PI);
+	 	cairo_arc(cr, 0, 0, this->r*1.025, 0, 2 * M_PI);
 	  cairo_fill(cr);
 	}
   cairo_restore(cr);
-  sound_shape_render_label(ss, cr);
+  this->render_label(cr);
   return 0;
 }
 
-int sound_shape_activate(sound_shape *ss) {
-  ss->active = 1;
+int SoundShape::activate() {
+  this->active = 1;
   return 0;
 }
 
-int sound_shape_deactivate(sound_shape *ss) {
-	if (ss->on) {
-		sound_shape_off(ss);
+int SoundShape::deactivate() {
+	if (this->on) {
+		this->set_off();
 	}
-	ss->selected = 0;
-	ss->hovered = 0;
-	ss->motion_state = 0;
-	ss->tld_state = 0;
-	ss->dr.mdown = 0;
-	ss->active = 0;
+	this->selected = 0;
+	this->hovered = 0;
+	this->motion_state = 0;
+	this->tld_state = 0;
+	this->mdown = 0;
+	this->active = 0;
   return 0;
 }
 
-int sound_shape_in(sound_shape *ss, double x, double y) {
-  if (sqrt(pow((x - ss->dr.pos.x), 2) + pow(y - ss->dr.pos.y, 2)) <= ss->r) {
+int SoundShape::in(double x, double y) {
+  if (sqrt(pow((x - this->pos.x), 2) + pow(y - this->pos.y, 2)) <= this->r) {
     return 1;
   } else {
     return 0;
   }
 }
 
-int sound_shape_on(sound_shape *ss) {
-  ss->on = 1;
-  midi_queue_new_message(0x90 | ss->midi_channel, ss->midi_note, 64, ss->dd);
+int SoundShape::set_on() {
+  this->on = 1;
+  midi_queue_new_message(0x90 | this->midi_channel, this->midi_note, 64, this->dd);
   return 0;
 }
 
-int sound_shape_off(sound_shape *ss) {
-  ss->on = 0;
-	ss->double_clicked_on = 0;
-  midi_queue_new_message(0x80 | ss->midi_channel, ss->midi_note, 0, ss->dd);
+int SoundShape::set_off() {
+  this->on = 0;
+	this->double_clicked_on = 0;
+  midi_queue_new_message(0x80 | this->midi_channel, this->midi_note, 0, this->dd);
   return 0;
 }
 
-void sound_shape_tick(sound_shape *ss) {
-	if (ss->motion_state_to_off) {
-		sound_shape_set_motion_state(ss, 0);
+void SoundShape::tick() {
+	if (this->motion_state_to_off) {
+		this->set_motion_state(0);
 	}
 }
 
-void sound_shape_set_motion_state(sound_shape *ss, uint8_t state) {
+void SoundShape::set_motion_state(uint8_t state) {
 	if (state) {
-		ss->motion_state = 1;
-		ss->motion_state_to_off = 0;
-		clock_gettime(CLOCK_MONOTONIC, &ss->motion_ts);
+		this->motion_state = 1;
+		this->motion_state_to_off = 0;
+		clock_gettime(CLOCK_MONOTONIC, &this->motion_ts);
 	} else {
-		if (ss->motion_state) {
+		if (this->motion_state) {
 			struct timespec now_ts;
 			struct timespec diff_ts;
 			double diff_sec;
 			clock_gettime(CLOCK_MONOTONIC, &now_ts);
-			timespec_diff(&ss->motion_ts, &now_ts, &diff_ts);
+			timespec_diff(&this->motion_ts, &now_ts, &diff_ts);
 			diff_sec = timespec_to_seconds(&diff_ts);
 			if (diff_sec >= 0.2) {
-				ss->motion_state = 0;
-				ss->motion_state_to_off = 0;
+				this->motion_state = 0;
+				this->motion_state_to_off = 0;
 			} else {
-				ss->motion_state_to_off = 1;
+				this->motion_state_to_off = 1;
 			}
 		}
 	}
