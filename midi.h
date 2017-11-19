@@ -10,9 +10,8 @@
 
 #define MAX_SCALE_LENGTH 64
 
-extern jack_client_t *client;
-
 typedef struct midi_key_t midi_key_t;
+class DingleDots;
 
 typedef enum {
 	MAJOR = 0,
@@ -34,8 +33,8 @@ struct midi_key_t {
 	int num_steps;
 };
 
-void midi_queue_new_message(int b0, int b1, int b2, dingle_dots_t *dd);
-void midi_process_output(jack_nframes_t nframes, dingle_dots_t *dd);
+void midi_queue_new_message(int b0, int b1, int b2, DingleDots *dd);
+void midi_process_output(jack_nframes_t nframes, DingleDots *dd);
 float midi_to_freq(int midi_note);
 void midi_key_init_by_scale_id(midi_key_t *key, uint8_t base_note, int scaleid);
 int midi_scale_text_to_id(char *name);

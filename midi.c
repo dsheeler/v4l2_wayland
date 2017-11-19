@@ -1,6 +1,6 @@
 #include "midi.h"
 
-static void queue_message(dingle_dots_t *dd, struct midi_message *ev) {
+static void queue_message(DingleDots *dd, struct midi_message *ev) {
   int written;
   if (jack_ringbuffer_write_space(dd->midi_ring_buf) < sizeof(*ev)) {
     fprintf(stderr, "Not enough space in the ringbuffer, NOTE LOST.");
@@ -11,7 +11,7 @@ static void queue_message(dingle_dots_t *dd, struct midi_message *ev) {
     fprintf(stderr, "jack_ringbuffer_write failed, NOTE LOST.");
 }
 
-void midi_queue_new_message(int b0, int b1, int b2, dingle_dots_t *dd) {
+void midi_queue_new_message(int b0, int b1, int b2, DingleDots *dd) {
   struct midi_message ev;
   if (b1 == -1) {
     ev.len = 1;
@@ -30,7 +30,7 @@ void midi_queue_new_message(int b0, int b1, int b2, dingle_dots_t *dd) {
   queue_message(dd, &ev);
 }
 
-void midi_process_output(jack_nframes_t nframes, dingle_dots_t *dd) {
+void midi_process_output(jack_nframes_t nframes, DingleDots *dd) {
   int read, t;
   unsigned char *buffer;
   void *port_buffer;

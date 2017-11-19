@@ -15,7 +15,7 @@ typedef struct kmeter {
   int    hold;
   float  fall;
   float  omega;
-  color  c;
+  struct color  c;
   float  x;
   float  y;
   float  w;

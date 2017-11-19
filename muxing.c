@@ -184,7 +184,7 @@ static void open_audio(AVFormatContext *oc, AVCodec *codec, OutputStream *ost,
   }
 }
 
-int get_audio_frame(dingle_dots_t *dd, OutputStream *ost, AVFrame **ret_frame) {
+int get_audio_frame(DingleDots *dd, OutputStream *ost, AVFrame **ret_frame) {
   AVFrame *frame = ost->tmp_frame;
   int j, i;
   float *q = (float*)frame->data[0];
@@ -213,7 +213,7 @@ int get_audio_frame(dingle_dots_t *dd, OutputStream *ost, AVFrame **ret_frame) {
  * encode one audio frame and send it to the muxer
  * return 1 when encoding is finished, 0 otherwise
  */
-int write_audio_frame(dingle_dots_t *dd, AVFormatContext *oc,
+int write_audio_frame(DingleDots *dd, AVFormatContext *oc,
  OutputStream *ost) {
   AVCodecContext *c;
   AVPacket pkt;
@@ -323,7 +323,7 @@ static void open_video(int width, int height, AVFormatContext *oc, AVCodec *code
     }
 }
 
-int get_video_frame(dingle_dots_t *dd, OutputStream *ost, AVFrame **ret_frame) {
+int get_video_frame(DingleDots *dd, OutputStream *ost, AVFrame **ret_frame) {
   AVCodecContext *c = ost->enc;
   *ret_frame = NULL;
   int size = ost->out_frame.size + sizeof(struct timespec);
@@ -368,7 +368,7 @@ int get_video_frame(dingle_dots_t *dd, OutputStream *ost, AVFrame **ret_frame) {
  * encode one video frame and send it to the muxer
  * return 1 when encoding is finished, 0 otherwise
  */
-int write_video_frame(dingle_dots_t *dd, AVFormatContext *oc, OutputStream *ost)
+int write_video_frame(DingleDots *dd, AVFormatContext *oc, OutputStream *ost)
 {
   int ret;
   AVCodecContext *c;
@@ -432,7 +432,7 @@ void close_stream(AVFormatContext *oc, OutputStream *ost)
 /**************************************************************/
 /* media file output */
 
-int init_output(dingle_dots_t *dd) {
+int init_output(DingleDots *dd) {
   const char *filename;
   AVOutputFormat *fmt;
   AVCodec *audio_codec, *video_codec;
