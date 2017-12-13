@@ -4,6 +4,7 @@ Draggable::Draggable() {
 	pos.x = 0.0;
 	pos.y = 0.0;
 	z = 0;
+	this->rotation_radians = 0.0;
 	mdown = 0;
 }
 
@@ -11,6 +12,7 @@ Draggable::Draggable(double x, double y, uint64_t z) {
 	pos.x = x;
 	pos.y = y;
 	this->z = z;
+	this->rotation_radians = 0.0;
 	mdown = 0;
 }
 

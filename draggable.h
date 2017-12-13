@@ -11,6 +11,7 @@ class Draggable {
 		uint64_t z;
 		int mdown;
 	//protected:
+		double rotation_radians;
 		GdkRectangle pos;
 		GdkRectangle mdown_pos;
 		GdkRectangle down_pos;

@@ -1,3 +1,9 @@
+*.creator
+*.pro
+*.config
+*.user
+*.files
+*.includes
 *.trace
 tags
 *.ogv

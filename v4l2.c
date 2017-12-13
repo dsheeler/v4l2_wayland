@@ -299,3 +299,25 @@ int V4l2::in(double x, double y) {
 		return 0;
 	}
 }
+
+void *dd_v4l2_thread(void *arg) {
+  V4l2 *v = (V4l2 *)arg;
+	v->rbuf = jack_ringbuffer_create(5*4*v->width*v->height);
+	memset(v->rbuf->buf, 0, v->rbuf->size);
+	v->read_buf = (uint32_t *)(malloc(4 * v->width * v->height));
+	v->save_buf = (uint32_t *)(malloc(4 * v->width * v->height));
+	v->active = 1;
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	v->open_device();
+  v->init_device();
+  v->start_capturing();
+  pthread_mutex_lock(&v->lock);
+	v->read_frames();
+  pthread_mutex_unlock(&v->lock);
+  v->stop_capturing();
+  v->uninit_device();
+  v->close_device();
+	return 0;
+}
+
+

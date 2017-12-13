@@ -22,7 +22,7 @@ typedef struct midi_key_t midi_key_t;
 #include "v4l2.h"
 
 #define STR_LEN 80
-#define MAX_NUM_V4L2 3
+#define MAX_NUM_V4L2 4
 
 class DingleDots {
 	public:

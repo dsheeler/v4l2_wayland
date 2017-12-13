@@ -41,26 +41,6 @@
 #define FFT_SIZE 256
 #define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
 
-void *dd_v4l2_thread(void *arg) {
-  V4l2 *v = (V4l2 *)arg;
-	v->rbuf = jack_ringbuffer_create(5*4*v->width*v->height);
-	memset(v->rbuf->buf, 0, v->rbuf->size);
-	v->read_buf = (uint32_t *)(malloc(4 * v->width * v->height));
-	v->save_buf = (uint32_t *)(malloc(4 * v->width * v->height));
-	v->active = 1;
-	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-	v->open_device();
-  v->init_device();
-  v->start_capturing();
-  pthread_mutex_lock(&v->lock);
-	v->read_frames();
-  pthread_mutex_unlock(&v->lock);
-  v->stop_capturing();
-  v->uninit_device();
-  v->close_device();
-	return 0;
-}
-
 
 static void isort(void *base, size_t nmemb, size_t size,
  int (*compar)(const void *, const void *));
@@ -241,12 +221,12 @@ static void render_detection_box(cairo_t *cr, int initializing,
 
 static void render_selection_box(cairo_t *cr, DingleDots *dd) {
   cairo_save(cr);
-  cairo_rectangle(cr, dd->selection_rect.x, dd->selection_rect.y,
+  cairo_rectangle(cr, floor(dd->selection_rect.x)+0.5, floor(dd->selection_rect.y)+0.5,
 	 dd->selection_rect.width, dd->selection_rect.height);
-	cairo_set_source_rgba(cr, 0.5, 0.5, 0.5, 0.375);
+    cairo_set_source_rgba(cr, 0.09, 0.28, 0.44, 0.15);
   cairo_fill_preserve(cr);
-  cairo_set_source_rgba(cr, 0.75, 0.75, 0.75, 0.875);
-	cairo_set_line_width(cr, 1.0);
+  cairo_set_source_rgba(cr, 0.15, 0.35, 0.68, 1);
+    cairo_set_line_width(cr, 0.5);
   cairo_stroke(cr);
   cairo_restore(cr);
 }
@@ -373,12 +353,22 @@ void process_image(cairo_t *screen_cr, void *arg) {
 					tsurf = cairo_image_surface_create_for_data(
 							(unsigned char *)dd->v4l2[i].read_buf, CAIRO_FORMAT_ARGB32,
 							dd->v4l2[i].width, dd->v4l2[i].height, 4 * dd->v4l2[i].width);
-					cairo_set_source_surface(sources_cr, tsurf, dd->v4l2[i].pos.x,
-							dd->v4l2[i].pos.y);
+					cairo_save(sources_cr);
+					cairo_translate(sources_cr, dd->v4l2[i].pos.x, dd->v4l2[i].pos.y);
+					cairo_translate(sources_cr, 0.5 * dd->v4l2[i].width, 0.5 * dd->v4l2[i].height);
+					cairo_rotate(sources_cr, dd->v4l2[i].rotation_radians);
+					cairo_translate(sources_cr, -0.5 * dd->v4l2[i].width, -0.5 * dd->v4l2[i].height);
+					cairo_set_source_surface(sources_cr, tsurf, 0.0, 0.0);
 					cairo_paint(sources_cr);
-					cairo_set_source_surface(screen_cr, tsurf, dd->v4l2[i].pos.x,
-							dd->v4l2[i].pos.y);
+					cairo_restore(sources_cr);
+					cairo_save(screen_cr);
+					cairo_translate(screen_cr, dd->v4l2[i].pos.x, dd->v4l2[i].pos.y);
+					cairo_translate(screen_cr, 0.5 * dd->v4l2[i].width, 0.5 * dd->v4l2[i].height);
+					cairo_rotate(screen_cr, dd->v4l2[i].rotation_radians);
+					cairo_translate(screen_cr, -0.5 * dd->v4l2[i].width, -0.5 * dd->v4l2[i].height);
+					cairo_set_source_surface(screen_cr, tsurf, 0, 0);
 					cairo_paint(screen_cr);
+					cairo_restore(screen_cr);
 					cairo_surface_destroy(tsurf);
 				}
 			}
@@ -487,8 +477,8 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	}
 	if (dd->doing_tld) {
 		if (do_tld) {
-			sws_scale(dd->analysis_resize, (uint8_t const * const *)dd->drawing_frame->data,
-					dd->drawing_frame->linesize, 0, dd->drawing_frame->height, dd->analysis_frame->data, dd->analysis_frame->linesize);
+			sws_scale(dd->analysis_resize, (uint8_t const * const *)dd->sources_frame->data,
+					dd->sources_frame->linesize, 0, dd->sources_frame->height, dd->analysis_frame->data, dd->analysis_frame->linesize);
 			if (dd->make_new_tld == 1) {
 				if (dd->user_tld_rect.width > 0 && dd->user_tld_rect.height > 0) {
 					tld = new_tld(dd->user_tld_rect.x/dd->ascale_factor_x, dd->user_tld_rect.y/dd->ascale_factor_y,
@@ -1077,11 +1067,6 @@ static gboolean button_press_event_cb(GtkWidget *widget,
 						}
 						dd->sound_shapes[i].selected = 0;
 					}
-					/*dd->sound_shapes[i].mdown = 1;
-					dd->sound_shapes[i].mdown_pos.x = dd->mouse_pos.x;
-					dd->sound_shapes[i].mdown_pos.y = dd->mouse_pos.y;
-					dd->sound_shapes[i].down_pos.x = dd->sound_shapes[i].x;
-					dd->sound_shapes[i].down_pos.y = dd->sound_shapes[i].y;*/
 					if (dd->sound_shapes[i].selected) {
 						for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
 							if (!dd->sound_shapes[j].active) continue;
@@ -1179,6 +1164,42 @@ static gboolean button_release_event_cb(GtkWidget *widget,
   	return TRUE;
   }
 	return FALSE;
+}
+
+static gboolean scroll_cb(GtkWidget *widget, GdkEventScroll *event,
+ gpointer data) {
+  DingleDots *dd = (DingleDots *)data;
+	int i;
+	if (event->state & GDK_CONTROL_MASK) {
+		gboolean up = FALSE;
+		double inc = 2 * M_PI / 160;
+		if (event->delta_y == -1.0) {
+			up = TRUE;
+		}
+		for (i = MAX_NUM_V4L2-1; i > -1; i--) {
+			if (!dd->v4l2[i].active) continue;
+			if (dd->v4l2[i].in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+				if (up) {
+					dd->v4l2[i].rotation_radians += inc;
+				} else {
+					dd->v4l2[i].rotation_radians -= inc;
+				}
+				return FALSE;
+			}
+		}
+		for (i = MAX_NUM_VIDEO_FILES-1; i > -1; i--) {
+			if (!dd->vf[i].active) continue;
+			if (dd->vf[i].in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+				if (up) {
+					dd->vf[i].rotation_radians += inc;
+				} else {
+					dd->vf[i].rotation_radians -= inc;
+				}
+				return FALSE;
+			}
+		}
+	}
+	return TRUE;
 }
 
 static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
@@ -1322,6 +1343,7 @@ static gboolean camera_cb(GtkWidget *widget, gpointer data) {
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "0", "/dev/video0");
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "1", "/dev/video1");
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "2", "/dev/video2");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "3", "/dev/video3");
 	gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 0);
 	gtk_container_add(GTK_CONTAINER(dialog_content), combo);
 	gtk_widget_show_all(dialog);
@@ -1511,6 +1533,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
    G_CALLBACK (window_state_event_cb), dd);
   g_signal_connect (drawing_area, "motion-notify-event",
    G_CALLBACK (motion_notify_event_cb), dd);
+  g_signal_connect (drawing_area, "scroll-event",
+   G_CALLBACK (scroll_cb), dd);
   g_signal_connect (drawing_area, "button-press-event",
    G_CALLBACK (button_press_event_cb), dd);
   g_signal_connect (drawing_area, "button-press-event",
@@ -1526,7 +1550,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
   gtk_widget_set_events (drawing_area, gtk_widget_get_events (drawing_area)
    | GDK_BUTTON_PRESS_MASK | GDK_2BUTTON_PRESS
 	 | GDK_POINTER_MOTION_MASK | GDK_BUTTON_RELEASE_MASK
-   | GDK_KEY_PRESS_MASK | GDK_KEY_RELEASE_MASK);
+   | GDK_KEY_PRESS_MASK | GDK_KEY_RELEASE_MASK | GDK_SMOOTH_SCROLL_MASK);
   gtk_widget_show_all (window);
   gtk_widget_show_all (dd->ctl_window);
 }
