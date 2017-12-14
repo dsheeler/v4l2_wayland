@@ -22,20 +22,20 @@ CFLAGS = -O3 -ffast-math -Wall
 CFLAGS +=	$(shell pkg-config --cflags pangocairo) \
 				 	$(shell pkg-config --cflags gtk+-3.0) \
 				 	$(shell pkg-config --cflags fftw3)
-SRCS = draggable.c v4l2_wayland.c muxing.c sound_shape.c midi.c kmeter.c \
-			 video_file_source.c dingle_dots.c v4l2.c
-OBJS = $(SRCS:.c=.o)
+SRCS = draggable.cc v4l2_wayland.cc muxing.cc sound_shape.cc midi.cc kmeter.cc \
+			 video_file_source.cc dingle_dots.cc v4l2.cc
+OBJS = $(SRCS:.cc=.o)
 HDRS = draggable.h muxing.h sound_shape.h midi.h v4l2_wayland.h kmeter.h \
 			video_file_source.h dingle_dots.h v4l2.h
 
 .SUFFIXES:
 
-.SUFFIXES: .c
+.SUFFIXES: .cc
 
-%.o : %.c ${HDRS}
+%.o : %.cc ${HDRS}
 	$(CC) ${CFLAGS} -c $< -o $@
 
-v4l2_wayland: v4l2_wayland.c ${OBJS}
+v4l2_wayland: v4l2_wayland.cc ${OBJS}
 	${CC} -o $@ ${OBJS} ${LFLAGS}
 
 install: all
