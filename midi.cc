@@ -1,72 +1,72 @@
 #include "midi.h"
 
 static void queue_message(DingleDots *dd, struct midi_message *ev) {
-  int written;
-  if (jack_ringbuffer_write_space(dd->midi_ring_buf) < sizeof(*ev)) {
-    fprintf(stderr, "Not enough space in the ringbuffer, NOTE LOST.");
-    return;
-  }
-  written = jack_ringbuffer_write(dd->midi_ring_buf, (char *)ev, sizeof(*ev));
-  if (written != sizeof(*ev))
-    fprintf(stderr, "jack_ringbuffer_write failed, NOTE LOST.");
+	int written;
+	if (jack_ringbuffer_write_space(dd->midi_ring_buf) < sizeof(*ev)) {
+		fprintf(stderr, "Not enough space in the ringbuffer, NOTE LOST.");
+		return;
+	}
+	written = jack_ringbuffer_write(dd->midi_ring_buf, (char *)ev, sizeof(*ev));
+	if (written != sizeof(*ev))
+		fprintf(stderr, "jack_ringbuffer_write failed, NOTE LOST.");
 }
 
 void midi_queue_new_message(int b0, int b1, int b2, DingleDots *dd) {
-  struct midi_message ev;
-  if (b1 == -1) {
-    ev.len = 1;
-    ev.data[0] = b0;
-  } else if (b2 == -1) {
-    ev.len = 2;
-    ev.data[0] = b0;
-    ev.data[1] = b1;
-  } else {
-    ev.len = 3;
-    ev.data[0] = b0;
-    ev.data[1] = b1;
-    ev.data[2] = b2;
-  }
-  ev.time = jack_frame_time(dd->client);
-  queue_message(dd, &ev);
+	struct midi_message ev;
+	if (b1 == -1) {
+		ev.len = 1;
+		ev.data[0] = b0;
+	} else if (b2 == -1) {
+		ev.len = 2;
+		ev.data[0] = b0;
+		ev.data[1] = b1;
+	} else {
+		ev.len = 3;
+		ev.data[0] = b0;
+		ev.data[1] = b1;
+		ev.data[2] = b2;
+	}
+	ev.time = jack_frame_time(dd->client);
+	queue_message(dd, &ev);
 }
 
 void midi_process_output(jack_nframes_t nframes, DingleDots *dd) {
-  int read, t;
-  unsigned char *buffer;
-  void *port_buffer;
-  jack_nframes_t last_frame_time;
-  struct midi_message ev;
-  last_frame_time = jack_last_frame_time(dd->client);
-  port_buffer = jack_port_get_buffer(dd->midi_port, nframes);
-  if (port_buffer == NULL) {
-    return;
-  }
-  jack_midi_clear_buffer(port_buffer);
-  while (jack_ringbuffer_read_space(dd->midi_ring_buf)) {
-    read = jack_ringbuffer_peek(dd->midi_ring_buf, (char *)&ev, sizeof(ev));
-    if (read != sizeof(ev)) {
-      jack_ringbuffer_read_advance(dd->midi_ring_buf, read);
-      continue;
-    }
-    t = ev.time + nframes - last_frame_time;
-    /* If computed time is too much into
-     * the future, we'll need
-     *       to send it later. */
-    if (t >= (int)nframes)
-      break;
-    /* If computed time is < 0, we
-     * missed a cycle because of xrun.
-     * */
-    if (t < 0)
-      t = 0;
-    jack_ringbuffer_read_advance(dd->midi_ring_buf, sizeof(ev));
-    buffer = jack_midi_event_reserve(port_buffer, t, ev.len);
-    memcpy(buffer, ev.data, ev.len);
-  }
+	int read, t;
+	unsigned char *buffer;
+	void *port_buffer;
+	jack_nframes_t last_frame_time;
+	struct midi_message ev;
+	last_frame_time = jack_last_frame_time(dd->client);
+	port_buffer = jack_port_get_buffer(dd->midi_port, nframes);
+	if (port_buffer == NULL) {
+		return;
+	}
+	jack_midi_clear_buffer(port_buffer);
+	while (jack_ringbuffer_read_space(dd->midi_ring_buf)) {
+		read = jack_ringbuffer_peek(dd->midi_ring_buf, (char *)&ev, sizeof(ev));
+		if (read != sizeof(ev)) {
+			jack_ringbuffer_read_advance(dd->midi_ring_buf, read);
+			continue;
+		}
+		t = ev.time + nframes - last_frame_time;
+		/* If computed time is too much into
+	 * the future, we'll need
+	 *       to send it later. */
+		if (t >= (int)nframes)
+			break;
+		/* If computed time is < 0, we
+	 * missed a cycle because of xrun.
+	 * */
+		if (t < 0)
+			t = 0;
+		jack_ringbuffer_read_advance(dd->midi_ring_buf, sizeof(ev));
+		buffer = jack_midi_event_reserve(port_buffer, t, ev.len);
+		memcpy(buffer, ev.data, ev.len);
+	}
 }
 
 void midi_key_init_by_scale_id(midi_key_t *key, uint8_t base_note,
- int scaleid) {
+							   int scaleid) {
 	key->base_note = base_note;
 	key->scaleid = scaleid;
 	memset(key->steps, 0, MAX_SCALE_LENGTH * sizeof(uint8_t));
@@ -152,8 +152,8 @@ char *midi_scale_id_to_text(int scaleid) {
 
 void midi_note_to_octave_name(uint8_t midi_note, char *text) {
 	char *note_names[] = {"C", "C#", "D", "D#", "E",
-   "F", "F#", "G", "G#", "A", "A#", "B"};
-  int note_names_idx, note_octave_num;
+						  "F", "F#", "G", "G#", "A", "A#", "B"};
+	int note_names_idx, note_octave_num;
 	note_octave_num = midi_note / 12 - 1;
 	note_names_idx = midi_note % 12;
 	sprintf(text, "%s%d", note_names[note_names_idx], note_octave_num);

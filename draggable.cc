@@ -15,6 +15,10 @@ Draggable::Draggable(double x, double y, uint64_t z) {
 	this->rotation_radians = 0.0;
 	mdown = 0;
 }
+bool Draggable::render(std::vector<cairo_t *> &contexts) {
+	printf("Draggable::render\n");
+	return false;
+}
 
 void Draggable::set_mdown(double x, double y, uint64_t z) {
 	mdown = 1;

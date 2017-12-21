@@ -31,46 +31,46 @@
 #define DD_V4L2_MAX_STR_LEN 256
 
 struct dd_v4l2_buffer {
-  void   *start;
-  size_t  length;
+	void   *start;
+	size_t  length;
 };
 
-class DingleDots;
 class V4l2 : public Draggable {
-	public:
-		V4l2();
-		void create(DingleDots *dd, char *name, double w, double h, uint64_t z);
-		int read_frames();
-		int in(double x, double y);
-		void stop_capturing();
-		void start_capturing();
-		void uninit_device();
-		void init_device();
-		void close_device();
-		void open_device();
-		void init_mmap();
-	private:
-		static void* thread(void *v);
-		static int xioctl(int fh, int request, void *arg);
-		static void YUV2RGB(const unsigned char y, const unsigned char u,
-		 const unsigned char v, unsigned char* r, unsigned char* g,
-		 unsigned char* b);
-	public:
-		DingleDots *dd;
-		char dev_name[DD_V4L2_MAX_STR_LEN];
-		int fd;
-		int active;
-		int width;
-		int height;
-		struct dd_v4l2_buffer *buffers;
-		unsigned int n_buffers;
-		uint32_t *save_buf;
-		uint32_t *read_buf;
-		struct pollfd pfd[1];
-		pthread_t thread_id;
-		pthread_mutex_t lock;
-		pthread_cond_t data_ready;
-		jack_ringbuffer_t *rbuf;
+public:
+	V4l2();
+	void create(DingleDots *dd, char *name, double w, double h, uint64_t z);
+	int read_frames();
+	int in(double x, double y);
+	void stop_capturing();
+	void start_capturing();
+	void uninit_device();
+	void init_device();
+	void close_device();
+	void open_device();
+	void init_mmap();
+	bool render(std::vector<cairo_t *> &contexts);
+private:
+	static void* thread(void *v);
+	static int xioctl(int fh, int request, void *arg);
+	static void YUV2RGB(const unsigned char y, const unsigned char u,
+						const unsigned char v, unsigned char* r, unsigned char* g,
+						unsigned char* b);
+public:
+	DingleDots *dd;
+	char dev_name[DD_V4L2_MAX_STR_LEN];
+	int fd;
+	int active;
+	int width;
+	int height;
+	struct dd_v4l2_buffer *buffers;
+	unsigned int n_buffers;
+	uint32_t *save_buf;
+	uint32_t *read_buf;
+	struct pollfd pfd[1];
+	pthread_t thread_id;
+	pthread_mutex_t lock;
+	pthread_cond_t data_ready;
+	jack_ringbuffer_t *rbuf;
 };
 
 #endif

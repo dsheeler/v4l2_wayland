@@ -21,9 +21,9 @@ typedef enum {
 } scales;
 
 struct midi_message {
-  jack_nframes_t time;
-  int len; /*Bytes.*/
-  unsigned char data[3];
+	jack_nframes_t time;
+	int len; /*Bytes.*/
+	unsigned char data[3];
 };
 
 struct midi_key_t {
