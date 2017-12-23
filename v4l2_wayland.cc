@@ -343,7 +343,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	contexts.push_back(screen_cr);
 	contexts.push_back(sources_cr);
 	for (std::vector<Draggable *>::iterator it = draggables.begin(); it != draggables.end(); ++it) {
-		(*it)->render(contexts);
+		while ((*it)->render(contexts));
 	}
 	if (render_drawing_surf) {
 		cairo_save(drawing_cr);
@@ -1068,32 +1068,31 @@ static gboolean scroll_cb(GtkWidget *widget, GdkEventScroll *event,
 	int i;
 	if (event->state & GDK_CONTROL_MASK) {
 		gboolean up = FALSE;
-		double inc = 2 * M_PI / 160;
+		double inc = 2 * M_PI / 360;
 		if (event->delta_y == -1.0) {
 			up = TRUE;
 		}
+		std::vector<Draggable *> draggables;
 		for (i = MAX_NUM_V4L2-1; i > -1; i--) {
 			if (!dd->v4l2[i].active) continue;
 			if (dd->v4l2[i].in(dd->mouse_pos.x, dd->mouse_pos.y)) {
-				if (up) {
-					dd->v4l2[i].rotation_radians += inc;
-				} else {
-					dd->v4l2[i].rotation_radians -= inc;
-				}
-				return FALSE;
+				draggables.push_back(&dd->v4l2[i]);
 			}
 		}
 		for (i = MAX_NUM_VIDEO_FILES-1; i > -1; i--) {
 			if (!dd->vf[i].active) continue;
 			if (dd->vf[i].in(dd->mouse_pos.x, dd->mouse_pos.y)) {
-				if (up) {
-					dd->vf[i].rotation_radians += inc;
-				} else {
-					dd->vf[i].rotation_radians -= inc;
-				}
-				return FALSE;
+				draggables.push_back(&dd->vf[i]);
 			}
 		}
+		std::sort(draggables.begin(), draggables.end(), [](Draggable *a, Draggable *b) { return a->z > b->z; } );
+		for (std::vector<Draggable *>::iterator it = draggables.begin(); it != draggables.end(); ++it) {
+			if ((*it)->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+				(*it)->rotate(up ? inc : -inc);
+				break;
+			}
+		}
+		return false;
 	}
 	return TRUE;
 }
@@ -1195,7 +1194,7 @@ static gboolean play_file_cb(GtkWidget *widget, gpointer data) {
 			dd->vf[index].destroy();
 		}
 		dd->vf[index].dd = dd;
-		dd->vf[index].create(dd, filename);
+		dd->vf[index].create(filename, 0.0, 0.0, dd->next_z++);
 		g_free (filename);
 	}
 	gtk_widget_destroy (dialog);

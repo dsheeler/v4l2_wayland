@@ -50,16 +50,23 @@ int VideoFile::open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
 	return 0;
 }
 
-int VideoFile::create(DingleDots *dd, char *name) {
+int VideoFile::create(char *name, double x, double y, uint64_t z) {
 	strncpy(this->name, name, 254);
-	//   this->dd = dd;
+	this->rotation_radians = 0;
+	this->pos.x = x;
+	this->pos.y = y;
+	this->z = z;
 	pthread_create(&this->thread_id, NULL, VideoFile::thread, this);
+	int rc = pthread_setname_np(this->thread_id, "vw_videofile");
+	if (rc != 0) {
+		errno = rc;
+		perror("pthread_setname_np");
+	}
 }
 
 int VideoFile::destroy() {
 	avcodec_close(this->video_dec_ctx);
 	avformat_close_input(&this->fmt_ctx);
-	av_frame_free(&this->frame);
 	av_freep(&this->video_dst_data[0]);
 	av_freep(&this->decoded_frame->data[0]);
 	av_frame_free(&this->decoded_frame);
@@ -67,6 +74,11 @@ int VideoFile::destroy() {
 	pthread_cancel(this->thread_id);
 	this->active = 0;
 	this->allocated = 0;
+	this->decoding_finished = 0;
+	this->decoding_started = 0;
+	this->pos.x = this->pos.y = 0;
+	this->rotation_radians = 0;
+	this->playing = 0;
 	return 0;
 }
 
@@ -74,15 +86,6 @@ int VideoFile::play() {
 	this->current_playtime = 0;
 	clock_gettime(CLOCK_MONOTONIC, &this->play_start_ts);
 	return 0;
-}
-
-int VideoFile::in(double x, double y) {
-	if ((x >= this->pos.x && x <= this->pos.x + this->width) &&
-			(y >= this->pos.y && y <= this->pos.y + this->height)) {
-		return 1;
-	} else {
-		return 0;
-	}
 }
 
 void *VideoFile::thread(void *arg) {
@@ -105,20 +108,19 @@ void *VideoFile::thread(void *arg) {
 	if (open_codec_context(&vf->video_stream_idx, &vf->video_dec_ctx, vf->fmt_ctx,
 						   AVMEDIA_TYPE_VIDEO) >= 0) {
 		vf->video_stream = vf->fmt_ctx->streams[vf->video_stream_idx];
-		vf->width = vf->video_dec_ctx->width;
-		vf->height = vf->video_dec_ctx->height;
+		vf->pos.width = vf->video_dec_ctx->width;
+		vf->pos.height = vf->video_dec_ctx->height;
 		vf->pix_fmt = vf->video_dec_ctx->pix_fmt;
 		ret = av_image_alloc(vf->video_dst_data, vf->video_dst_linesize,
-							 vf->width, vf->height, AV_PIX_FMT_ARGB, 1);
+							 vf->pos.width, vf->pos.height, AV_PIX_FMT_ARGB, 1);
 		if (ret < 0) {
 			printf("could not allocate raw video buffer\n");
 			return NULL;
 		}
 		vf->video_dst_bufsize = ret;
 	}
-	vf->resample = sws_getContext(vf->width, vf->height, vf->pix_fmt,
-								  vf->width, vf->height, AV_PIX_FMT_BGRA, SWS_BICUBIC, NULL, NULL, NULL);
-	vf->frame = av_frame_alloc();
+	vf->resample = sws_getContext(vf->pos.width, vf->pos.height, vf->pix_fmt,
+								  vf->pos.width, vf->pos.height, AV_PIX_FMT_BGRA, SWS_BICUBIC, NULL, NULL, NULL);
 	av_init_packet(&vf->pkt);
 	vf->pkt.data = NULL;
 	vf->pkt.size = 0;
@@ -128,8 +130,8 @@ void *VideoFile::thread(void *arg) {
 	memset(vf->vbuf->buf, 0, vf->vbuf->size);
 	vf->decoded_frame = av_frame_alloc();
 	vf->decoded_frame->format = AV_PIX_FMT_ARGB;
-	vf->decoded_frame->width = vf->width;
-	vf->decoded_frame->height = vf->height;
+	vf->decoded_frame->width = vf->pos.width;
+	vf->decoded_frame->height = vf->pos.height;
 	av_image_alloc(vf->decoded_frame->data, vf->decoded_frame->linesize,
 				   vf->decoded_frame->width, vf->decoded_frame->height, (AVPixelFormat)vf->decoded_frame->format, 1);
 	vf->allocated = 1;
@@ -170,74 +172,85 @@ void *VideoFile::thread(void *arg) {
 				jack_ringbuffer_write(vf->vbuf, (const char *)vf->video_dst_data[0],
 						vf->video_dst_bufsize);
 				gtk_widget_queue_draw(vf->dd->drawing_area);
-
 			}
-			av_frame_unref(vf->frame);
 		}
+
 		gtk_widget_queue_draw(vf->dd->drawing_area);
+		av_frame_free(&vf->frame);
 	}
 	av_free_packet(&vf->pkt);
+	av_frame_unref(vf->frame);
 	vf->decoding_finished = 1;
+	while (vf->playing) {
+		gtk_widget_queue_draw(vf->dd->drawing_area);
+		pthread_cond_wait(&vf->data_ready, &vf->lock);
+	}
 	pthread_mutex_unlock(&vf->lock);
 	return 0;
 }
 
 bool VideoFile::render(std::vector<cairo_t *> &contexts) {
-	if (!this->active) return false;
-	if (this->playing) {
-		struct timespec current_ts;
-		struct timespec diff_ts;
-		double diff_sec;
-		clock_gettime(CLOCK_MONOTONIC, &current_ts);
-		timespec_diff(&this->play_start_ts, &current_ts, &diff_ts);
-		diff_sec = timespec_to_seconds(&diff_ts);
-		double pts;
-		if (this->decoding_started) {
-			if (this->decoding_finished && jack_ringbuffer_read_space(this->vbuf) == 0) {
-				this->playing = 0;
-				this->destroy();
-				return false;
-			} else {
-				while (jack_ringbuffer_read_space(this->vbuf) >= (this->video_dst_bufsize + sizeof(double))) {
-					jack_ringbuffer_peek(this->vbuf, (char *)&pts, sizeof(double));
-					if (diff_sec >= pts) {
-						jack_ringbuffer_read_advance(this->vbuf, sizeof(double));
-						jack_ringbuffer_read(this->vbuf, (char *)this->decoded_frame->data[0], this->video_dst_bufsize);
-						if (pthread_mutex_trylock(&this->lock) == 0) {
-							pthread_cond_signal(&this->data_ready);
-							pthread_mutex_unlock(&this->lock);
+	if (this->active) {
+		if (this->playing) {
+			struct timespec current_ts;
+			struct timespec diff_ts;
+			double diff_sec;
+			clock_gettime(CLOCK_MONOTONIC, &current_ts);
+			timespec_diff(&this->play_start_ts, &current_ts, &diff_ts);
+			diff_sec = timespec_to_seconds(&diff_ts);
+			double pts;
+			if (this->decoding_started) {
+				if (this->decoding_finished && jack_ringbuffer_read_space(this->vbuf) == 0) {
+					this->playing = 0;
+					if (pthread_mutex_trylock(&this->lock) == 0) {
+						pthread_cond_signal(&this->data_ready);
+						pthread_mutex_unlock(&this->lock);
+					}
+					this->destroy();
+					return false;
+				} else {
+					while (jack_ringbuffer_read_space(this->vbuf) >= (this->video_dst_bufsize + sizeof(double))) {
+						jack_ringbuffer_peek(this->vbuf, (char *)&pts, sizeof(double));
+						if (diff_sec >= pts) {
+							jack_ringbuffer_read_advance(this->vbuf, sizeof(double));
+							jack_ringbuffer_read(this->vbuf, (char *)this->decoded_frame->data[0], this->video_dst_bufsize);
+							if (pthread_mutex_trylock(&this->lock) == 0) {
+								pthread_cond_signal(&this->data_ready);
+								pthread_mutex_unlock(&this->lock);
+							}
+						} else {
+							if (pthread_mutex_trylock(&this->lock) == 0) {
+								pthread_cond_signal(&this->data_ready);
+								pthread_mutex_unlock(&this->lock);
+							}
+							break;
 						}
-					} else {
-						if (pthread_mutex_trylock(&this->lock) == 0) {
-							pthread_cond_signal(&this->data_ready);
-							pthread_mutex_unlock(&this->lock);
-						}
-						break;
 					}
 				}
+				cairo_surface_t *tsurf;
+				tsurf = cairo_image_surface_create_for_data(
+							(unsigned char *)this->decoded_frame->data[0], CAIRO_FORMAT_ARGB32,
+						this->decoded_frame->width, this->decoded_frame->height, this->decoded_frame->linesize[0]);
+				for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
+					cairo_t *cr = *it;
+					cairo_save(cr);
+					cairo_translate(cr, this->pos.x, this->pos.y);
+					cairo_translate(cr, 0.5 * this->pos.width, 0.5 * this->pos.height);
+					cairo_rotate(cr, this->rotation_radians);
+					cairo_translate(cr, -0.5 * this->pos.width, -0.5 * this->pos.height);
+					cairo_set_source_surface(cr, tsurf, 0., 0.);
+					cairo_paint(cr);
+					cairo_restore(cr);
+				}
+				cairo_surface_destroy(tsurf);
 			}
-			cairo_surface_t *tsurf;
-			tsurf = cairo_image_surface_create_for_data(
-						(unsigned char *)this->decoded_frame->data[0], CAIRO_FORMAT_ARGB32,
-					this->decoded_frame->width, this->decoded_frame->height, this->decoded_frame->linesize[0]);
-			for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
-				cairo_t *cr = *it;
-				cairo_save(cr);
-				cairo_translate(cr, this->pos.x, this->pos.y);
-				cairo_translate(cr, 0.5 * this->width, 0.5 * this->height);
-				cairo_rotate(cr, this->rotation_radians);
-				cairo_translate(cr, -0.5 * this->width, -0.5 * this->height);
-				cairo_set_source_surface(cr, tsurf, this->pos.x, this->pos.y);
-				cairo_paint(cr);
-				cairo_restore(cr);
-			}
-			cairo_surface_destroy(tsurf);
 		}
-		return true;
 	}
 	return false;
 }
 
+/*VideoFile::init_state() {
 
+}*/
 
 

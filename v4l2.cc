@@ -39,22 +39,27 @@ void V4l2::create(DingleDots *dd, char *dev_name, double width, double height, u
 	this->z = z;
 	this->pos.x = 0;
 	this->pos.y = 0;
-	this->width = width;
-	this->height = height;
+	this->pos.width = width;
+	this->pos.height = height;
 	pthread_create(&this->thread_id, NULL, V4l2::thread, this);
+	int rc = pthread_setname_np(this->thread_id, "vw_v4l2_source");
+	if (rc != 0) {
+		errno = rc;
+		perror("pthread_setname_np");
+	}
 }
 
 void *V4l2::thread(void *arg) {
 	V4l2 *v = (V4l2 *)arg;
-	v->rbuf = jack_ringbuffer_create(5*4*v->width*v->height);
-	memset(v->rbuf->buf, 0, v->rbuf->size);
-	v->read_buf = (uint32_t *)(malloc(4 * v->width * v->height));
-	v->save_buf = (uint32_t *)(malloc(4 * v->width * v->height));
-	v->active = 1;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	v->open_device();
 	v->init_device();
+	v->rbuf = jack_ringbuffer_create(5*4*v->pos.width*v->pos.height);
+	memset(v->rbuf->buf, 0, v->rbuf->size);
+	v->read_buf = (uint32_t *)(malloc(4 * v->pos.width * v->pos.height));
+	v->save_buf = (uint32_t *)(malloc(4 * v->pos.width * v->pos.height));
 	v->start_capturing();
+	v->active = 1;
 	pthread_mutex_lock(&v->lock);
 	v->read_frames();
 	pthread_mutex_unlock(&v->lock);
@@ -91,22 +96,22 @@ int V4l2::read_frames() {
 			}
 		}
 		ptr = (unsigned char *)this->buffers[buf.index].start;
-		for (n = 0; n < 2*this->width*this->height; n += 4) {
+		for (n = 0; n < 2*this->pos.width*this->pos.height; n += 4) {
 			nij = (int) n / 2;
-			i = nij%this->width;
-			j = nij/this->width;
+			i = nij%this->pos.width;
+			j = nij/this->pos.width;
 			y0 = (unsigned char)ptr[n + 0];
 			u = (unsigned char)ptr[n + 1];
 			y1 = (unsigned char)ptr[n + 2];
 			v = (unsigned char)ptr[n + 3];
 			YUV2RGB(y0, u, v, &r, &g, &b);
-			this->save_buf[this->width - 1 - i + j*this->width] = 255 << 24 | r << 16 | g << 8 | b;
+			this->save_buf[this->pos.width - 1 - i + j*this->pos.width] = 255 << 24 | r << 16 | g << 8 | b;
 			YUV2RGB(y1, u, v, &r, &g, &b);
-			this->save_buf[this->width - 1 - (i+1) + j*this->width] = 255 << 24 | r << 16 | g << 8 | b;
+			this->save_buf[this->pos.width - 1 - (i+1) + j*this->pos.width] = 255 << 24 | r << 16 | g << 8 | b;
 		}
 		assert(buf.index < this->n_buffers);
 		clock_gettime(CLOCK_MONOTONIC, &ts);
-		int space = 4 * this->width * this->height + sizeof(struct timespec);
+		int space = 4 * this->pos.width * this->pos.height + sizeof(struct timespec);
 		int buf_space = jack_ringbuffer_write_space(this->rbuf);
 		while (buf_space < space) {
 			pthread_cond_wait(&this->data_ready, &this->lock);
@@ -115,7 +120,7 @@ int V4l2::read_frames() {
 		jack_ringbuffer_write(this->rbuf, (const char *)&ts,
 							  sizeof(struct timespec));
 		jack_ringbuffer_write(this->rbuf, (const char *)this->save_buf,
-							  4 * this->width * this->height);
+							  4 * this->pos.width * this->pos.height);
 		if (-1 == xioctl(this->fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
 	}
@@ -199,7 +204,6 @@ void V4l2::init_mmap() {
 	}
 }
 
-
 void V4l2::init_device() {
 	struct v4l2_capability cap;
 	struct v4l2_cropcap cropcap;
@@ -245,12 +249,14 @@ void V4l2::init_device() {
 	}
 	CLEAR(fmt);
 	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	fmt.fmt.pix.width       = this->width;
-	fmt.fmt.pix.height      = this->height;
+	fmt.fmt.pix.width       = this->pos.width;
+	fmt.fmt.pix.height      = this->pos.height;
 	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
 	fmt.fmt.pix.field       = V4L2_FIELD_ANY;
 	if (-1 == xioctl(this->fd, VIDIOC_S_FMT, &fmt))
 		errno_exit("VIDIOC_S_FMT");
+	this->pos.width = fmt.fmt.pix.width;
+	this->pos.height = fmt.fmt.pix.height;
 	/* Note VIDIOC_S_FMT may change width and height. */
 	/* Buggy driver paranoia. */
 	/*min = fmt.fmt.pix.width * 2;
@@ -290,23 +296,14 @@ void V4l2::open_device() {
 	this->pfd->events = POLLIN;
 }
 
-int V4l2::in(double x, double y) {
-	if ((x >= this->pos.x && x <= this->pos.x + this->width) &&
-			(y >= this->pos.y && y <= this->pos.y + this->height)) {
-		return 1;
-	} else {
-		return 0;
-	}
-}
-
 bool V4l2::render(std::vector<cairo_t *> &contexts) {
 	struct timespec ts;
 	bool ret = false;
 	if (this->active) {
-		if (jack_ringbuffer_read_space(this->rbuf) >= (4*this->width*this->height + sizeof(struct timespec))) {
+		if (jack_ringbuffer_read_space(this->rbuf) >= (4*this->pos.width*this->pos.height + sizeof(struct timespec))) {
 			ret = true;
 			jack_ringbuffer_read(this->rbuf, (char *)&ts, sizeof(struct timespec));
-			jack_ringbuffer_read(this->rbuf, (char *)this->read_buf, 4*this->width*this->height);
+			jack_ringbuffer_read(this->rbuf, (char *)this->read_buf, 4*this->pos.width*this->pos.height);
 			if (pthread_mutex_trylock(&this->lock) == 0) {
 				pthread_cond_signal(&this->data_ready);
 				pthread_mutex_unlock(&this->lock);
@@ -315,14 +312,14 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 		cairo_surface_t *tsurf;
 		tsurf = cairo_image_surface_create_for_data(
 					(unsigned char *)this->read_buf, CAIRO_FORMAT_ARGB32,
-					this->width, this->height, 4 * this->width);
+					this->pos.width, this->pos.height, 4 * this->pos.width);
 		for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
 			cairo_t *cr = *it;
 			cairo_save(cr);
 			cairo_translate(cr, this->pos.x, this->pos.y);
-			cairo_translate(cr, 0.5 * this->width, 0.5 * this->height);
-			cairo_rotate(cr, this->rotation_radians);
-			cairo_translate(cr, -0.5 * this->width, -0.5 * this->height);
+			cairo_translate(cr, 0.5 * this->pos.width, 0.5 * this->pos.height);
+			cairo_rotate(cr, this->get_rotation());
+			cairo_translate(cr, -0.5 * this->pos.width, -0.5 * this->pos.height);
 			cairo_set_source_surface(cr, tsurf, 0.0, 0.0);
 			cairo_paint(cr);
 			cairo_restore(cr);
@@ -331,25 +328,3 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 	}
 	return ret;
 }
-
-void *dd_v4l2_thread(void *arg) {
-	V4l2 *v = (V4l2 *)arg;
-	v->rbuf = jack_ringbuffer_create(5*4*v->width*v->height);
-	memset(v->rbuf->buf, 0, v->rbuf->size);
-	v->read_buf = (uint32_t *)(malloc(4 * v->width * v->height));
-	v->save_buf = (uint32_t *)(malloc(4 * v->width * v->height));
-	v->active = 1;
-	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-	v->open_device();
-	v->init_device();
-	v->start_capturing();
-	pthread_mutex_lock(&v->lock);
-	v->read_frames();
-	pthread_mutex_unlock(&v->lock);
-	v->stop_capturing();
-	v->uninit_device();
-	v->close_device();
-	return 0;
-}
-
-

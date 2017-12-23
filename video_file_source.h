@@ -20,12 +20,10 @@ extern "C" {
 #include "v4l2_wayland.h"
 #include "draggable.h"
 
-class DingleDots;
 class VideoFile : public Draggable {
 public:
 	VideoFile();
-	int in(double x, double y);
-	int create(DingleDots *dd, char *name);
+	int create(char *name, double x, double y, uint64_t z);
 	int destroy();
 	bool render(std::vector<cairo_t *> &contexts);
 	int play();
@@ -41,8 +39,6 @@ public:
 	AVCodecContext *video_dec_ctx;
 	AVStream *video_stream;
 	struct SwsContext *resample;
-	int width;
-	int height;
 	enum AVPixelFormat pix_fmt;
 	int video_stream_idx;
 	uint8_t *video_dst_data[4];

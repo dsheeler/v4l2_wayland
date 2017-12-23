@@ -40,7 +40,6 @@ public:
 	V4l2();
 	void create(DingleDots *dd, char *name, double w, double h, uint64_t z);
 	int read_frames();
-	int in(double x, double y);
 	void stop_capturing();
 	void start_capturing();
 	void uninit_device();
@@ -60,8 +59,6 @@ public:
 	char dev_name[DD_V4L2_MAX_STR_LEN];
 	int fd;
 	int active;
-	int width;
-	int height;
 	struct dd_v4l2_buffer *buffers;
 	unsigned int n_buffers;
 	uint32_t *save_buf;
