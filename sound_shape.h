@@ -11,7 +11,7 @@ typedef struct color color;
 #include <string>
 #include <stdint.h>
 #include <gdk/gdk.h>
-#include "draggable.h"
+#include "drawable.h"
 //#include "dingle_dots.h"
 
 #define NCHAR 32
@@ -36,7 +36,7 @@ public:
 	void tick();
 	int is_on();
 	void clear_state();
-	void set_motion_state(uint8_t state);
+	virtual void set_motion_state(uint8_t state);
 	//	private:
 	double shutdown_time;
 	DingleDots *dd;

@@ -73,3 +73,21 @@ bool SnapshotShape::render(std::vector<cairo_t *> &contexts) {
 	}
 	return true;
 }
+
+void SnapshotShape::set_motion_state(uint8_t state) {
+	if (state && this->motion_state == 0) {
+		this->motion_state = 1;
+		this->motion_state_to_off = 0;
+		clock_gettime(CLOCK_MONOTONIC, &this->motion_ts);
+	} else {
+		if (this->motion_state) {
+			double diff_sec = get_secs_since_last_on();
+			if (diff_sec >= shutdown_time) {
+				this->motion_state = 0;
+				this->motion_state_to_off = 0;
+			} else {
+				this->motion_state_to_off = 1;
+			}
+		}
+	}
+}

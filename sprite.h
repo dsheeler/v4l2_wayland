@@ -13,7 +13,7 @@ extern "C" {
 #endif
 #include <string>
 
-#include "draggable.h"
+#include "drawable.h"
 
 class Sprite : public Drawable
 {

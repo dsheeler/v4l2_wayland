@@ -11,6 +11,7 @@ public:
 	int set_on();
 	int set_off();
 	bool render(std::vector<cairo_t *> &contexts);
+	void set_motion_state(uint8_t state);
 };
 
 #endif // SNAPSHOT_SHAPE_H
