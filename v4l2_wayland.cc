@@ -1311,6 +1311,7 @@ static gboolean camera_cb(GtkWidget *widget, gpointer data) {
 	GtkWidget *dialog;
 	GtkWidget *dialog_content;
 	GtkWidget *combo;
+	GtkWidget *resolution_combo;
 	int res;
 	GtkDialogFlags flags = (GtkDialogFlags)(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT);
 	dialog = gtk_dialog_new_with_buttons("Open Camera", GTK_WINDOW(dd->ctl_window),
@@ -1323,13 +1324,23 @@ static gboolean camera_cb(GtkWidget *widget, gpointer data) {
 	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "3", "/dev/video3");
 	gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 0);
 	gtk_container_add(GTK_CONTAINER(dialog_content), combo);
+	resolution_combo = gtk_combo_box_text_new();
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(resolution_combo), "0", "640x360");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(resolution_combo), "1", "1280x720");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(resolution_combo), "2", "1920x1080");
+	gtk_combo_box_set_active(GTK_COMBO_BOX(resolution_combo), 1);
+	gtk_container_add(GTK_CONTAINER(dialog_content), resolution_combo);
 	gtk_widget_show_all(dialog);
 	res = gtk_dialog_run(GTK_DIALOG(dialog));
 	if (res == GTK_RESPONSE_ACCEPT) {
 		gchar *name = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(combo));
+		gchar *res_str = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(resolution_combo));
+		gchar *w, *h;
+		w = strsep(&res_str, "x");
+		h = strsep(&res_str, "x");
 		for(int i = 0; i < MAX_NUM_V4L2; i++) {
 			if (!dd->v4l2[i].active) {
-				dd->v4l2[i].create(dd, name, dd->drawing_frame->width, dd->drawing_frame->height, dd->next_z++);
+				dd->v4l2[i].create(dd, name, atof(w), atof(h), dd->next_z++);
 				break;
 			}
 		}
