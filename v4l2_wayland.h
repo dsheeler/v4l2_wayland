@@ -18,14 +18,29 @@ extern "C" {
 #include <cairo.h>
 
 #define MAX_NUM_VIDEO_FILES 2
+#define vw_min(a, b) ((a) < (b) ? (a) : (b))
+#define vw_max(a, b) ((a) > (b) ? (a) : (b))
+
+#define FFT_SIZE 256
+#define MIDI_RB_SIZE 1024 * sizeof(struct midi_message)
+
 
 void *snapshot_disk_thread(void *);
 void *dd_v4l2_thread(void *);
 
-typedef struct pair_int_int {
-	uint64_t z;
-	int index;
-} pair_int_int;
+typedef struct color {
+	double r;
+	double g;
+	double b;
+	double a;
+} color;
+
+struct hsva {
+	double h;
+	double s;
+	double v;
+	double a;
+};
 
 typedef struct output_frame {
 	uint32_t *data;
@@ -58,8 +73,8 @@ typedef struct disk_thread_info {
 void timespec_diff(struct timespec *start, struct timespec *stop,
 				   struct timespec *result);
 double timespec_to_seconds(struct timespec *ts);
-int timespec2file_name(char *buf, uint len, char *dir, char *extension,
+int timespec2file_name(char *buf, uint len, const char *dir,
+					   const char *extension,
 					   struct timespec *ts);
-void process_image(cairo_t *cr, void *arg);
 void errno_exit(const char *s);
 #endif

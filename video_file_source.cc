@@ -62,6 +62,7 @@ int VideoFile::create(char *name, double x, double y, uint64_t z) {
 		errno = rc;
 		perror("pthread_setname_np");
 	}
+	return 0;
 }
 
 int VideoFile::destroy() {
@@ -141,50 +142,56 @@ void *VideoFile::thread(void *arg) {
 	vf->play();
 	vf->playing = 1;
 	vf->active = 1;
-	while(av_read_frame(vf->fmt_ctx, &vf->pkt) >= 0) {
-		vf->decoding_started = 1;
-		if (vf->pkt.stream_index == vf->video_stream_idx) {
-			vf->frame = av_frame_alloc();
-			ret = avcodec_decode_video2(vf->video_dec_ctx, vf->frame,
-										&got_frame, &vf->pkt);
-			if (ret < 0) {
-				av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
-				printf("Error decoding video frame (%s)\n", err);
-			}
-			if (vf->pkt.dts != AV_NOPTS_VALUE) {
-				pts = av_frame_get_best_effort_timestamp(vf->frame);
-			} else {
-				pts = 0;
-			}
-			pts *= av_q2d(vf->video_stream->time_base);
-			if (got_frame) {
-				sws_scale(vf->resample, (uint8_t const * const *)vf->frame->data,
-						  vf->frame->linesize, 0, vf->frame->height, vf->video_dst_data,
-						  vf->video_dst_linesize);
-				int space = vf->video_dst_bufsize + sizeof(double);
-				int buf_space = jack_ringbuffer_write_space(vf->vbuf);
-				while (buf_space < space) {
-					gtk_widget_queue_draw(vf->dd->drawing_area);
-					pthread_cond_wait(&vf->data_ready, &vf->lock);
-					buf_space = jack_ringbuffer_write_space(vf->vbuf);
-				}
-				jack_ringbuffer_write(vf->vbuf, (const char *)&pts, sizeof(double));
-				jack_ringbuffer_write(vf->vbuf, (const char *)vf->video_dst_data[0],
-						vf->video_dst_bufsize);
-				gtk_widget_queue_draw(vf->dd->drawing_area);
-			}
-		}
+	vf->fmt_ctx->iformat->flags & AVFMT_SEEK_TO_PTS;
+	while(avformat_seek_file(vf->fmt_ctx, vf->video_stream_idx, 0, 0, 0, 0) >= 0) {
+		vf->play();
+		vf->playing = 1;
 
-		gtk_widget_queue_draw(vf->dd->drawing_area);
-		av_frame_free(&vf->frame);
+		vf->decoding_started = 1;
+		while(av_read_frame(vf->fmt_ctx, &vf->pkt) >= 0) {
+			if (vf->pkt.stream_index == vf->video_stream_idx) {
+				vf->frame = av_frame_alloc();
+				ret = avcodec_decode_video2(vf->video_dec_ctx, vf->frame,
+											&got_frame, &vf->pkt);
+				if (ret < 0) {
+					av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
+					printf("Error decoding video frame (%s)\n", err);
+				}
+				if (vf->pkt.dts != AV_NOPTS_VALUE) {
+					pts = av_frame_get_best_effort_timestamp(vf->frame);
+				} else {
+					pts = 0;
+				}
+				pts *= av_q2d(vf->video_stream->time_base);
+				if (got_frame) {
+					sws_scale(vf->resample, (uint8_t const * const *)vf->frame->data,
+							  vf->frame->linesize, 0, vf->frame->height, vf->video_dst_data,
+							  vf->video_dst_linesize);
+					int space = vf->video_dst_bufsize + sizeof(double);
+					int buf_space = jack_ringbuffer_write_space(vf->vbuf);
+					while (buf_space < space) {
+						gtk_widget_queue_draw(vf->dd->drawing_area);
+						pthread_cond_wait(&vf->data_ready, &vf->lock);
+						buf_space = jack_ringbuffer_write_space(vf->vbuf);
+					}
+					jack_ringbuffer_write(vf->vbuf, (const char *)&pts, sizeof(double));
+					jack_ringbuffer_write(vf->vbuf, (const char *)vf->video_dst_data[0],
+							vf->video_dst_bufsize);
+					gtk_widget_queue_draw(vf->dd->drawing_area);
+				}
+			}
+			gtk_widget_queue_draw(vf->dd->drawing_area);
+			av_frame_free(&vf->frame);
+		}
+		vf->decoding_finished = 1;
+		while (vf->playing) {
+			gtk_widget_queue_draw(vf->dd->drawing_area);
+			pthread_cond_wait(&vf->data_ready, &vf->lock);
+		}
 	}
 	av_free_packet(&vf->pkt);
 	av_frame_unref(vf->frame);
-	vf->decoding_finished = 1;
-	while (vf->playing) {
-		gtk_widget_queue_draw(vf->dd->drawing_area);
-		pthread_cond_wait(&vf->data_ready, &vf->lock);
-	}
+
 	pthread_mutex_unlock(&vf->lock);
 	return 0;
 }
@@ -206,8 +213,8 @@ bool VideoFile::render(std::vector<cairo_t *> &contexts) {
 						pthread_cond_signal(&this->data_ready);
 						pthread_mutex_unlock(&this->lock);
 					}
-					this->destroy();
-					return false;
+					//this->destroy();
+					//return false;
 				} else {
 					while (jack_ringbuffer_read_space(this->vbuf) >= (this->video_dst_bufsize + sizeof(double))) {
 						jack_ringbuffer_peek(this->vbuf, (char *)&pts, sizeof(double));
@@ -231,26 +238,10 @@ bool VideoFile::render(std::vector<cairo_t *> &contexts) {
 				tsurf = cairo_image_surface_create_for_data(
 							(unsigned char *)this->decoded_frame->data[0], CAIRO_FORMAT_ARGB32,
 						this->decoded_frame->width, this->decoded_frame->height, this->decoded_frame->linesize[0]);
-				for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
-					cairo_t *cr = *it;
-					cairo_save(cr);
-					cairo_translate(cr, this->pos.x, this->pos.y);
-					cairo_translate(cr, 0.5 * this->pos.width, 0.5 * this->pos.height);
-					cairo_rotate(cr, this->rotation_radians);
-					cairo_translate(cr, -0.5 * this->pos.width, -0.5 * this->pos.height);
-					cairo_set_source_surface(cr, tsurf, 0., 0.);
-					cairo_paint(cr);
-					cairo_restore(cr);
-				}
+				render_surface(contexts, tsurf);
 				cairo_surface_destroy(tsurf);
 			}
 		}
 	}
 	return false;
 }
-
-/*VideoFile::init_state() {
-
-}*/
-
-

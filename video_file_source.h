@@ -20,7 +20,7 @@ extern "C" {
 #include "v4l2_wayland.h"
 #include "draggable.h"
 
-class VideoFile : public Draggable {
+class VideoFile : public Drawable {
 public:
 	VideoFile();
 	int create(char *name, double x, double y, uint64_t z);
@@ -32,8 +32,7 @@ public:
 	static int open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
 								  AVFormatContext *fmt_ctx, enum AVMediaType type);
 	DingleDots *dd;
-	uint8_t allocated;
-	uint8_t active;
+
 	char name[256];
 	AVFormatContext *fmt_ctx;
 	AVCodecContext *video_dec_ctx;

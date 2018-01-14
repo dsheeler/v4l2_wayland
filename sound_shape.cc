@@ -15,8 +15,9 @@ void SoundShape::init(string &label, uint8_t midi_note, uint8_t midi_channel,
 	this->label = new string(label);
 	this->midi_note = midi_note;
 	this->midi_channel = midi_channel;
-	this->normal = color_copy(c);
-	this->playing = color_lighten(c, 0.95);
+	this->color_normal = color_copy(c);
+	this->color_on = color_lighten(c, 0.95);
+	this->shutdown_time = 0.2;
 	this->on = 0;
 }
 
@@ -37,8 +38,8 @@ void SoundShape::render_label(cairo_t *cr) {
 	pango_layout_set_font_description(layout, desc);
 	pango_font_description_free(desc);
 	cairo_save(cr);
-	this->is_on() ? cairo_set_source_rgba(cr, 0., 0., 0., this->playing.a) :
-					cairo_set_source_rgba(cr, 1., 1., 1., this->normal.a);
+	this->is_on() ? cairo_set_source_rgba(cr, 0., 0., 0., this->color_on.a) :
+					cairo_set_source_rgba(cr, 1., 1., 1., this->color_normal.a);
 	pango_layout_get_size(layout, &width, &height);
 	cairo_translate(cr, this->pos.x - 0.5*width/PANGO_SCALE, this->pos.y
 					- 0.5*height/PANGO_SCALE);
@@ -49,8 +50,7 @@ void SoundShape::render_label(cairo_t *cr) {
 
 bool SoundShape::render(std::vector<cairo_t *> &contexts) {
 	color *c;
-	c = &this->normal;
-
+	c = &this->color_normal;
 	for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
 		cairo_t *cr = *it;
 		cairo_save(cr);
@@ -88,7 +88,10 @@ bool SoundShape::render(std::vector<cairo_t *> &contexts) {
 }
 
 int SoundShape::activate() {
-	this->active = 1;
+	if (!this->active) {
+		this->active = 1;
+		gtk_widget_queue_draw(dd->drawing_area);
+	}
 	return 0;
 }
 
@@ -102,10 +105,13 @@ void SoundShape::clear_state() {
 }
 
 int SoundShape::deactivate() {
-	if (this->on) {
-		this->set_off();
+	if (active) {
+		if (this->on) {
+			this->set_off();
+		}
+		this->clear_state();
+		gtk_widget_queue_draw(dd->drawing_area);
 	}
-	this->clear_state();
 	return 0;
 }
 
@@ -120,6 +126,7 @@ int SoundShape::in(double x, double y) {
 int SoundShape::set_on() {
 	this->on = 1;
 	midi_queue_new_message(0x90 | this->midi_channel, this->midi_note, 64, this->dd);
+	gtk_widget_queue_draw(dd->drawing_area);
 	return 0;
 }
 
@@ -127,6 +134,7 @@ int SoundShape::set_off() {
 	this->on = 0;
 	this->double_clicked_on = 0;
 	midi_queue_new_message(0x80 | this->midi_channel, this->midi_note, 0, this->dd);
+	gtk_widget_queue_draw(dd->drawing_area);
 	return 0;
 }
 
@@ -136,6 +144,17 @@ void SoundShape::tick() {
 	}
 }
 
+double SoundShape::get_secs_since_last_on()
+{
+	struct timespec now_ts;
+	struct timespec diff_ts;
+	double diff_sec;
+	clock_gettime(CLOCK_MONOTONIC, &now_ts);
+	timespec_diff(&this->motion_ts, &now_ts, &diff_ts);
+	diff_sec = timespec_to_seconds(&diff_ts);
+	return diff_sec;
+}
+
 void SoundShape::set_motion_state(uint8_t state) {
 	if (state) {
 		this->motion_state = 1;
@@ -143,13 +162,8 @@ void SoundShape::set_motion_state(uint8_t state) {
 		clock_gettime(CLOCK_MONOTONIC, &this->motion_ts);
 	} else {
 		if (this->motion_state) {
-			struct timespec now_ts;
-			struct timespec diff_ts;
-			double diff_sec;
-			clock_gettime(CLOCK_MONOTONIC, &now_ts);
-			timespec_diff(&this->motion_ts, &now_ts, &diff_ts);
-			diff_sec = timespec_to_seconds(&diff_ts);
-			if (diff_sec >= 0.2) {
+			double diff_sec = get_secs_since_last_on();
+			if (diff_sec >= shutdown_time) {
 				this->motion_state = 0;
 				this->motion_state_to_off = 0;
 			} else {

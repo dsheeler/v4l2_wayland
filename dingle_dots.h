@@ -16,10 +16,12 @@ extern "C" {
 #include "v4l2_wayland.h"
 typedef struct midi_key_t midi_key_t;
 #include "sound_shape.h"
+#include "snapshot_shape.h"
 #include "kmeter.h"
 #include "midi.h"
 #include "video_file_source.h"
 #include "v4l2.h"
+#include "sprite.h"
 
 #define STR_LEN 80
 #define MAX_NUM_V4L2 4
@@ -66,12 +68,16 @@ public:
 	double scale;
 	VideoFile vf[MAX_NUM_VIDEO_FILES];
 	int current_video_file_source_index;
+	int current_sprite_index;
 	V4l2 v4l2[MAX_NUM_V4L2];
+	Sprite sprites[2];
+	SnapshotShape snapshot_shape;
 	SoundShape sound_shapes[MAX_NSOUND_SHAPES];
 	kmeter meters[2];
 	GdkRectangle drawing_rect;
 	int doing_motion;
 	int doing_tld;
+	uint8_t show_shapshot_shape;
 	uint8_t do_snapshot;
 	GdkRectangle user_tld_rect;
 	float motion_threshold;
@@ -94,8 +100,6 @@ public:
 	GtkWidget *scale_color_button;
 	GtkWidget *record_button;
 	GtkWidget *delete_button;
-	cairo_surface_t *csurface;
-	cairo_t *cr;
 	long jack_overruns;
 	int nports;
 	jack_default_audio_sample_t **in;
@@ -105,6 +109,7 @@ public:
 	jack_client_t *client;
 	jack_port_t *midi_port;
 	jack_ringbuffer_t *midi_ring_buf;
+	color random_color();
 };
 
 #endif

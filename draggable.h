@@ -4,32 +4,46 @@
 #include "gtk/gtk.h"
 #include <vector>
 #include <stdint.h>
+#include "v4l2_wayland.h"
 
-class Draggable {
+class Drawable {
 private:
 	void render_label(cairo_t *cr);
 public:
-	uint64_t z;
+	int64_t z;
 	int mdown;
 	//protected:
+	double scale;
 	double rotation_radians;
+	double opacity;
 	GdkRectangle pos;
 	GdkPoint mdown_pos;
 	GdkPoint down_pos;
+	uint8_t hovered;
+	uint8_t allocated;
+	uint8_t active;
 public:
-	Draggable();
-	virtual ~Draggable() {}
-	Draggable(double x, double y, uint64_t z);
-	void set_mdown(double x, double y, uint64_t z);
+	Drawable();
+	virtual ~Drawable() {}
+	Drawable(double x, double y, int64_t z, double opacity, double scale);
+	void set_mdown(double x, double y, int64_t z);
 	void drag(double mouse_x, double mouse_y);
 	virtual int in(double x_in, double y_in);
-	friend bool operator<(const Draggable& l, const Draggable& r) {
+	friend bool operator<(const Drawable& l, const Drawable& r) {
 		return l.z < r.z;
 	}
 	virtual bool render(std::vector<cairo_t *> &contexts);
 	void rotate(double angle);
 	void set_rotation(double angle);
 	double get_rotation() { return this->rotation_radians; }
+	double get_opacity() const;
+	void set_opacity(double value);
+	virtual void render_hovered(cairo_t *cr);
+	void render_halo(cairo_t *cr, color c, double len);
+	virtual void render_shadow(cairo_t *cr);
+	bool render_surface(std::vector<cairo_t *> &contexts, cairo_surface_t *surf);
+	double get_scale() const;
+	void set_scale(double value);
 };
 
 #endif

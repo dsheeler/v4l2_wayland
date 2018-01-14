@@ -79,7 +79,6 @@ int V4l2::read_frames() {
 	int n;
 	for (;;) {
 		poll(this->pfd, 1, -1);
-		gtk_widget_queue_draw(this->dd->drawing_area);
 		CLEAR(buf);
 		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		buf.memory = V4L2_MEMORY_MMAP;
@@ -123,6 +122,7 @@ int V4l2::read_frames() {
 							  4 * this->pos.width * this->pos.height);
 		if (-1 == xioctl(this->fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
+		gtk_widget_queue_draw(dd->drawing_area);
 	}
 }
 
@@ -300,10 +300,14 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 	struct timespec ts;
 	bool ret = false;
 	if (this->active) {
-		if (jack_ringbuffer_read_space(this->rbuf) >= (4*this->pos.width*this->pos.height + sizeof(struct timespec))) {
+		int space = 4*this->pos.width*this->pos.height + sizeof(struct timespec);
+		if (jack_ringbuffer_read_space(this->rbuf) >= space) {
 			ret = true;
 			jack_ringbuffer_read(this->rbuf, (char *)&ts, sizeof(struct timespec));
 			jack_ringbuffer_read(this->rbuf, (char *)this->read_buf, 4*this->pos.width*this->pos.height);
+			if (jack_ringbuffer_read_space(this->rbuf) >= space) {
+				gtk_widget_queue_draw(dd->drawing_area);
+			}
 			if (pthread_mutex_trylock(&this->lock) == 0) {
 				pthread_cond_signal(&this->data_ready);
 				pthread_mutex_unlock(&this->lock);
@@ -313,17 +317,7 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 		tsurf = cairo_image_surface_create_for_data(
 					(unsigned char *)this->read_buf, CAIRO_FORMAT_ARGB32,
 					this->pos.width, this->pos.height, 4 * this->pos.width);
-		for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
-			cairo_t *cr = *it;
-			cairo_save(cr);
-			cairo_translate(cr, this->pos.x, this->pos.y);
-			cairo_translate(cr, 0.5 * this->pos.width, 0.5 * this->pos.height);
-			cairo_rotate(cr, this->get_rotation());
-			cairo_translate(cr, -0.5 * this->pos.width, -0.5 * this->pos.height);
-			cairo_set_source_surface(cr, tsurf, 0.0, 0.0);
-			cairo_paint(cr);
-			cairo_restore(cr);
-		}
+		render_surface(contexts, tsurf);
 		cairo_surface_destroy(tsurf);
 	}
 	return ret;

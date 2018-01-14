@@ -3,7 +3,7 @@
 
 #include <cairo.h>
 #include "v4l2_wayland.h"
-#include "sound_shape.h"
+//#include "sound_shape.h"
 
 typedef struct kmeter {
 	float  z1;          // filter state

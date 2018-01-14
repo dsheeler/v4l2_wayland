@@ -1,7 +1,7 @@
 #include <jack/jack.h>
 
-#include "v4l2_wayland.h"
 #include "dingle_dots.h"
+#include "v4l2_wayland.h"
 #include "v4l2.h"
 #include "midi.h"
 
@@ -40,6 +40,9 @@ int DingleDots::init(char *dev_name, int width, int height,
 	for (int i = 0; i < MAX_NSOUND_SHAPES; ++i) {
 		this->sound_shapes[i].clear_state();
 	}
+	string label("SNAPSHOT");
+	snapshot_shape.init(label, this->drawing_rect.width / 2., this->drawing_rect.width / 16.,
+						this->drawing_rect.width / 32., random_color(), this);
 	pthread_mutex_init(&this->video_thread_info.lock, NULL);
 	pthread_mutex_init(&this->audio_thread_info.lock, NULL);
 	pthread_mutex_init(&this->snapshot_thread_info.lock, NULL);
@@ -65,12 +68,6 @@ int DingleDots::deactivate_sound_shapes() {
 }
 
 int DingleDots::free() {
-	if (this->csurface)
-		cairo_surface_destroy(this->csurface);
-	sws_freeContext(this->screen_resize);
-	if (this->cr) {
-		cairo_destroy(this->cr);
-	}
 	if (this->analysis_resize) {
 		sws_freeContext(this->analysis_resize);
 	}
@@ -83,6 +80,16 @@ int DingleDots::free() {
 		av_frame_free(&this->screen_frame);
 	}
 	return 0;
+}
+
+color DingleDots::random_color()
+{
+	struct hsva h;
+	h.h = (double) rand() / RAND_MAX;
+	h.v = 0.45;
+	h.s = 1.0;
+	h.a = 0.5;
+	return hsv2rgb(&h);
 }
 
 void DingleDots::add_scale(midi_key_t *key, int midi_channel,

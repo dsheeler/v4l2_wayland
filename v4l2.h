@@ -35,7 +35,7 @@ struct dd_v4l2_buffer {
 	size_t  length;
 };
 
-class V4l2 : public Draggable {
+class V4l2 : public Drawable {
 public:
 	V4l2();
 	void create(DingleDots *dd, char *name, double w, double h, uint64_t z);
@@ -58,7 +58,6 @@ public:
 	DingleDots *dd;
 	char dev_name[DD_V4L2_MAX_STR_LEN];
 	int fd;
-	int active;
 	struct dd_v4l2_buffer *buffers;
 	unsigned int n_buffers;
 	uint32_t *save_buf;
