@@ -42,6 +42,21 @@ Drawable::Drawable(double x, double y, int64_t z, double opacity, double scale) 
 	mdown = 0;
 	this->scale = scale;
 }
+
+void Drawable::update_easers()
+{
+	for (std::vector<Easer *>::iterator it = this->easers.begin(); it != this->easers.end(); ++it) {
+		Easer *easer = *it;
+		if (easer->active) {
+			easer->update_value();
+		} else {
+			it = easers.erase(it);
+			if (it == this->easers.end()) break;
+			else --it;
+		}
+	}
+}
+
 bool Drawable::render(std::vector<cairo_t *> &contexts) {
 	return FALSE;
 }

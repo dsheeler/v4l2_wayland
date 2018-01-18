@@ -1,7 +1,7 @@
 #include "dingle_dots.h"
 #include "v4l2.h"
 
-V4l2::V4l2() { }
+V4l2::V4l2() { active = 0; }
 
 int V4l2::xioctl(int fh, int request, void *arg) {
 	int r;
@@ -39,6 +39,7 @@ void V4l2::create(DingleDots *dd, char *dev_name, double width, double height, u
 	this->z = z;
 	this->pos.x = 0;
 	this->pos.y = 0;
+	this->active = 0;
 	this->pos.width = width;
 	this->pos.height = height;
 	pthread_create(&this->thread_id, NULL, V4l2::thread, this);
@@ -97,16 +98,16 @@ int V4l2::read_frames() {
 		ptr = (unsigned char *)this->buffers[buf.index].start;
 		for (n = 0; n < 2*this->pos.width*this->pos.height; n += 4) {
 			nij = (int) n / 2;
-			i = nij%this->pos.width;
-			j = nij/this->pos.width;
+			i = nij%(int)this->pos.width;
+			j = nij/(int)this->pos.width;
 			y0 = (unsigned char)ptr[n + 0];
 			u = (unsigned char)ptr[n + 1];
 			y1 = (unsigned char)ptr[n + 2];
 			v = (unsigned char)ptr[n + 3];
 			YUV2RGB(y0, u, v, &r, &g, &b);
-			this->save_buf[this->pos.width - 1 - i + j*this->pos.width] = 255 << 24 | r << 16 | g << 8 | b;
+			this->save_buf[(int)this->pos.width - 1 - i + j*(int)this->pos.width] = 255 << 24 | r << 16 | g << 8 | b;
 			YUV2RGB(y1, u, v, &r, &g, &b);
-			this->save_buf[this->pos.width - 1 - (i+1) + j*this->pos.width] = 255 << 24 | r << 16 | g << 8 | b;
+			this->save_buf[(int)this->pos.width - 1 - (i+1) + j*(int)this->pos.width] = 255 << 24 | r << 16 | g << 8 | b;
 		}
 		assert(buf.index < this->n_buffers);
 		clock_gettime(CLOCK_MONOTONIC, &ts);

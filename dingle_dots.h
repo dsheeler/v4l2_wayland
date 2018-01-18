@@ -52,6 +52,7 @@ public:
 	int use_rand_color_for_scale;
 	int shift_pressed;
 	int delete_active;
+	uint8_t animating;
 	uint32_t video_bitrate;
 	AVFormatContext *video_output_context;
 	struct timespec out_frame_ts;
@@ -110,6 +111,8 @@ public:
 	jack_port_t *midi_port;
 	jack_ringbuffer_t *midi_ring_buf;
 	color random_color();
+	uint8_t get_animating() const;
+	void set_animating(const uint8_t &value);
 };
 
 #endif

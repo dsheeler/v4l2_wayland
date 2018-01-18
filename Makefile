@@ -23,16 +23,21 @@ CFLAGS +=	$(shell pkg-config --cflags pangocairo) \
 				 	$(shell pkg-config --cflags gtk+-3.0) \
 				 	$(shell pkg-config --cflags fftw3)
 SRCS = drawable.cc v4l2_wayland.cc muxing.cc sound_shape.cc midi.cc kmeter.cc \
-			 video_file_source.cc dingle_dots.cc v4l2.cc sprite.cc snapshot_shape.cc
-OBJS = $(SRCS:.cc=.o)
+			 video_file_source.cc dingle_dots.cc v4l2.cc sprite.cc snapshot_shape.cc \
+			 easer.cc easing.c
+OBJS = $(SRCS:.cc=.o) $(SRCS:.c=.o)
 HDRS = drawable.h muxing.h sound_shape.h midi.h v4l2_wayland.h kmeter.h \
-			video_file_source.h dingle_dots.h v4l2.h sprite.h snapshot_shape.h
+			video_file_source.h dingle_dots.h v4l2.h sprite.h snapshot_shape.h \
+			easer.h easing.h
 
 .SUFFIXES:
 
 .SUFFIXES: .cc
 
 %.o : %.cc ${HDRS}
+	$(CC) ${CFLAGS} -c $< -o $@
+
+%.o : %.c ${HDRS}
 	$(CC) ${CFLAGS} -c $< -o $@
 
 v4l2_wayland: v4l2_wayland.cc ${OBJS}

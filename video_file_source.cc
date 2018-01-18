@@ -1,7 +1,7 @@
 #include "dingle_dots.h"
 #include "video_file_source.h"
 
-VideoFile::VideoFile() { }
+VideoFile::VideoFile() { active = 0; }
 int VideoFile::open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
 								  AVFormatContext *fmt_ctx, enum AVMediaType type) {
 	int ret, stream_index;

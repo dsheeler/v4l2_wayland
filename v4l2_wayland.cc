@@ -37,10 +37,6 @@
 #include "drawable.h"
 #include "video_file_source.h"
 
-
-static void isort(void *base, size_t nmemb, size_t size,
-				  int (*compar)(const void *, const void *));
-
 fftw_complex                   *fftw_in, *fftw_out;
 fftw_plan                      p;
 static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
@@ -217,20 +213,12 @@ static void render_selection_box(cairo_t *cr, DingleDots *dd) {
 	cairo_save(cr);
 	cairo_rectangle(cr, floor(dd->selection_rect.x)+0.5, floor(dd->selection_rect.y)+0.5,
 					dd->selection_rect.width, dd->selection_rect.height);
-	cairo_set_source_rgba(cr, 0.09, 0.28, 0.44, 0.15);
+	cairo_set_source_rgba(cr, 1, 1, 1, 0.2);
 	cairo_fill_preserve(cr);
-	cairo_set_source_rgba(cr, 0.15, 0.35, 0.68, 1);
+	cairo_set_source_rgba(cr, 1, 1, 1, 1);
 	cairo_set_line_width(cr, 0.5);
 	cairo_stroke(cr);
 	cairo_restore(cr);
-}
-
-static int cmp_z_order(const void *p1, const void *p2) {
-	int ret;
-	if (((const Drawable *)p1)->z > ((const Drawable *)p2)->z) ret = 1;
-	if (((const Drawable *)p1)->z == ((const Drawable *)p2)->z) ret = 0;
-	if (((const Drawable *)p1)->z < ((const Drawable *)p2)->z) ret = -1;
-	return ret;
 }
 
 static void render_pointer(cairo_t *cr, double x, double y) {
@@ -274,21 +262,21 @@ void clear(cairo_t *cr)
 	cairo_restore(cr);
 }
 
-void get_sources(DingleDots *dd, std::vector<Drawable *> &draggables)
+void get_sources(DingleDots *dd, std::vector<Drawable *> &sources)
 {
 	for (int i = 0; i < MAX_NUM_V4L2; i++) {
 		if (dd->v4l2[i].active) {
-			draggables.push_back(&dd->v4l2[i]);
+			sources.push_back(&dd->v4l2[i]);
 		}
 	}
 	for (int j = 0; j < MAX_NUM_VIDEO_FILES; j++) {
 		if (dd->vf[j].active) {
-			draggables.push_back(&dd->vf[j]);
+			sources.push_back(&dd->vf[j]);
 		}
 	}
 	for (int i = 0; i < 2; i++) {
 		if (dd->sprites[i].active) {
-			draggables.push_back(&dd->sprites[i]);
+			sources.push_back(&dd->sprites[i]);
 		}
 	}
 }
@@ -318,9 +306,9 @@ double calculate_motion(SoundShape *ss, AVFrame *sources_frame, uint32_t *save_b
 													ss->r)));
 	jstart = vw_min(height, vw_max(0, round(ss->pos.y -
 													   ss->r)));
-	iend = vw_max(0, vw_min(width, round(ss->pos.x +
+	iend = vw_max(istart, vw_min(width, round(ss->pos.x +
 													ss->r)));
-	jend = vw_max(0, vw_min(height, round(ss->pos.y +
+	jend = vw_max(jstart, vw_min(height, round(ss->pos.y +
 													 ss->r)));
 	for (i = istart; i < iend; i++) {
 		for (j = jstart; j < jend; j++) {
@@ -369,7 +357,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	static struct timespec ts, snapshot_ts;
 	static ccv_comp_t newbox;
 	static int made_first_tld = 0;
-	std::vector<Drawable *> draggables;
+	std::vector<Drawable *> sources;
 	int s, i;
 	double diff;
 	static uint32_t *save_buf_sources;
@@ -381,10 +369,6 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	if (first_data) {
 		save_buf_sources = (uint32_t *)malloc(dd->sources_frame->linesize[0] * dd->sources_frame->height);
 	}
-	if (!first_data) { // && dd->doing_motion) {
-		memcpy(save_buf_sources, dd->sources_frame->data[0], 4 * dd->sources_frame->width *
-				dd->sources_frame->height);
-	}
 	sources_surf = cairo_image_surface_create_for_data((unsigned char *)dd->sources_frame->data[0],
 			CAIRO_FORMAT_ARGB32, dd->sources_frame->width, dd->sources_frame->height,
 			dd->sources_frame->linesize[0]);
@@ -393,22 +377,44 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			CAIRO_FORMAT_ARGB32, dd->drawing_frame->width, dd->drawing_frame->height,
 			dd->drawing_frame->linesize[0]);
 	drawing_cr = cairo_create(drawing_surf);
-	if (!first_data && dd->doing_motion) {
+	if (!first_data && (dd->doing_motion || dd->show_shapshot_shape)) {
 		memcpy(save_buf_sources, dd->sources_frame->data[0], 4 * dd->sources_frame->width *
 				dd->sources_frame->height);
 	}
 	clear(sources_cr);
-	//clear(screen_cr);
-	get_sources(dd, draggables);
-	std::sort(draggables.begin(), draggables.end(), [](Drawable *a, Drawable *b) { return a->z < b->z; } );
+	get_sources(dd, sources);
+	std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z < b->z; } );
 	std::vector<cairo_t *> contexts;
 	cairo_save(screen_cr);
 	cairo_scale(screen_cr, dd->scale, dd->scale);
 	contexts.push_back(screen_cr);
 	contexts.push_back(sources_cr);
-
-	for (std::vector<Drawable *>::iterator it = draggables.begin(); it != draggables.end(); ++it) {
+	for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
+		(*it)->update_easers();
 		(*it)->render(contexts);
+	}
+	if (dd->doing_motion) {
+		std::vector<SoundShape *> sound_shapes;
+		for (i = 0; i < MAX_NSOUND_SHAPES; ++i) {
+			SoundShape *s = &dd->sound_shapes[i];
+			if (s->active) {
+				sound_shapes.push_back(s);
+			}
+		}
+		for (std::vector<SoundShape *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+			SoundShape *s = *it;
+			diff = calculate_motion(s, dd->sources_frame, save_buf_sources,
+										   dd->drawing_rect.width, dd->drawing_rect.height);
+			if (diff > dd->motion_threshold) {
+				s->set_motion_state(1);
+			} else {
+				s->set_motion_state(0);
+			}
+		}
+	} else {
+		for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
+			dd->sound_shapes[s].set_motion_state(0);
+		}
 	}
 	if (dd->show_shapshot_shape) {
 		diff= calculate_motion(&dd->snapshot_shape, dd->sources_frame,
@@ -433,27 +439,6 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	}
 	if (first_data) {
 		first_data = 0;
-	}
-
-
-	if (dd->doing_motion) {
-		for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
-			if (!dd->sound_shapes[s].active) continue;
-			diff = calculate_motion(&dd->sound_shapes[s], dd->sources_frame, save_buf_sources,
-										   dd->drawing_rect.width, dd->drawing_rect.height);
-			if (diff > dd->motion_threshold) {
-				dd->sound_shapes[s].set_motion_state(1);
-			} else {
-				dd->sound_shapes[s].set_motion_state(0);
-			}
-		}
-	} else {
-		for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
-			dd->sound_shapes[s].set_motion_state(0);
-		}
-	}
-	for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
-		dd->sound_shapes[s].tick();
 	}
 	if (dd->doing_tld) {
 		sws_scale(dd->analysis_resize, (uint8_t const * const *)dd->sources_frame->data,
@@ -507,20 +492,28 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		if (!dd->sound_shapes[i].active) continue;
 		set_to_on_or_off(&dd->sound_shapes[i], dd->drawing_area);
 	}
-	isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(SoundShape), cmp_z_order);
+	std::vector<Drawable *> sound_shapes;
 	std::vector<cairo_t *> ss_contexts;
 	ss_contexts.push_back(screen_cr);
 	if (dd->show_shapshot_shape) {
+		dd->snapshot_shape.update_easers();
 		dd->snapshot_shape.render(ss_contexts);
 	}
 	if (render_drawing_surf) {
 		ss_contexts.push_back(drawing_cr);
 	}
-	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
-		if (dd->sound_shapes[i].active) {
-			dd->sound_shapes[i].render(ss_contexts);
+	for (i = 0; i < MAX_NSOUND_SHAPES; ++i) {
+		SoundShape *s = &dd->sound_shapes[i];
+		if (s->active) {
+			sound_shapes.push_back(s);
 		}
 	}
+	std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z < b->z; } );
+	for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+		(*it)->update_easers();
+		(*it)->render(ss_contexts);
+	}
+
 #if defined(RENDER_KMETERS)
 	for (i = 0; i < 2; i++) {
 		kmeter_render(&dd->meters[i], drawing_cr, 1.);
@@ -598,7 +591,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	int drawing_size = 4 * dd->drawing_frame->width * dd->drawing_frame->height;
 	int tsize = drawing_size + sizeof(struct timespec);
 	if (dd->do_snapshot) {
-		if (jack_ringbuffer_write_space(dd->snapshot_thread_info.ring_buf) >= tsize) {
+		if (jack_ringbuffer_write_space(dd->snapshot_thread_info.ring_buf) >= (size_t)tsize) {
 			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (const char *)dd->drawing_frame->data[0],
 					drawing_size);
 			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (const char *)&snapshot_ts,
@@ -616,25 +609,25 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			pthread_mutex_unlock(&dd->video_thread_info.lock);
 		}
 	}
-	if (!dd->recording_started || dd->recording_stopped) return;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	if (first_call) {
-		first_call = 0;
-		dd->video_thread_info.stream.first_time = ts;
-		dd->can_capture = 1;
-	}
-	tsize = drawing_size + sizeof(struct timespec);
-	if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
-		jack_ringbuffer_write(video_ring_buf, (const char *)dd->drawing_frame->data[0],
-				drawing_size);
-		jack_ringbuffer_write(video_ring_buf, (const char *)&ts,
-							  sizeof(struct timespec));
-		if (pthread_mutex_trylock(&dd->video_thread_info.lock) == 0) {
-			pthread_cond_signal(&dd->video_thread_info.data_ready);
-			pthread_mutex_unlock(&dd->video_thread_info.lock);
+	if (dd->recording_started && !dd->recording_stopped) {
+		clock_gettime(CLOCK_MONOTONIC, &ts);
+		if (first_call) {
+			first_call = 0;
+			dd->video_thread_info.stream.first_time = ts;
+			dd->can_capture = 1;
+		}
+		tsize = drawing_size + sizeof(struct timespec);
+		if (jack_ringbuffer_write_space(video_ring_buf) >= tsize) {
+			jack_ringbuffer_write(video_ring_buf, (const char *)dd->drawing_frame->data[0],
+					drawing_size);
+			jack_ringbuffer_write(video_ring_buf, (const char *)&ts,
+								  sizeof(struct timespec));
+			if (pthread_mutex_trylock(&dd->video_thread_info.lock) == 0) {
+				pthread_cond_signal(&dd->video_thread_info.data_ready);
+				pthread_mutex_unlock(&dd->video_thread_info.lock);
+			}
 		}
 	}
-
 	cairo_destroy(sources_cr);
 	cairo_destroy(drawing_cr);
 	cairo_surface_destroy(sources_surf);
@@ -804,16 +797,19 @@ static gboolean draw_cb (GtkWidget *widget, cairo_t *cr, gpointer   data) {
 	DingleDots *dd;
 	dd = (DingleDots *)data;
 	process_image(cr, dd);
+	if (dd->get_animating()) {
+		gtk_widget_queue_draw(dd->drawing_area);
+	}
 	return TRUE;
 }
 
 void mark_hovered(int active, DingleDots *dd) {
-	std::vector<Drawable *> draggables;
-	get_sources(dd, draggables);
-	std::sort(draggables.begin(), draggables.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+	std::vector<Drawable *> sources;
+	get_sources(dd, sources);
+	std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
 	int found = 0;
 	if (active) {
-		for (std::vector<Drawable *>::iterator it = draggables.begin(); it != draggables.end(); ++it) {
+		for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if (found) {
 				if ((*it)->hovered == 1) {
 					(*it)->hovered = 0;
@@ -833,16 +829,21 @@ void mark_hovered(int active, DingleDots *dd) {
 			}
 		}
 	} else {
-		for (std::vector<Drawable *>::iterator it = draggables.begin(); it != draggables.end(); ++it) {
+		for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if ((*it)->hovered == 1) {
 				(*it)->hovered = 0;
 				gtk_widget_queue_draw(dd->drawing_area);
 			}
 		}
 		int found = 0;
-		for (int i = MAX_NSOUND_SHAPES-1; i >= 0; i--) {
+		std::vector<SoundShape *> sound_shapes;
+		for (int i = 0; i < MAX_NSOUND_SHAPES; ++i) {
 			SoundShape *s = &dd->sound_shapes[i];
-			if (!s->active) continue;
+			if (s->active) sound_shapes.push_back(s);
+		}
+		std::sort(sound_shapes.begin(), sound_shapes.end(), [](SoundShape *a, SoundShape *b) { return a->z > b->z; } );
+			for (std::vector<SoundShape *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+			SoundShape *s = *it;
 			if (!found && s->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
 				s->hovered = 1;
 				found = 1;
@@ -850,11 +851,10 @@ void mark_hovered(int active, DingleDots *dd) {
 			} else if (s->hovered == 1) {
 				s->hovered = 0;
 				gtk_widget_queue_draw(dd->drawing_area);
-			}
 		}
 	}
 }
-
+}
 static gboolean motion_notify_event_cb(GtkWidget *widget,
 									   GdkEventMotion *event, gpointer data) {
 	int i;
@@ -912,24 +912,29 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
 		dd->dragging = 1;
 	}
 	int found = 0;
-	isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(SoundShape), cmp_z_order);
-	for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
-		if (!dd->sound_shapes[i].active) continue;
-		if (dd->sound_shapes[i].mdown) {
-			if (dd->sound_shapes[i].selected) {
-				for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
-					if (!dd->sound_shapes[j].active) continue;
-					if (dd->sound_shapes[j].selected) {
-						dd->sound_shapes[j].pos.x = dd->mouse_pos.x -
-								dd->sound_shapes[i].mdown_pos.x +
-								dd->sound_shapes[j].selected_pos.x;
-						dd->sound_shapes[j].pos.y = dd->mouse_pos.y -
-								dd->sound_shapes[i].mdown_pos.y +
-								dd->sound_shapes[j].selected_pos.y;
+	std::vector<Drawable *> sound_shapes;
+	for (i = 0; i < MAX_NSOUND_SHAPES; ++i) {
+		SoundShape *s = &dd->sound_shapes[i];
+		if (s->active) sound_shapes.push_back(s);
+	}
+	std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+	for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+		Drawable *s = *it;
+		if (s->mdown) {
+			if (s->selected) {
+				for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
+					Drawable *sj = *ij;
+					if (sj->selected) {
+						sj->pos.x = dd->mouse_pos.x -
+								s->mdown_pos.x +
+								sj->selected_pos.x;
+						sj->pos.y = dd->mouse_pos.y -
+								s->mdown_pos.y +
+								sj->selected_pos.y;
 					}
 				};
 			} else {
-				dd->sound_shapes[i].drag(dd->mouse_pos.x, dd->mouse_pos.y);
+				s->drag(dd->mouse_pos.x, dd->mouse_pos.y);
 			}
 			found = 1;
 			break;
@@ -958,8 +963,7 @@ static gboolean double_press_event_cb(GtkWidget *widget,
 	if (event->type == GDK_2BUTTON_PRESS &&
 			event->button == GDK_BUTTON_PRIMARY) {
 		uint8_t found = 0;
-		isort(dd->sound_shapes, MAX_NSOUND_SHAPES, sizeof(SoundShape), cmp_z_order);
-		for (int i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
+		for (int i = 0; i < MAX_NSOUND_SHAPES; ++i) {
 			if (!dd->sound_shapes[i].active) continue;
 			double x, y;
 			x = event->x * dd->scale;//dd->drawing_rect.width / dd->screen_frame->width;
@@ -994,45 +998,63 @@ static gboolean button_press_event_cb(GtkWidget *widget,
 		dd->mdown = 1;
 		dd->mdown_pos.x = dd->mouse_pos.x;
 		dd->mdown_pos.y = dd->mouse_pos.y;
-		isort(dd->sound_shapes, MAX_NSOUND_SHAPES,
-			  sizeof(SoundShape), cmp_z_order);
-		for (i = MAX_NSOUND_SHAPES-1; i > -1; i--) {
-			if (!dd->sound_shapes[i].active) continue;
-			if (dd->sound_shapes[i].in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+		std::vector<Drawable *> sound_shapes;
+		for (i = 0; i < MAX_NSOUND_SHAPES; ++i) {
+			SoundShape *s = &dd->sound_shapes[i];
+			if (s->active) sound_shapes.push_back(s);
+		}
+		std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+		int found = 0;
+		for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+			Drawable *s = *it;
+			if (s->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+				found = 1;
 				if (dd->delete_active) {
-					dd->sound_shapes[i].deactivate();
+					s->deactivate();
 				} else {
-					if (!dd->sound_shapes[i].selected) {
-						for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
-							if (!dd->sound_shapes[j].active) continue;
-							dd->sound_shapes[j].selected = 0;
+					if (!s->selected) {
+						for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
+							Drawable *sj = *ij;
+							if (sj->selected) {
+								sj->selected = 0;
+								gtk_widget_queue_draw(dd->drawing_area);
+							}
 						}
-						dd->sound_shapes[i].selected = 0;
-					}
-					if (dd->sound_shapes[i].selected) {
-						for (int j = 0; j < MAX_NSOUND_SHAPES; j++) {
-							if (!dd->sound_shapes[j].active) continue;
-							if (dd->sound_shapes[j].selected) {
-								dd->sound_shapes[j].z = dd->next_z++;
-								dd->sound_shapes[j].selected_pos.x = dd->sound_shapes[j].pos.x;
-								dd->sound_shapes[j].selected_pos.y = dd->sound_shapes[j].pos.y;
+					} else {
+						for (std::vector<Drawable *>::reverse_iterator ij = sound_shapes.rbegin(); ij != sound_shapes.rend(); ++ij) {
+							Drawable *sj = *ij;
+							if (sj->selected) {
+								sj->z = dd->next_z++;
+								sj->selected_pos.x = sj->pos.x;
+								sj->selected_pos.y = sj->pos.y;
 							}
 						}
 					}
-					dd->sound_shapes[i].set_mdown(dd->mouse_pos.x,
-												  dd->mouse_pos.y, dd->next_z++);
+					s->set_mdown(dd->mouse_pos.x, dd->mouse_pos.y, dd->next_z++);
+					gtk_widget_queue_draw(dd->drawing_area);
+
 				}
 				return FALSE;
+
+
 			}
 		}
+		if (!found) {
+			for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
+				Drawable *sj = *ij;
+				sj->selected = 0;
+			}
+			gtk_widget_queue_draw(dd->drawing_area);
+		}
 		if (event->state & GDK_SHIFT_MASK) {
-			std::vector<Drawable *> draggables;
-			get_sources(dd, draggables);
-			std::sort(draggables.begin(), draggables.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-			for (std::vector<Drawable *>::iterator it = draggables.begin(); it != draggables.end(); ++it) {
+			std::vector<Drawable *> sources;
+			get_sources(dd, sources);
+			std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+			for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 				if ((*it)->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
 					(*it)->set_mdown(dd->mouse_pos.x, dd->mouse_pos.y,
-									 event->state & GDK_CONTROL_MASK ? (*it)->z : dd->next_z++);
+									 event->state & GDK_CONTROL_MASK ?
+										 (*it)->z : dd->next_z++);
 					break;
 				}
 			}
@@ -1554,22 +1576,6 @@ static void mainloop(DingleDots *dd) {
 												G_APPLICATION_NON_UNIQUE));
 	g_signal_connect(dd->app, "activate", G_CALLBACK (activate), dd);
 	g_application_run(G_APPLICATION(dd->app), 0, NULL);
-}
-
-static void isort(void *base, size_t nmemb, size_t size,
-				  int (*compar)(const void *, const void *)) {
-	int c, d;
-	char temp[size];
-	for (c = 1 ; c <= nmemb - 1; c++) {
-		d = c;
-		while ( d > 0 && (compar((void *)((char *)base)+d*size,
-								 (void *)((char *)base)+(d-1)*size) < 0)) {
-			memcpy(temp, ((char *)base)+d*size, size);
-			memcpy(((char *)base)+d*size, ((char *)base)+(d-1)*size, size);
-			memcpy(((char *)base)+(d-1)*size, temp, size);
-			d--;
-		}
-	}
 }
 
 static void signal_handler(int sig) {

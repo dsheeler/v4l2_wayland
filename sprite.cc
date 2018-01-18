@@ -4,6 +4,7 @@ Sprite::Sprite()
 {
 	file_path = 0;
 	allocated = 0;
+	active = 0;
 }
 
 Sprite::Sprite(std::string *file_path)

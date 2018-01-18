@@ -2,16 +2,20 @@
 #define SNAPSHOT_SHAPE_H
 
 #include "sound_shape.h"
+#include "easer.h"
 
 class SnapshotShape : public SoundShape
 {
 public:
 	SnapshotShape();
-	void init(string &label, double x, double y, double r, color c, void *dd);
+	void init(char *label, double x, double y, double r, color c, void *dd);
 	int set_on();
 	int set_off();
 	bool render(std::vector<cairo_t *> &contexts);
+	double countdown_seconds_left();
 	void set_motion_state(uint8_t state);
+	double radius_on;
+	Easer countdown_radius_easer;
 };
 
 #endif // SNAPSHOT_SHAPE_H

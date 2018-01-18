@@ -3,10 +3,10 @@
 
 SnapshotShape::SnapshotShape()
 {
-
+	active = 0;
 }
 
-void SnapshotShape::init(string &label, double x, double y, double r, color c,
+void SnapshotShape::init(char *label, double x, double y, double r, color c,
 						 void *dd)
 {
 	this->clear_state();
@@ -14,7 +14,6 @@ void SnapshotShape::init(string &label, double x, double y, double r, color c,
 	this->pos.y = y;
 	this->dd = (DingleDots *)dd;
 	this->z = this->dd->next_z++;
-	if (this->label) delete this->label;
 	this->label = new string(label);
 	this->r = r;
 	this->color_normal = color_copy(&c);
@@ -35,6 +34,8 @@ int SnapshotShape::set_off() {
 
 bool SnapshotShape::render(std::vector<cairo_t *> &contexts) {
 	color *c;
+	char text_to_add[NCHAR];
+	memset(text_to_add, '\0', sizeof(text_to_add));
 	c = &this->color_normal;
 	for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
 		cairo_t *cr = *it;
@@ -48,20 +49,16 @@ bool SnapshotShape::render(std::vector<cairo_t *> &contexts) {
 		cairo_set_line_width(cr, 0.05 * this->r);
 		cairo_stroke(cr);
 		if (this->on) {
-			double diff_sec = get_secs_since_last_on();
-			double radius = this->r * 1.025 * (diff_sec / this->shutdown_time);
-			cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
-			cairo_arc(cr, 0, 0, radius, 0, 2*M_PI);
+			sprintf(text_to_add, "\nIN\n%.00f",
+					ceil(this->countdown_radius_easer.left_secs()));
+			cairo_set_source_rgba(cr, 1, 1, 1, 0.5);
+			cairo_arc(cr, 0, 0, this->radius_on, 0, 2*M_PI);
 			cairo_fill(cr);
 		}
 		if (this->hovered) {
 			cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
 			cairo_arc(cr, 0, 0, this->r, 0, 2*M_PI);
-			cairo_set_line_width(cr, 0.05 * this->r);
-			cairo_stroke(cr);
-			/*cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
-		cairo_arc(cr, 0, 0, this->r * 1.025, 0, 2 * M_PI);
-	cairo_fill(cr);*/
+			cairo_fill(cr);
 		}
 		if (this->selected) {
 			cairo_set_source_rgba(cr, 1, 1, 1, 0.25);
@@ -69,20 +66,26 @@ bool SnapshotShape::render(std::vector<cairo_t *> &contexts) {
 			cairo_fill(cr);
 		}
 		cairo_restore(cr);
-		this->render_label(cr);
+		this->render_label(cr, text_to_add);
 	}
 	return true;
 }
 
+
 void SnapshotShape::set_motion_state(uint8_t state) {
+	double final_radius = this->r * 1.025;
 	if (state && this->motion_state == 0) {
 		this->motion_state = 1;
 		this->motion_state_to_off = 0;
+		this->easers.push_back(&this->countdown_radius_easer);
+		this->countdown_radius_easer.start(this->dd,
+										   EASER_LINEAR,
+										   &this->radius_on, 0.0, final_radius,
+										   this->shutdown_time);
 		clock_gettime(CLOCK_MONOTONIC, &this->motion_ts);
 	} else {
 		if (this->motion_state) {
-			double diff_sec = get_secs_since_last_on();
-			if (diff_sec >= shutdown_time) {
+			if (this->countdown_radius_easer.done()) {
 				this->motion_state = 0;
 				this->motion_state_to_off = 0;
 			} else {

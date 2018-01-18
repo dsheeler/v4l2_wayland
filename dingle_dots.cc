@@ -14,6 +14,7 @@ int DingleDots::init(char *dev_name, int width, int height,
 	this->drawing_rect.height = height;
 	this->recording_started = 0;
 	this->recording_stopped = 0;
+	this->animating = 0;
 	this->nports = 2;
 	this->make_new_tld = 0;
 	strncpy(this->video_file_name, video_file_name, STR_LEN);
@@ -36,12 +37,15 @@ int DingleDots::init(char *dev_name, int width, int height,
 										   this->analysis_rect.height, AV_PIX_FMT_ARGB, SWS_BICUBIC, NULL, NULL, NULL);
 	this->doing_tld = 0;
 	this->doing_motion = 0;
+	this->show_shapshot_shape = 0;
+	this->mdown = 0;
+	this->dragging = 0;
+	this->selection_in_progress = 0;
 	this->motion_threshold = 0.001;
 	for (int i = 0; i < MAX_NSOUND_SHAPES; ++i) {
 		this->sound_shapes[i].clear_state();
 	}
-	string label("SNAPSHOT");
-	snapshot_shape.init(label, this->drawing_rect.width / 2., this->drawing_rect.width / 16.,
+	snapshot_shape.init("SNAPSHOT", this->drawing_rect.width / 2., this->drawing_rect.width / 16.,
 						this->drawing_rect.width / 32., random_color(), this);
 	pthread_mutex_init(&this->video_thread_info.lock, NULL);
 	pthread_mutex_init(&this->audio_thread_info.lock, NULL);
@@ -96,7 +100,9 @@ void DingleDots::add_scale(midi_key_t *key, int midi_channel,
 						   color *c) {
 	int i;
 	double x_delta;
+	double r =this->drawing_rect.width/32.;
 	x_delta = 1. / (key->num_steps + 1);
+	double y = r + (1.0 * rand()) / RAND_MAX * (this->drawing_rect.height - 2*r);
 	for (i = 0; i < key->num_steps; i++) {
 		char key_name[NCHAR];
 		char base_name[NCHAR];
@@ -106,9 +112,17 @@ void DingleDots::add_scale(midi_key_t *key, int midi_channel,
 		sprintf(key_name, "%s %s", base_name, scale);
 		this->add_note(key_name, i + 1,
 					   key->base_note + key->steps[i], midi_channel,
-					   x_delta * (i + 1) * this->drawing_rect.width, this->drawing_rect.height / 2.,
+					   x_delta * (i + 1) * this->drawing_rect.width, y,
 					   this->drawing_rect.width/32, c);
 	}
+}
+
+uint8_t DingleDots::get_animating() const {
+	return animating;
+}
+
+void DingleDots::set_animating(const uint8_t &value) {
+	animating = value;
 }
 
 int DingleDots::add_note(char *scale_name,
@@ -126,11 +140,13 @@ int DingleDots::add_note(char *scale_name,
 	midi_note_to_octave_name(midi_note, octave_name);
 	sprintf(label, "%.2f\n%s\n%d\n%s", freq, snum, scale_num, octave_name);
 	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
-		if (this->sound_shapes[i].active) continue;
-		string temp(label);
-		this->sound_shapes[i].init(temp, midi_note, midi_channel,
-								   x, y, r, c, this);
-		this->sound_shapes[i].activate();
+		SoundShape *s = &this->sound_shapes[i];
+		if (s->active) continue;
+
+		s->init(label, midi_note, midi_channel,
+			   x, y, r, c, this);
+		s->activate();
+
 		return 0;
 	}
 	return -1;

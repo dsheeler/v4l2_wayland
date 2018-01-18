@@ -24,10 +24,10 @@ class DingleDots;
 class SoundShape : public Drawable {
 public:
 	SoundShape();
-	void init(string &label, uint8_t midi_note, uint8_t midi_channel,
+	virtual void init(char *label, uint8_t midi_note, uint8_t midi_channel,
 			  double x, double y, double r, color *c, DingleDots *dd);
 	bool virtual render(std::vector<cairo_t *> &contexts);
-	void render_label(cairo_t *cr);
+	void render_label(cairo_t *cr, char *text_to_append);
 	int activate();
 	int deactivate();
 	int in(double x, double y);
@@ -40,22 +40,18 @@ public:
 	//	private:
 	double shutdown_time;
 	DingleDots *dd;
-	uint8_t active;
 	uint8_t on;
 	uint8_t double_clicked_on;
-	uint8_t selected;
 	uint8_t motion_state;
 	uint8_t motion_state_to_off;
 	struct timespec motion_ts;
 	uint8_t tld_state;
-	GdkPoint selected_pos;
 	double r;
-	string *label;
+	std::string *label;
 	uint8_t midi_note;
 	uint8_t midi_channel;
 	color color_normal;
 	color color_on;
-
 	double get_secs_since_last_on();
 };
 

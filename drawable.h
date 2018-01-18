@@ -5,6 +5,14 @@
 #include <vector>
 #include <stdint.h>
 #include "v4l2_wayland.h"
+#include "easer.h"
+
+struct rectangle_double {
+	double x;
+	double y;
+	double width;
+	double height;
+};
 
 class Drawable {
 private:
@@ -16,16 +24,22 @@ public:
 	double scale;
 	double rotation_radians;
 	double opacity;
-	GdkRectangle pos;
+	rectangle_double pos;
 	GdkPoint mdown_pos;
 	GdkPoint down_pos;
 	uint8_t hovered;
 	uint8_t allocated;
 	uint8_t active;
+	bool selected;
+	GdkPoint selected_pos;
+	std::vector<Easer *> easers;
 public:
 	Drawable();
 	virtual ~Drawable() {}
 	Drawable(double x, double y, int64_t z, double opacity, double scale);
+	virtual int deactivate() { active = 0; return 1; }
+	virtual int activate() { active = 1; return 1; }
+	void update_easers();
 	void set_mdown(double x, double y, int64_t z);
 	void drag(double mouse_x, double mouse_y);
 	virtual int in(double x_in, double y_in);
