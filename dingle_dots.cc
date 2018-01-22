@@ -10,6 +10,8 @@ DingleDots::DingleDots() { }
 int DingleDots::init(char *dev_name, int width, int height,
 					 char *video_file_name, int video_bitrate) {
 	int ret;
+	this->s_pressed = 0;
+	this->smdown = 0;
 	this->drawing_rect.width = width;
 	this->drawing_rect.height = height;
 	this->recording_started = 0;
@@ -42,7 +44,7 @@ int DingleDots::init(char *dev_name, int width, int height,
 	this->dragging = 0;
 	this->selection_in_progress = 0;
 	this->motion_threshold = 0.001;
-	for (int i = 0; i < MAX_NSOUND_SHAPES; ++i) {
+	for (int i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
 		this->sound_shapes[i].clear_state();
 	}
 	snapshot_shape.init("SNAPSHOT", this->drawing_rect.width / 2., this->drawing_rect.width / 16.,
@@ -63,7 +65,7 @@ int DingleDots::init(char *dev_name, int width, int height,
 }
 
 int DingleDots::deactivate_sound_shapes() {
-	for (int i = 0; i < MAX_NSOUND_SHAPES; i++) {
+	for (int i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
 		if (this->sound_shapes[i].active) {
 			this->sound_shapes[i].deactivate();
 		}
@@ -139,7 +141,7 @@ int DingleDots::add_note(char *scale_name,
 	}
 	midi_note_to_octave_name(midi_note, octave_name);
 	sprintf(label, "%.2f\n%s\n%d\n%s", freq, snum, scale_num, octave_name);
-	for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+	for (i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
 		SoundShape *s = &this->sound_shapes[i];
 		if (s->active) continue;
 
@@ -152,3 +154,30 @@ int DingleDots::add_note(char *scale_name,
 	return -1;
 }
 
+void DingleDots::get_sound_shapes(std::vector<Drawable *> &sound_shapes)
+{
+	for (int i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
+		SoundShape *ss = &this->sound_shapes[i];
+		if (ss->active) sound_shapes.push_back(ss);
+	}
+	sound_shapes.push_back(&this->snapshot_shape);
+}
+
+void DingleDots::get_sources(std::vector<Drawable *> &list)
+{
+	for (int i = 0; i < MAX_NUM_V4L2; i++) {
+		if (this->v4l2[i].active) {
+			list.push_back(&this->v4l2[i]);
+		}
+	}
+	for (int j = 0; j < MAX_NUM_VIDEO_FILES; j++) {
+		if (this->vf[j].active) {
+			list.push_back(&this->vf[j]);
+		}
+	}
+	for (int i = 0; i < MAX_NUM_SPRITES; i++) {
+		if (this->sprites[i].active) {
+			list.push_back(&this->sprites[i]);
+		}
+	}
+}

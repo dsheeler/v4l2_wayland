@@ -14,6 +14,7 @@ struct rectangle_double {
 	double height;
 };
 
+//class Easer;
 class Drawable {
 private:
 	void render_label(cairo_t *cr);

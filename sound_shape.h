@@ -15,7 +15,7 @@ typedef struct color color;
 //#include "dingle_dots.h"
 
 #define NCHAR 32
-#define MAX_NSOUND_SHAPES 256
+#define MAX_NUM_SOUND_SHAPES 256
 
 #ifdef __cplusplus
 using namespace std;

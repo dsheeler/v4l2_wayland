@@ -3,6 +3,7 @@
 #include "easer.h"
 #include "v4l2_wayland.h"
 #include "dingle_dots.h"
+#include "drawable.h"
 
 Easer::Easer() {}
 
@@ -21,14 +22,87 @@ EasingFuncPtr Easer::easer_type_to_easing_func(Easer_Type type)
 			break;
 		case EASER_QUAD_EASE_IN_OUT:
 			func = &QuadraticEaseInOut;
+			break;
+		case EASER_CUBIC_EASE_IN:
+			func = & CubicEaseIn;
+			break;
+		case EASER_CUBIC_EASE_OUT:
+			func = &CubicEaseOut;
+			break;
+		case EASER_CUBIC_EASE_IN_OUT:
+			func = &CubicEaseInOut;
+			break;
+		case EASER_QUARTIC_EASE_IN:
+			func = &QuarticEaseIn;
+			break;
+		case EASER_QUARTIC_EASE_OUT:
+			func = &QuarticEaseOut;
+			break;
+		case EASER_QUARTIC_EASE_IN_OUT:
+			func = &QuarticEaseInOut;
+			break;
+		case EASER_QUINTIC_EASE_IN:
+			func = &QuinticEaseIn;
+			break;
+		case EASER_QUINTIC_EASE_OUT:
+			func = &QuinticEaseOut;
+			break;
+		case EASER_QUINTIC_EASE_IN_OUT:
+			func = &QuinticEaseInOut;
+			break;
+		case EASER_SINE_EASE_IN:
+			func = &SineEaseIn;
+			break;
+		case EASER_SINE_EASE_OUT:
+			func = &SineEaseOut;
+			break;
+		case EASER_SINE_EASE_IN_OUT:
+			func = &SineEaseInOut;
+			break;
+		case EASER_CIRCULAR_EASE_IN:
+			func = &CircularEaseIn;
+			break;
+		case EASER_CIRCULAR_EASE_OUT:
+			func = &CircularEaseOut;
+			break;
+		case EASER_CIRCULAR_EASE_IN_OUT:
+			func = &CircularEaseInOut;
+			break;
+		case EASER_EXPONENTIAL_EASE_IN:
+			func = &ExponentialEaseIn;
+			break;
+		case EASER_EXPONENTIAL_EASE_OUT:
+			func = &ExponentialEaseOut;
+			break;
+		case EASER_EXPONENTIAL_EASE_IN_OUT:
+			func = &ExponentialEaseInOut;
+			break;
+		case EASER_BACK_EASE_IN:
+			func = &BackEaseIn;
+			break;
+		case EASER_BACK_EASE_OUT:
+			func = &BackEaseOut;
+			break;
+		case EASER_BACK_EASE_IN_OUT:
+			func = &BackEaseInOut;
+			break;
+		case EASER_ELASTIC_EASE_IN:
+			func = &ElasticEaseIn;
+			break;
+		case EASER_ELASTIC_EASE_OUT:
+			func = &ElasticEaseOut;
+			break;
+		case EASER_ELASTIC_EASE_IN_OUT:
+			func = &ElasticEaseInOut;
+			break;
 		case EASER_BOUNCE_EASE_IN:
 			func = &BounceEaseIn;
 			break;
-		case EASER_BOUNCE_EASE_IN_OUT:
-			func = &BounceEaseInOut;
-			break;
 		case EASER_BOUNCE_EASE_OUT:
 			func = &BounceEaseOut;
+			break;
+		case EASER_BOUNCE_EASE_IN_OUT:
+			func = &BounceEaseInOut;
 			break;
 		default:
 			func = 0;
@@ -37,23 +111,35 @@ EasingFuncPtr Easer::easer_type_to_easing_func(Easer_Type type)
 	return func;
 }
 
-void Easer::start(DingleDots *dd, Easer_Type type, double *tvalue, double value_start, double value_finish,
+void Easer::initialize(Drawable *target, DingleDots *dd, Easer_Type type, double *tvalue, double value_start, double value_finish,
 				  double duration_secs)
 {
+	this->active = FALSE;
+	this->target = target;
 	this->dd = dd;
 	this->value = tvalue;
 	this->duration_secs = duration_secs;
 	this->value_start = value_start;
 	this->value_finish = value_finish;
-	clock_gettime(CLOCK_MONOTONIC, &this->start_ts);
 	this->easing_func = easer_type_to_easing_func(type);
-	dd->set_animating(dd->get_animating()+1);
+}
+
+
+void Easer::start() {
+	target->easers.push_back(this);
 	this->active = TRUE;
+	clock_gettime(CLOCK_MONOTONIC, &this->start_ts);
+	dd->set_animating(dd->get_animating()+1);
 }
 
 void Easer::finalize() {
 	*this->value = this->value_finish;
 	dd->set_animating(dd->get_animating() - 1);
+	for (std::vector<Easer *>::iterator it = this->start_when_finished.begin();
+		 it != this->start_when_finished.end(); ++it) {
+		Easer *e = *it;
+		e->start();
+	}
 	this->active = FALSE;
 }
 
@@ -65,9 +151,6 @@ void Easer::update_value() {
 	easer_value = (this->easing_func)(ratio_complete);
 	delta = this->value_finish - this->value_start;
 	*this->value = this->value_start + easer_value * delta;
-	if (this->done()) {
-		finalize();
-	}
 }
 
 bool Easer::done()

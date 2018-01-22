@@ -303,13 +303,13 @@ double calculate_motion(SoundShape *ss, AVFrame *sources_frame, uint32_t *save_b
 	sum = 0;
 	npts = 0;
 	istart = vw_min(width, vw_max(0, round(ss->pos.x -
-													ss->r)));
+													ss->r * ss->scale)));
 	jstart = vw_min(height, vw_max(0, round(ss->pos.y -
-													   ss->r)));
+													   ss->r * ss->scale)));
 	iend = vw_max(istart, vw_min(width, round(ss->pos.x +
-													ss->r)));
+													ss->r * ss->scale)));
 	jend = vw_max(jstart, vw_min(height, round(ss->pos.y +
-													 ss->r)));
+													 ss->r* ss->scale)));
 	for (i = istart; i < iend; i++) {
 		for (j = jstart; j < jend; j++) {
 			if (ss->in(i, j)) {
@@ -395,7 +395,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	}
 	if (dd->doing_motion) {
 		std::vector<SoundShape *> sound_shapes;
-		for (i = 0; i < MAX_NSOUND_SHAPES; ++i) {
+		for (i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
 			SoundShape *s = &dd->sound_shapes[i];
 			if (s->active) {
 				sound_shapes.push_back(s);
@@ -412,7 +412,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			}
 		}
 	} else {
-		for (s = 0; s < MAX_NSOUND_SHAPES; s++) {
+		for (s = 0; s < MAX_NUM_SOUND_SHAPES; s++) {
 			dd->sound_shapes[s].set_motion_state(0);
 		}
 	}
@@ -468,7 +468,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		}
 		if (newbox.rect.width && newbox.rect.height &&
 				made_first_tld && tld->found) {
-			for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+			for (i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
 				if (!dd->sound_shapes[i].active) continue;
 				if (dd->sound_shapes[i].in(dd->ascale_factor_x*newbox.rect.x +
 										   0.5*dd->ascale_factor_x*newbox.rect.width,
@@ -488,7 +488,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		newbox.rect.width = 0;
 		newbox.rect.height = 0;
 	}
-	for (int i = 0; i < MAX_NSOUND_SHAPES; i++) {
+	for (int i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
 		if (!dd->sound_shapes[i].active) continue;
 		set_to_on_or_off(&dd->sound_shapes[i], dd->drawing_area);
 	}
@@ -502,7 +502,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	if (render_drawing_surf) {
 		ss_contexts.push_back(drawing_cr);
 	}
-	for (i = 0; i < MAX_NSOUND_SHAPES; ++i) {
+	for (i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
 		SoundShape *s = &dd->sound_shapes[i];
 		if (s->active) {
 			sound_shapes.push_back(s);
@@ -556,19 +556,20 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			render_selection_box(drawing_cr, dd);
 		}
 		render_selection_box(screen_cr, dd);
-		for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
-			if (!dd->sound_shapes[i].active) continue;
+		for (i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
+			SoundShape *ss = &dd->sound_shapes[i];
+			if (!ss->active) continue;
 			GdkRectangle ss_rect;
-			ss_rect.x = dd->sound_shapes[i].pos.x - dd->sound_shapes[i].r;
-			ss_rect.y = dd->sound_shapes[i].pos.y - dd->sound_shapes[i].r;
-			ss_rect.width = 2 * dd->sound_shapes[i].r;
-			ss_rect.height = 2 * dd->sound_shapes[i].r;
+			ss_rect.x = ss->pos.x - ss->r * ss->scale;
+			ss_rect.y = ss->pos.y - ss->r * ss->scale;
+			ss_rect.width = 2 * ss->r * ss->scale;
+			ss_rect.height = 2 * ss->r * ss->scale;
 			if (gdk_rectangle_intersect(&ss_rect, &dd->selection_rect, NULL)) {
-				dd->sound_shapes[i].selected = 1;
-				dd->sound_shapes[i].selected_pos.x = dd->sound_shapes[i].pos.x;
-				dd->sound_shapes[i].selected_pos.y = dd->sound_shapes[i].pos.y;
+				ss->selected = 1;
+				ss->selected_pos.x = ss->pos.x;
+				ss->selected_pos.y = ss->pos.y;
 			} else {
-				dd->sound_shapes[i].selected = 0;
+				ss->selected = 0;
 			}
 		}
 	}
@@ -803,12 +804,20 @@ static gboolean draw_cb (GtkWidget *widget, cairo_t *cr, gpointer   data) {
 	return TRUE;
 }
 
-void mark_hovered(int active, DingleDots *dd) {
+void mark_hovered(bool use_sources, DingleDots *dd) {
+	int found = 0;
 	std::vector<Drawable *> sources;
 	get_sources(dd, sources);
-	std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-	int found = 0;
-	if (active) {
+	std::vector<Drawable *> sound_shapes;
+	dd->get_sound_shapes(sound_shapes);
+	if (use_sources) {
+		for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+			if ((*it)->hovered == 1) {
+				(*it)->hovered = 0;
+				gtk_widget_queue_draw(dd->drawing_area);
+			}
+		}
+		std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
 		for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if (found) {
 				if ((*it)->hovered == 1) {
@@ -835,15 +844,10 @@ void mark_hovered(int active, DingleDots *dd) {
 				gtk_widget_queue_draw(dd->drawing_area);
 			}
 		}
-		int found = 0;
-		std::vector<SoundShape *> sound_shapes;
-		for (int i = 0; i < MAX_NSOUND_SHAPES; ++i) {
-			SoundShape *s = &dd->sound_shapes[i];
-			if (s->active) sound_shapes.push_back(s);
-		}
-		std::sort(sound_shapes.begin(), sound_shapes.end(), [](SoundShape *a, SoundShape *b) { return a->z > b->z; } );
-			for (std::vector<SoundShape *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
-			SoundShape *s = *it;
+		found = 0;
+		std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+		for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+			Drawable *s = *it;
 			if (!found && s->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
 				s->hovered = 1;
 				found = 1;
@@ -851,16 +855,17 @@ void mark_hovered(int active, DingleDots *dd) {
 			} else if (s->hovered == 1) {
 				s->hovered = 0;
 				gtk_widget_queue_draw(dd->drawing_area);
+			}
 		}
 	}
 }
-}
+
 static gboolean motion_notify_event_cb(GtkWidget *widget,
 									   GdkEventMotion *event, gpointer data) {
 	int i;
 	DingleDots *dd = (DingleDots *)data;
-	dd->mouse_pos.x = event->x / dd->scale;//dd->drawing_rect.width / dd->screen_frame->width;
-	dd->mouse_pos.y = event->y / dd->scale;//dd->drawing_rect.height / dd->screen_frame->height;
+	dd->mouse_pos.x = event->x / dd->scale;
+	dd->mouse_pos.y = event->y / dd->scale;
 	if (!dd->dragging && !dd->selection_in_progress)
 		mark_hovered(event->state & GDK_SHIFT_MASK, dd);
 	if (dd->smdown) {
@@ -911,40 +916,39 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
 	} else if (dd->mdown) {
 		dd->dragging = 1;
 	}
-	int found = 0;
-	std::vector<Drawable *> sound_shapes;
-	for (i = 0; i < MAX_NSOUND_SHAPES; ++i) {
-		SoundShape *s = &dd->sound_shapes[i];
-		if (s->active) sound_shapes.push_back(s);
-	}
-	std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-	for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
-		Drawable *s = *it;
-		if (s->mdown) {
-			if (s->selected) {
-				for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
-					Drawable *sj = *ij;
-					if (sj->selected) {
-						sj->pos.x = dd->mouse_pos.x -
-								s->mdown_pos.x +
-								sj->selected_pos.x;
-						sj->pos.y = dd->mouse_pos.y -
-								s->mdown_pos.y +
-								sj->selected_pos.y;
-					}
-				};
-			} else {
-				s->drag(dd->mouse_pos.x, dd->mouse_pos.y);
-			}
-			found = 1;
-			break;
+	if (!(event->state & GDK_SHIFT_MASK)) {
+		std::vector<Drawable *> sound_shapes;
+		for (i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
+			SoundShape *s = &dd->sound_shapes[i];
+			if (s->active) sound_shapes.push_back(s);
 		}
-	}
-	if (!found) {
-		std::vector<Drawable *> draggables;
-		get_sources(dd, draggables);
-		std::sort(draggables.begin(), draggables.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-		for (std::vector<Drawable *>::iterator it = draggables.begin(); it != draggables.end(); ++it) {
+		std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+		for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+			Drawable *s = *it;
+			if (s->mdown) {
+				if (s->selected) {
+					for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
+						Drawable *sj = *ij;
+						if (sj->selected) {
+							sj->pos.x = dd->mouse_pos.x -
+									s->mdown_pos.x +
+									sj->selected_pos.x;
+							sj->pos.y = dd->mouse_pos.y -
+									s->mdown_pos.y +
+									sj->selected_pos.y;
+						}
+					};
+				} else {
+					s->drag(dd->mouse_pos.x, dd->mouse_pos.y);
+				}
+				break;
+			}
+		}
+	} else {
+		std::vector<Drawable *> sources;
+		get_sources(dd, sources);
+		std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+		for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if ((*it)->active) {
 				if ((*it)->mdown) {
 					(*it)->drag(dd->mouse_pos.x, dd->mouse_pos.y);
@@ -954,7 +958,7 @@ static gboolean motion_notify_event_cb(GtkWidget *widget,
 		}
 	}
 	gtk_widget_queue_draw(dd->drawing_area);
-	return FALSE;
+	return TRUE;
 }
 
 static gboolean double_press_event_cb(GtkWidget *widget,
@@ -963,11 +967,11 @@ static gboolean double_press_event_cb(GtkWidget *widget,
 	if (event->type == GDK_2BUTTON_PRESS &&
 			event->button == GDK_BUTTON_PRIMARY) {
 		uint8_t found = 0;
-		for (int i = 0; i < MAX_NSOUND_SHAPES; ++i) {
+		for (int i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
 			if (!dd->sound_shapes[i].active) continue;
 			double x, y;
-			x = event->x * dd->scale;//dd->drawing_rect.width / dd->screen_frame->width;
-			y = event->y * dd->scale;//dd->drawing_rect.height / dd->screen_frame->height;
+			x = event->x / dd->scale;//dd->drawing_rect.width / dd->screen_frame->width;
+			y = event->y / dd->scale;//dd->drawing_rect.height / dd->screen_frame->height;
 			if (dd->sound_shapes[i].in(x, y)) {
 				found = 1;
 				if (dd->sound_shapes[i].double_clicked_on) {
@@ -998,55 +1002,49 @@ static gboolean button_press_event_cb(GtkWidget *widget,
 		dd->mdown = 1;
 		dd->mdown_pos.x = dd->mouse_pos.x;
 		dd->mdown_pos.y = dd->mouse_pos.y;
-		std::vector<Drawable *> sound_shapes;
-		for (i = 0; i < MAX_NSOUND_SHAPES; ++i) {
-			SoundShape *s = &dd->sound_shapes[i];
-			if (s->active) sound_shapes.push_back(s);
-		}
-		std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-		int found = 0;
-		for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
-			Drawable *s = *it;
-			if (s->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
-				found = 1;
-				if (dd->delete_active) {
-					s->deactivate();
-				} else {
-					if (!s->selected) {
-						for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
-							Drawable *sj = *ij;
-							if (sj->selected) {
-								sj->selected = 0;
-								gtk_widget_queue_draw(dd->drawing_area);
-							}
-						}
-					} else {
-						for (std::vector<Drawable *>::reverse_iterator ij = sound_shapes.rbegin(); ij != sound_shapes.rend(); ++ij) {
-							Drawable *sj = *ij;
-							if (sj->selected) {
-								sj->z = dd->next_z++;
-								sj->selected_pos.x = sj->pos.x;
-								sj->selected_pos.y = sj->pos.y;
-							}
-						}
-					}
-					s->set_mdown(dd->mouse_pos.x, dd->mouse_pos.y, dd->next_z++);
-					gtk_widget_queue_draw(dd->drawing_area);
-
-				}
-				return FALSE;
-
-
+		if (!(event->state & GDK_SHIFT_MASK)) {
+			std::vector<Drawable *> sound_shapes;
+			for (i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
+				SoundShape *s = &dd->sound_shapes[i];
+				if (s->active) sound_shapes.push_back(s);
 			}
-		}
-		if (!found) {
+			std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+			for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+				Drawable *s = *it;
+				if (s->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+					if (dd->delete_active) {
+						s->deactivate();
+					} else {
+						if (!s->selected) {
+							for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
+								Drawable *sj = *ij;
+								if (sj->selected) {
+									sj->selected = 0;
+									gtk_widget_queue_draw(dd->drawing_area);
+								}
+							}
+						} else {
+							for (std::vector<Drawable *>::reverse_iterator ij = sound_shapes.rbegin(); ij != sound_shapes.rend(); ++ij) {
+								Drawable *sj = *ij;
+								if (sj->selected) {
+									sj->z = dd->next_z++;
+									sj->selected_pos.x = sj->pos.x;
+									sj->selected_pos.y = sj->pos.y;
+								}
+							}
+						}
+						s->set_mdown(dd->mouse_pos.x, dd->mouse_pos.y, dd->next_z++);
+						gtk_widget_queue_draw(dd->drawing_area);
+					}
+					return FALSE;
+				}
+			}
 			for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
 				Drawable *sj = *ij;
 				sj->selected = 0;
 			}
 			gtk_widget_queue_draw(dd->drawing_area);
-		}
-		if (event->state & GDK_SHIFT_MASK) {
+		} else {
 			std::vector<Drawable *> sources;
 			get_sources(dd, sources);
 			std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
@@ -1067,22 +1065,23 @@ static gboolean button_press_event_cb(GtkWidget *widget,
 		dd->selection_rect.height = 0;
 		return FALSE;
 	}
-	if (!dd->shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
-		dd->smdown = 1;
-		dd->mdown_pos.x = dd->mouse_pos.x;
-		dd->mdown_pos.y = dd->mouse_pos.y;
-		dd->user_tld_rect.x = dd->mdown_pos.x;
-		dd->user_tld_rect.y = dd->mdown_pos.y;
-		dd->user_tld_rect.width = 20 * dd->ascale_factor_x;
-		dd->user_tld_rect.height = 20 * dd->ascale_factor_y;
-		return TRUE;
-	}
-	if (dd->doing_tld && dd->shift_pressed) {
-		if (event->button == GDK_BUTTON_SECONDARY) {
-			dd->doing_tld = 0;
-			return TRUE;
-		}
-	}
+
+//	if (!dd->shift_pressed && event->button == GDK_BUTTON_SECONDARY) {
+//		dd->smdown = 1;
+//		dd->mdown_pos.x = dd->mouse_pos.x;
+//		dd->mdown_pos.y = dd->mouse_pos.y;
+//		dd->user_tld_rect.x = dd->mdown_pos.x;
+//		dd->user_tld_rect.y = dd->mdown_pos.y;
+//		dd->user_tld_rect.width = 20 * dd->ascale_factor_x;
+//		dd->user_tld_rect.height = 20 * dd->ascale_factor_y;
+//		return TRUE;
+//	}
+//	if (dd->doing_tld && dd->shift_pressed) {
+//		if (event->button == GDK_BUTTON_SECONDARY) {
+//			dd->doing_tld = 0;
+//			return TRUE;
+//		}
+//	}
 	return FALSE;
 }
 
@@ -1094,14 +1093,14 @@ static gboolean button_release_event_cb(GtkWidget *widget,
 	mark_hovered(event->state & GDK_SHIFT_MASK, dd);
 	if (event->button == GDK_BUTTON_PRIMARY) {
 		if (!dd->dragging && !dd->selection_in_progress) {
-			for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+			for (i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
 				if (!dd->sound_shapes[i].active) continue;
 				if (!dd->sound_shapes[i].mdown) {
 					dd->sound_shapes[i].selected = 0;
 				}
 			}
 		}
-		for (i = 0; i < MAX_NSOUND_SHAPES; i++) {
+		for (i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
 			if (!dd->sound_shapes[i].active) continue;
 			dd->sound_shapes[i].mdown = 0;
 		}
@@ -1126,39 +1125,51 @@ static gboolean button_release_event_cb(GtkWidget *widget,
 	return FALSE;
 }
 
+void apply_scrolling_operations_to_list(GdkEventScroll *event, DingleDots *dd,
+										std::vector<Drawable *> drawables)
+{
+	gboolean up = FALSE;
+	if (event->delta_y == -1.0) {
+		up = TRUE;
+	}
+	for (std::vector<Drawable *>::iterator it = drawables.begin(); it != drawables.end(); ++it) {
+		if ((*it)->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+			if (event->state & GDK_MOD1_MASK) {
+				double inc = 0.025;
+				double o = (*it)->get_opacity();
+				(*it)->set_opacity(o + (up ? inc: -inc));
+			} else if (dd->s_pressed){
+				double inc = 0.05;
+				(*it)->set_scale((*it)->get_scale() + (up ? inc: -inc));
+			} else if (event->state & GDK_CONTROL_MASK) {
+				double inc = 2 * M_PI / 180;
+				(*it)->rotate(up ? inc : -inc);
+			}
+			gtk_widget_queue_draw(dd->drawing_area);
+			break;
+		}
+	}
+}
+
 static gboolean scroll_cb(GtkWidget *widget, GdkEventScroll *event,
 						  gpointer data) {
 	DingleDots *dd = (DingleDots *)data;
-	int i;
-	if (event->state & GDK_SHIFT_MASK) {
-		gboolean up = FALSE;
-		if (event->delta_y == -1.0) {
-			up = TRUE;
-		}
-		std::vector<Drawable *> draggables;
-		get_sources(dd, draggables);
-		std::sort(draggables.begin(), draggables.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-		for (std::vector<Drawable *>::iterator it = draggables.begin(); it != draggables.end(); ++it) {
-			if ((*it)->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
-				if (event->state & GDK_MOD1_MASK) {
-					double inc = 0.05;
-					double o = (*it)->get_opacity();
-					(*it)->set_opacity(o + (up ? inc: -inc));
 
-				} else if (event->state & GDK_MOD4_MASK){
-					double inc = 0.005;
-					(*it)->set_scale((*it)->get_scale() + (up ? inc: -inc));
-				} else {
-					double inc = 2 * M_PI / 360;
-					(*it)->rotate(up ? inc : -inc);
-				}
-				gtk_widget_queue_draw(dd->drawing_area);
-				break;
-			}
-		}
-		return FALSE;
+	if (!(event->state & GDK_SHIFT_MASK)) {
+		std::vector<Drawable *> sound_shapes;
+		dd->get_sound_shapes(sound_shapes);
+		std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+		apply_scrolling_operations_to_list(event, dd, sound_shapes);
+		return TRUE;
+	} else {
+		std::vector<Drawable *> sources;
+		dd->get_sources(sources);
+		std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+		apply_scrolling_operations_to_list(event, dd, sources);
+		return TRUE;
 	}
-	return TRUE;
+
+	return FALSE;
 }
 
 static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
@@ -1179,6 +1190,10 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
 		} else {
 			gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dd->delete_button), 0);
 		}
+	} else if (event->keyval == GDK_KEY_s ||
+			   event->keyval == GDK_KEY_S) {
+		dd->s_pressed = 1;
+		return TRUE;
 	} else if (event->keyval == GDK_KEY_Shift_L ||
 			   event->keyval == GDK_KEY_Shift_R) {
 		if (!dd->selection_in_progress)
@@ -1197,9 +1212,12 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
 static gboolean on_key_release(GtkWidget *widget, GdkEventKey *event,
 							   gpointer data) {
 	DingleDots *dd = (DingleDots *)data;
+	if (event->keyval == GDK_KEY_s || event->keyval == GDK_KEY_S) {
+		dd->s_pressed = 0;
+	}
 	if (event->keyval == GDK_KEY_Shift_L ||
 			event->keyval == GDK_KEY_Shift_R) {
-		if (!dd->dragging) mark_hovered(0, dd);
+		if (!dd->dragging && !dd->selection_in_progress) mark_hovered(0, dd);
 		return TRUE;
 	}
 	return FALSE;
@@ -1307,10 +1325,13 @@ static gboolean motion_cb(GtkWidget *widget, gpointer data) {
 static gboolean snapshot_shape_cb(GtkWidget *widget, gpointer data) {
 	DingleDots *dd = (DingleDots*) data;
 	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
-		dd->show_shapshot_shape = 1;
+		dd->snapshot_shape.activate();
+		//dd->show_shapshot_shape = 1;
 	} else {
-		dd->show_shapshot_shape = 0;
+		dd->snapshot_shape.deactivate();
+		//dd->show_shapshot_shape = 0;
 	}
+	gtk_widget_queue_draw(dd->drawing_area);
 	return TRUE;
 }
 

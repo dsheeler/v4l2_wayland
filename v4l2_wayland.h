@@ -18,6 +18,8 @@ extern "C" {
 #include <cairo.h>
 
 #define MAX_NUM_VIDEO_FILES 2
+#define MAX_NUM_SPRITES 32
+
 #define vw_min(a, b) ((a) < (b) ? (a) : (b))
 #define vw_max(a, b) ((a) > (b) ? (a) : (b))
 

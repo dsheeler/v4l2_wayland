@@ -65,23 +65,23 @@ bool SnapshotShape::render(std::vector<cairo_t *> &contexts) {
 			cairo_arc(cr, 0, 0, this->r*1.025, 0, 2*M_PI);
 			cairo_fill(cr);
 		}
-		cairo_restore(cr);
 		this->render_label(cr, text_to_add);
+		cairo_restore(cr);
 	}
 	return true;
 }
 
 
 void SnapshotShape::set_motion_state(uint8_t state) {
-	double final_radius = this->r * 1.025;
+	double final_radius = this->r;
 	if (state && this->motion_state == 0) {
 		this->motion_state = 1;
 		this->motion_state_to_off = 0;
-		this->easers.push_back(&this->countdown_radius_easer);
-		this->countdown_radius_easer.start(this->dd,
+		this->countdown_radius_easer.initialize(this, this->dd,
 										   EASER_LINEAR,
 										   &this->radius_on, 0.0, final_radius,
 										   this->shutdown_time);
+		this->countdown_radius_easer.start();
 		clock_gettime(CLOCK_MONOTONIC, &this->motion_ts);
 	} else {
 		if (this->motion_state) {

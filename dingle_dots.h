@@ -71,9 +71,9 @@ public:
 	int current_video_file_source_index;
 	int current_sprite_index;
 	V4l2 v4l2[MAX_NUM_V4L2];
-	Sprite sprites[2];
+	Sprite sprites[MAX_NUM_SPRITES];
 	SnapshotShape snapshot_shape;
-	SoundShape sound_shapes[MAX_NSOUND_SHAPES];
+	SoundShape sound_shapes[MAX_NUM_SOUND_SHAPES];
 	kmeter meters[2];
 	GdkRectangle drawing_rect;
 	int doing_motion;
@@ -92,6 +92,7 @@ public:
 	uint8_t mdown;
 	uint8_t dragging;
 	uint8_t smdown;
+	uint8_t s_pressed;
 	GdkPoint mdown_pos;
 	GtkWidget *ctl_window;
 	GtkWidget *drawing_area;
@@ -113,6 +114,8 @@ public:
 	color random_color();
 	uint8_t get_animating() const;
 	void set_animating(const uint8_t &value);
+	void get_sound_shapes(std::vector<Drawable *> &sound_shapes);
+	void get_sources(std::vector<Drawable *> &list);
 };
 
 #endif

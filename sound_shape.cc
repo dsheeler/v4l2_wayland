@@ -11,7 +11,8 @@ void SoundShape::init(char *label, uint8_t midi_note, uint8_t midi_channel,
 	this->dd = dd;
 	this->active = 0;
 	this->r = r;
-
+	this->double_clicked_on = 0;
+	this->opacity = 1.0;
 	this->label = new string(label);
 	this->midi_note = midi_note;
 	this->midi_channel = midi_channel;
@@ -34,17 +35,18 @@ bool SoundShape::render(std::vector<cairo_t *> &contexts) {
 	for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
 		cairo_t *cr = *it;
 		cairo_save(cr);
-		cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
 		cairo_translate(cr, this->pos.x, this->pos.y);
-		cairo_arc(cr, 0, 0, this->r*0.975, 0, 2 * M_PI);
+		cairo_scale(cr, this->scale, this->scale);
+		cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
+		cairo_arc(cr, 0, 0, this->r*0.95, 0, 2 * M_PI);
 		cairo_fill(cr);
-		cairo_arc(cr, 0, 0, this->r, 0, 2 * M_PI);
+		cairo_arc(cr, 0, 0, this->r * 0.975, 0, 2 * M_PI);
 		cairo_set_source_rgba(cr, 0.5*c->r, 0.5*c->g, 0.5*c->b, c->a);
 		cairo_set_line_width(cr, 0.05 * this->r);
 		cairo_stroke(cr);
 		if (this->on) {
 			cairo_set_source_rgba(cr, 1, 1, 1, 0.5);
-			cairo_arc(cr, 0, 0, this->r*1.025, 0, 2 * M_PI);
+			cairo_arc(cr, 0, 0, this->r*1.0, 0, 2 * M_PI);
 			cairo_fill(cr);
 		}
 		if (this->hovered) {
@@ -54,11 +56,11 @@ bool SoundShape::render(std::vector<cairo_t *> &contexts) {
 		}
 		if (this->selected) {
 			cairo_set_source_rgba(cr, 0, 0, 0, 0.6);
-			cairo_arc(cr, 0, 0, this->r*1.025, 0, 2 * M_PI);
+			cairo_arc(cr, 0, 0, this->r, 0, 2 * M_PI);
 			cairo_fill(cr);
 		}
-		cairo_restore(cr);
 		this->render_label(cr, "");
+		cairo_restore(cr);
 	}
 	return true;
 }
@@ -69,7 +71,7 @@ void SoundShape::render_label(cairo_t *cr, char *text_to_append) {
 	int width, height;
 	char font[32];
 	std::string label_final	= *this->label + std::string(text_to_append);
-	sprintf(font, "Agave %d", (int)ceil(0.2 * this->r));
+	sprintf(font, "Agave %d", (int)floor(0.2 * this->r));
 	layout = pango_cairo_create_layout(cr);
 	pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
 	pango_layout_set_text(layout, label_final.c_str(), -1);
@@ -80,7 +82,7 @@ void SoundShape::render_label(cairo_t *cr, char *text_to_append) {
 	this->is_on() ? cairo_set_source_rgba(cr, 1., 1., 1., this->color_on.a) :
 					cairo_set_source_rgba(cr, 1., 1., 1., this->color_normal.a);
 	pango_layout_get_size(layout, &width, &height);
-	cairo_translate(cr, this->pos.x - 0.5*width/PANGO_SCALE, this->pos.y
+	cairo_translate(cr, - 0.5*width/PANGO_SCALE,
 					- 0.5*height/PANGO_SCALE);
 	pango_cairo_show_layout(cr, layout);
 	cairo_restore(cr);
@@ -89,14 +91,20 @@ void SoundShape::render_label(cairo_t *cr, char *text_to_append) {
 
 int SoundShape::activate() {
 	if (!this->active) {
-		double duration = 2.0;
-		Easer *ex = new Easer();
-		this->easers.push_back(ex);
-		ex->start(this->dd, EASER_BOUNCE_EASE_OUT, &this->pos.x, (1.0 * rand()) / RAND_MAX * this->dd->drawing_rect.width, this->pos.x, duration);
-		Easer *ey = new Easer();
-		this->easers.push_back(ey);
-		ey->start(this->dd, EASER_BOUNCE_EASE_OUT, &this->pos.y, -this->r, this->pos.y, duration);
+		double duration = 0.8;
+//		Easer *ey = new Easer();
+//		ey->initialize(this, this->dd, EASER_QUINTIC_EASE_IN, &this->color_normal.a, 0, this->color_normal.a, duration);
+
+//		Easer *ey = new Easer();
+//		ey->initialize(this, this->dd, EASER_BACK_EASE_OUT, &this->pos.y, -this->r, this->pos.y, duration);
+		Easer *er = new Easer();
+		er->initialize(this, this->dd, EASER_CIRCULAR_EASE_IN_OUT, &this->scale, 0, 3, duration);
+//		ey->start_when_finished.push_back(er);
+		Easer *er2 = new Easer();
+		er2->initialize(this, this->dd, EASER_CIRCULAR_EASE_IN_OUT, &this->scale, 3, 1, duration);
+		er->start_when_finished.push_back(er2);
 		this->active = 1;
+		er->start();
 		gtk_widget_queue_draw(dd->drawing_area);
 	}
 	return 0;
@@ -123,7 +131,7 @@ int SoundShape::deactivate() {
 }
 
 int SoundShape::in(double x, double y) {
-	if (sqrt(pow((x - this->pos.x), 2) + pow(y - this->pos.y, 2)) <= this->r) {
+	if (sqrt(pow((x - this->pos.x), 2) + pow(y - this->pos.y, 2)) <= this->r * this->scale) {
 		return 1;
 	} else {
 		return 0;
@@ -133,10 +141,6 @@ int SoundShape::in(double x, double y) {
 int SoundShape::set_on() {
 	this->on = 1;
 	midi_queue_new_message(0x90 | this->midi_channel, this->midi_note, 64, this->dd);
-//	Easer *testy = new Easer();
-//	this->easers.push_back(testy);
-//	testy->start(this->dd, EASER_QUAD_EASE_IN, &(this->pos.y), this->pos.y, this->dd->drawing_rect.height * 0.5, 10.0);
-
 	gtk_widget_queue_draw(dd->drawing_area);
 	return 0;
 }
