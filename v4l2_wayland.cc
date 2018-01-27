@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <vector>
 #include <memory>
+#include <cstring>
 
 #include "dingle_dots.h"
 #include "kmeter.h"
@@ -377,7 +378,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			CAIRO_FORMAT_ARGB32, dd->drawing_frame->width, dd->drawing_frame->height,
 			dd->drawing_frame->linesize[0]);
 	drawing_cr = cairo_create(drawing_surf);
-	if (!first_data && (dd->doing_motion || dd->show_shapshot_shape)) {
+	if (!first_data && (dd->doing_motion || dd->snapshot_shape.active)) {
 		memcpy(save_buf_sources, dd->sources_frame->data[0], 4 * dd->sources_frame->width *
 				dd->sources_frame->height);
 	}
@@ -416,7 +417,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			dd->sound_shapes[s].set_motion_state(0);
 		}
 	}
-	if (dd->show_shapshot_shape) {
+	if (dd->snapshot_shape.active) {
 		diff= calculate_motion(&dd->snapshot_shape, dd->sources_frame,
 							   save_buf_sources, dd->drawing_rect.width,
 							   dd->drawing_rect.height);
@@ -495,7 +496,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	std::vector<Drawable *> sound_shapes;
 	std::vector<cairo_t *> ss_contexts;
 	ss_contexts.push_back(screen_cr);
-	if (dd->show_shapshot_shape) {
+	if (dd->snapshot_shape.active) {
 		dd->snapshot_shape.update_easers();
 		dd->snapshot_shape.render(ss_contexts);
 	}
@@ -510,8 +511,9 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	}
 	std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z < b->z; } );
 	for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
-		(*it)->update_easers();
-		(*it)->render(ss_contexts);
+		Drawable *d = *it;
+		d->update_easers();
+		if (d->active) d->render(ss_contexts);
 	}
 
 #if defined(RENDER_KMETERS)
@@ -965,7 +967,8 @@ static gboolean double_press_event_cb(GtkWidget *widget,
 									  GdkEventButton *event, gpointer data) {
 	DingleDots * dd = (DingleDots *)data;
 	if (event->type == GDK_2BUTTON_PRESS &&
-			event->button == GDK_BUTTON_PRIMARY) {
+			event->button == GDK_BUTTON_PRIMARY &&
+			!dd->delete_active) {
 		uint8_t found = 0;
 		for (int i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
 			if (!dd->sound_shapes[i].active) continue;
@@ -1272,7 +1275,9 @@ static gboolean show_sprite_cb(GtkWidget *widget, gpointer data) {
 		fname = gtk_file_chooser_get_filename(chooser);
 		std::string filename(fname);
 		int index = dd->current_sprite_index++ % MAX_NUM_VIDEO_FILES;
-		dd->sprites[index].create(&filename, dd->next_z++);
+		Sprite *s = &dd->sprites[index];
+		s->create(&filename, dd->next_z++, dd);
+		//s->activate();
 		gtk_widget_queue_draw(dd->drawing_area);
 		g_free (fname);
 	}
@@ -1304,7 +1309,7 @@ static gboolean play_file_cb(GtkWidget *widget, gpointer data) {
 			printf("video_file %d alloced\n", index);
 			dd->vf[index].destroy();
 		}
-		dd->vf[index].dd = dd;
+		dd->vf[index].dingle_dots = dd;
 		dd->vf[index].create(filename, 0.0, 0.0, dd->next_z++);
 		g_free (filename);
 	}
@@ -1348,6 +1353,30 @@ static gboolean rand_color_cb(GtkWidget *widget, gpointer data) {
 	return TRUE;
 }
 
+static gboolean set_modes_cb(GtkWidget *widget, gpointer data) {
+	GtkComboBoxText *resolution_combo = (GtkComboBoxText *) data;
+	gtk_combo_box_text_remove_all(resolution_combo);
+	std::vector<std::pair<int, int>> width_height;
+	gchar *name = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(widget));
+	V4l2::get_dimensions(name, width_height);
+	int index = 0;
+
+	for (std::vector<std::pair<int,int>>::iterator it = width_height.begin();
+		 it != width_height.end(); ++it) {
+		char index_str[64];
+		char mode_str[64];
+		memset(index_str, '\0', sizeof(index_str));
+		memset(mode_str, '\0', sizeof(index_str));
+		snprintf(index_str, 63, "%d", index);
+		snprintf(mode_str, 63, "%dx%d", width_height.at(index).first,
+				 width_height.at(index).second);
+		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(resolution_combo), index_str, mode_str);
+		++index;
+	}
+	gtk_combo_box_set_active(GTK_COMBO_BOX(resolution_combo), 0);
+	return TRUE;
+}
+
 static gboolean camera_cb(GtkWidget *widget, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
@@ -1356,24 +1385,33 @@ static gboolean camera_cb(GtkWidget *widget, gpointer data) {
 	GtkWidget *combo;
 	GtkWidget *resolution_combo;
 	int res;
+	int index;
 	GtkDialogFlags flags = (GtkDialogFlags)(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT);
 	dialog = gtk_dialog_new_with_buttons("Open Camera", GTK_WINDOW(dd->ctl_window),
 										 flags, "Open", GTK_RESPONSE_ACCEPT, "Cancel", GTK_RESPONSE_REJECT, NULL);
 	dialog_content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
 	combo = gtk_combo_box_text_new();
-	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "0", "/dev/video0");
-	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "1", "/dev/video1");
-	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "2", "/dev/video2");
-	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), "3", "/dev/video3");
-	gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 0);
-	gtk_container_add(GTK_CONTAINER(dialog_content), combo);
+
+	std::vector<std::string> files;
+	V4l2::list_devices(files);
+	index = 0;
+	for (std::vector<std::string>::iterator it = files.begin();
+		 it != files.end(); ++it) {
+		char index_str[64];
+		memset(index_str, '\0', sizeof(index_str));
+		snprintf(index_str, 63, "%d", index);
+		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), index_str, (*it).c_str());
+		++index;
+	}
 	resolution_combo = gtk_combo_box_text_new();
-	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(resolution_combo), "0", "640x360");
-	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(resolution_combo), "1", "1280x720");
-	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(resolution_combo), "2", "1920x1080");
-	gtk_combo_box_set_active(GTK_COMBO_BOX(resolution_combo), 1);
+	gtk_container_add(GTK_CONTAINER(dialog_content), combo);
+
+	g_signal_connect(combo, "changed", G_CALLBACK(set_modes_cb), resolution_combo);
+
+	//gtk_combo_box_set_active(GTK_COMBO_BOX(resolution_combo), 1);
 	gtk_container_add(GTK_CONTAINER(dialog_content), resolution_combo);
 	gtk_widget_show_all(dialog);
+	gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 0);
 	res = gtk_dialog_run(GTK_DIALOG(dialog));
 	if (res == GTK_RESPONSE_ACCEPT) {
 		gchar *name = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(combo));
@@ -1382,7 +1420,7 @@ static gboolean camera_cb(GtkWidget *widget, gpointer data) {
 		w = strsep(&res_str, "x");
 		h = strsep(&res_str, "x");
 		for(int i = 0; i < MAX_NUM_V4L2; i++) {
-			if (!dd->v4l2[i].active) {
+			if (!dd->v4l2[i].allocated) {
 				dd->v4l2[i].create(dd, name, atof(w), atof(h), dd->next_z++);
 				break;
 			}

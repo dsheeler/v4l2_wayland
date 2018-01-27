@@ -12,8 +12,8 @@ void SnapshotShape::init(char *label, double x, double y, double r, color c,
 	this->clear_state();
 	this->pos.x = x;
 	this->pos.y = y;
-	this->dd = (DingleDots *)dd;
-	this->z = this->dd->next_z++;
+	this->dingle_dots = (DingleDots *)dd;
+	this->z = this->dingle_dots->next_z++;
 	this->label = new string(label);
 	this->r = r;
 	this->color_normal = color_copy(&c);
@@ -28,7 +28,7 @@ int SnapshotShape::set_on() {
 
 int SnapshotShape::set_off() {
 	this->on = 0;
-	dd->do_snapshot = 1;
+	this->dingle_dots->do_snapshot = 1;
 	return 1;
 }
 
@@ -40,8 +40,9 @@ bool SnapshotShape::render(std::vector<cairo_t *> &contexts) {
 	for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
 		cairo_t *cr = *it;
 		cairo_save(cr);
-		cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
 		cairo_translate(cr, this->pos.x, this->pos.y);
+		cairo_scale(cr, this->scale, this->scale);
+		cairo_set_source_rgba(cr, c->r, c->g, c->b, c->a);
 		cairo_arc(cr, 0, 0, this->r*0.975, 0, 2. * M_PI);
 		cairo_fill(cr);
 		cairo_arc(cr, 0, 0, this->r, 0, 2*M_PI);
@@ -50,7 +51,7 @@ bool SnapshotShape::render(std::vector<cairo_t *> &contexts) {
 		cairo_stroke(cr);
 		if (this->on) {
 			sprintf(text_to_add, "\nIN\n%.00f",
-					ceil(this->countdown_radius_easer.left_secs()));
+					ceil(this->countdown_radius_easer.time_left_secs()));
 			cairo_set_source_rgba(cr, 1, 1, 1, 0.5);
 			cairo_arc(cr, 0, 0, this->radius_on, 0, 2*M_PI);
 			cairo_fill(cr);
@@ -77,9 +78,9 @@ void SnapshotShape::set_motion_state(uint8_t state) {
 	if (state && this->motion_state == 0) {
 		this->motion_state = 1;
 		this->motion_state_to_off = 0;
-		this->countdown_radius_easer.initialize(this, this->dd,
+		this->countdown_radius_easer.initialize(this,
 										   EASER_LINEAR,
-										   &this->radius_on, 0.0, final_radius,
+										   std::bind(&SnapshotShape::set_radius_on, this, std::placeholders::_1), 0.0, final_radius,
 										   this->shutdown_time);
 		this->countdown_radius_easer.start();
 		clock_gettime(CLOCK_MONOTONIC, &this->motion_ts);
@@ -93,4 +94,15 @@ void SnapshotShape::set_motion_state(uint8_t state) {
 			}
 		}
 	}
+}
+
+double SnapshotShape::get_radius_on() const
+{
+	return radius_on;
+}
+
+void SnapshotShape::set_radius_on(double value)
+{
+	radius_on = value;
+	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 }

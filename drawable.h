@@ -34,12 +34,13 @@ public:
 	bool selected;
 	GdkPoint selected_pos;
 	std::vector<Easer *> easers;
+	DingleDots *dingle_dots;
 public:
 	Drawable();
 	virtual ~Drawable() {}
 	Drawable(double x, double y, int64_t z, double opacity, double scale);
-	virtual int deactivate() { active = 0; return 1; }
-	virtual int activate() { active = 1; return 1; }
+	virtual int deactivate();
+	virtual int activate();
 	void update_easers();
 	void set_mdown(double x, double y, int64_t z);
 	void drag(double mouse_x, double mouse_y);
@@ -59,6 +60,12 @@ public:
 	bool render_surface(std::vector<cairo_t *> &contexts, cairo_surface_t *surf);
 	double get_scale() const;
 	void set_scale(double value);
+	DingleDots *get_dingle_dots() const;
+	void set_dingle_dots(DingleDots *value);
+
+	int activate_spin_and_scale_to_fit();
+protected:
+	virtual void deactivate_action();
 };
 
 #endif

@@ -1,7 +1,12 @@
+#include <utility>
+#include <map>
+#include <iostream>
+#include <fstream>
+
 #include "dingle_dots.h"
 #include "v4l2.h"
 
-V4l2::V4l2() { active = 0; }
+V4l2::V4l2() { active = 0; allocated = 0; }
 
 int V4l2::xioctl(int fh, int request, void *arg) {
 	int r;
@@ -34,12 +39,13 @@ void V4l2::YUV2RGB(const unsigned char y, const unsigned char u,
 }
 
 void V4l2::create(DingleDots *dd, char *dev_name, double width, double height, uint64_t z) {
-	this->dd = dd;
+	this->dingle_dots = dd;
 	strncpy(this->dev_name, dev_name, DD_V4L2_MAX_STR_LEN-1);
 	this->z = z;
 	this->pos.x = 0;
 	this->pos.y = 0;
 	this->active = 0;
+	this->allocated = 1;
 	this->pos.width = width;
 	this->pos.height = height;
 	pthread_create(&this->thread_id, NULL, V4l2::thread, this);
@@ -60,7 +66,6 @@ void *V4l2::thread(void *arg) {
 	v->read_buf = (uint32_t *)(malloc(4 * v->pos.width * v->pos.height));
 	v->save_buf = (uint32_t *)(malloc(4 * v->pos.width * v->pos.height));
 	v->start_capturing();
-	v->active = 1;
 	pthread_mutex_lock(&v->lock);
 	v->read_frames();
 	pthread_mutex_unlock(&v->lock);
@@ -70,6 +75,9 @@ void *V4l2::thread(void *arg) {
 	return 0;
 }
 
+int V4l2::activate() {
+	return this->activate_spin_and_scale_to_fit();
+}
 int V4l2::read_frames() {
 	struct v4l2_buffer buf;
 	struct timespec ts;
@@ -80,6 +88,7 @@ int V4l2::read_frames() {
 	int n;
 	for (;;) {
 		poll(this->pfd, 1, -1);
+		if (!this->active) this->activate();
 		CLEAR(buf);
 		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		buf.memory = V4L2_MEMORY_MMAP;
@@ -123,7 +132,7 @@ int V4l2::read_frames() {
 							  4 * this->pos.width * this->pos.height);
 		if (-1 == xioctl(this->fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
-		gtk_widget_queue_draw(dd->drawing_area);
+		gtk_widget_queue_draw(dingle_dots->drawing_area);
 	}
 }
 
@@ -249,6 +258,8 @@ void V4l2::init_device() {
 		/* Errors ignored. */
 	}
 	CLEAR(fmt);
+
+
 	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	fmt.fmt.pix.width       = this->pos.width;
 	fmt.fmt.pix.height      = this->pos.height;
@@ -258,6 +269,8 @@ void V4l2::init_device() {
 		errno_exit("VIDIOC_S_FMT");
 	this->pos.width = fmt.fmt.pix.width;
 	this->pos.height = fmt.fmt.pix.height;
+	this->pos.x = 0.5 * (this->dingle_dots->drawing_rect.width - this->pos.width);
+	this->pos.y = 0.5 * (this->dingle_dots->drawing_rect.height - this->pos.height);
 	/* Note VIDIOC_S_FMT may change width and height. */
 	/* Buggy driver paranoia. */
 	/*min = fmt.fmt.pix.width * 2;
@@ -307,7 +320,7 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 			jack_ringbuffer_read(this->rbuf, (char *)&ts, sizeof(struct timespec));
 			jack_ringbuffer_read(this->rbuf, (char *)this->read_buf, 4*this->pos.width*this->pos.height);
 			if (jack_ringbuffer_read_space(this->rbuf) >= space) {
-				gtk_widget_queue_draw(dd->drawing_area);
+				gtk_widget_queue_draw(dingle_dots->drawing_area);
 			}
 			if (pthread_mutex_trylock(&this->lock) == 0) {
 				pthread_cond_signal(&this->data_ready);
@@ -322,4 +335,142 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 		cairo_surface_destroy(tsurf);
 	}
 	return ret;
+}
+
+void V4l2::get_dimensions(std::string device, std::vector<std::pair<int, int>> &w_h) {
+	struct v4l2_fmtdesc fmt;
+	struct v4l2_frmsizeenum frmsize;
+	int fd;
+	fd = open(device.c_str(), O_RDWR /* required */ | O_NONBLOCK, 0);
+	if (-1 == fd) {
+		fprintf(stderr, "Cannot open '%s': %d, %s\n",
+				device.c_str(), errno, strerror(errno));
+	}
+	fmt.index = 0;
+	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	frmsize.pixel_format = V4L2_PIX_FMT_YUYV;
+	frmsize.index = 1;
+	while (xioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) >= 0) {
+		if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
+			w_h.push_back(std::pair<int, int> (frmsize.discrete.width,
+											   frmsize.discrete.height));
+		}
+		frmsize.index++;
+	}
+}
+typedef std::vector<std::string> dev_vec;
+typedef std::map<std::string, std::string> dev_map;
+
+static bool is_v4l_dev(const char *name)
+{
+	char *dev = "video";
+	unsigned l = strlen(dev);
+	if (!memcmp(name, dev, l)) {
+		if (isdigit(name[l]))
+			return true;
+	}
+	return false;
+}
+
+static int calc_node_val(const char *s)
+{
+	int n = 0;
+	char *dev = "video";
+	s = strrchr(s, '/') + 1;
+	unsigned l = strlen(dev);
+
+	if (!memcmp(s, dev, l)) {
+		n = 0 << 8;
+		n += atol(s + l);
+		return n;
+	}
+
+	return 0;
+}
+
+static bool sort_on_device_name(const std::string &s1, const std::string &s2)
+{
+	int n1 = calc_node_val(s1.c_str());
+	int n2 = calc_node_val(s2.c_str());
+
+	return n1 < n2;
+}
+
+
+
+void V4l2::list_devices(std::vector<std::string> &files) {
+	DIR *dp;
+	struct dirent *ep;
+	dev_map links;
+	dev_map cards;
+	struct v4l2_capability vcap;
+	struct v4l2_format fmt;
+
+	dp = opendir("/dev");
+	if (dp == NULL) {
+		perror ("Couldn't open the directory");
+		return;
+	}
+	while ((ep = readdir(dp))) {
+		if (is_v4l_dev(ep->d_name)) {
+			int fd;
+			struct stat st;
+			std::string name= std::string("/dev/") + ep->d_name;
+			if (-1 == stat(name.c_str(), &st)) {
+				continue;
+			}
+			if (!S_ISCHR(st.st_mode)) {
+				continue;
+			}
+			fd = open(name.c_str(), O_RDWR /* required */ | O_NONBLOCK, 0);
+			fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+			fmt.fmt.pix.width       = 640;
+			fmt.fmt.pix.height      = 360;
+			fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+			fmt.fmt.pix.field       = V4L2_FIELD_ANY;
+			if (-1 == xioctl(fd, VIDIOC_S_FMT, &fmt))
+				continue;
+			if (-1 == fd) {
+				continue;
+			} else {
+				close(fd);
+			}
+			files.push_back(name);
+		}
+	}
+	closedir(dp);
+
+	/* Find device nodes which are links to other device nodes */
+	for (dev_vec::iterator iter = files.begin();
+			iter != files.end(); ) {
+		char link[64+1];
+		int link_len;
+		std::string target;
+
+		link_len = readlink(iter->c_str(), link, 64);
+		if (link_len < 0) {	/* Not a link or error */
+			iter++;
+			continue;
+		}
+		link[link_len] = '\0';
+
+		/* Only remove from files list if target itself is in list */
+		if (link[0] != '/')	/* Relative link */
+			target = std::string("/dev/");
+		target += link;
+		if (find(files.begin(), files.end(), target) == files.end()) {
+			iter++;
+			continue;
+		}
+
+		/* Move the device node from files to links */
+		if (links[target].empty())
+			links[target] = *iter;
+		else
+			links[target] += ", " + *iter;
+		iter = files.erase(iter);
+	}
+
+	std::sort(files.begin(), files.end(), sort_on_device_name);
+
 }

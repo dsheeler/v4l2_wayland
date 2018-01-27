@@ -7,9 +7,10 @@ void SoundShape::init(char *label, uint8_t midi_note, uint8_t midi_channel,
 	this->clear_state();
 	this->pos.x = x;
 	this->pos.y = y;
+	this->dingle_dots = dd;
 	this->z = dd->next_z++;
-	this->dd = dd;
 	this->active = 0;
+	this->scale = 1.0;
 	this->r = r;
 	this->double_clicked_on = 0;
 	this->opacity = 1.0;
@@ -89,26 +90,7 @@ void SoundShape::render_label(cairo_t *cr, char *text_to_append) {
 	g_object_unref(layout);
 }
 
-int SoundShape::activate() {
-	if (!this->active) {
-		double duration = 0.8;
-//		Easer *ey = new Easer();
-//		ey->initialize(this, this->dd, EASER_QUINTIC_EASE_IN, &this->color_normal.a, 0, this->color_normal.a, duration);
 
-//		Easer *ey = new Easer();
-//		ey->initialize(this, this->dd, EASER_BACK_EASE_OUT, &this->pos.y, -this->r, this->pos.y, duration);
-		Easer *er = new Easer();
-		er->initialize(this, this->dd, EASER_CIRCULAR_EASE_IN_OUT, &this->scale, 0, 3, duration);
-//		ey->start_when_finished.push_back(er);
-		Easer *er2 = new Easer();
-		er2->initialize(this, this->dd, EASER_CIRCULAR_EASE_IN_OUT, &this->scale, 3, 1, duration);
-		er->start_when_finished.push_back(er2);
-		this->active = 1;
-		er->start();
-		gtk_widget_queue_draw(dd->drawing_area);
-	}
-	return 0;
-}
 
 void SoundShape::clear_state() {
 	this->selected = 0;
@@ -119,16 +101,16 @@ void SoundShape::clear_state() {
 	this->active = 0;
 }
 
-int SoundShape::deactivate() {
+void SoundShape::deactivate_action() {
 	if (active) {
 		if (this->on) {
 			this->set_off();
 		}
 		this->clear_state();
-		gtk_widget_queue_draw(dd->drawing_area);
+		gtk_widget_queue_draw(dingle_dots->drawing_area);
 	}
-	return 0;
 }
+
 
 int SoundShape::in(double x, double y) {
 	if (sqrt(pow((x - this->pos.x), 2) + pow(y - this->pos.y, 2)) <= this->r * this->scale) {
@@ -140,16 +122,16 @@ int SoundShape::in(double x, double y) {
 
 int SoundShape::set_on() {
 	this->on = 1;
-	midi_queue_new_message(0x90 | this->midi_channel, this->midi_note, 64, this->dd);
-	gtk_widget_queue_draw(dd->drawing_area);
+	midi_queue_new_message(0x90 | this->midi_channel, this->midi_note, 64, this->dingle_dots);
+	gtk_widget_queue_draw(dingle_dots->drawing_area);
 	return 0;
 }
 
 int SoundShape::set_off() {
 	this->on = 0;
 	this->double_clicked_on = 0;
-	midi_queue_new_message(0x80 | this->midi_channel, this->midi_note, 0, this->dd);
-	gtk_widget_queue_draw(dd->drawing_area);
+	midi_queue_new_message(0x80 | this->midi_channel, this->midi_note, 0, this->dingle_dots);
+	gtk_widget_queue_draw(dingle_dots->drawing_area);
 	return 0;
 }
 

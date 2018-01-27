@@ -35,10 +35,11 @@ struct dd_v4l2_buffer {
 	size_t  length;
 };
 
+
 class V4l2 : public Drawable {
 public:
 	V4l2();
-	void create(DingleDots *dd, char *name, double w, double h, uint64_t z);
+	void create(DingleDots *dingle_dots, char *name, double w, double h, uint64_t z);
 	int read_frames();
 	void stop_capturing();
 	void start_capturing();
@@ -48,6 +49,8 @@ public:
 	void open_device();
 	void init_mmap();
 	bool render(std::vector<cairo_t *> &contexts);
+	static void get_dimensions(std::string device, std::vector<std::pair<int, int> > &w_h);
+	static void list_devices(std::vector<std::string> &files);
 private:
 	static void* thread(void *v);
 	static int xioctl(int fh, int request, void *arg);
@@ -55,7 +58,6 @@ private:
 						const unsigned char v, unsigned char* r, unsigned char* g,
 						unsigned char* b);
 public:
-	DingleDots *dd;
 	char dev_name[DD_V4L2_MAX_STR_LEN];
 	int fd;
 	struct dd_v4l2_buffer *buffers;
@@ -67,6 +69,8 @@ public:
 	pthread_mutex_t lock;
 	pthread_cond_t data_ready;
 	jack_ringbuffer_t *rbuf;
+	int activate();
+
 };
 
 #endif

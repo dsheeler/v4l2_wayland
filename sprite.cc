@@ -1,15 +1,13 @@
+#include <boost/bind.hpp>
+
 #include "sprite.h"
+#include "dingle_dots.h"
 
 Sprite::Sprite()
 {
 	file_path = 0;
 	allocated = 0;
 	active = 0;
-}
-
-Sprite::Sprite(std::string *file_path)
-{
-	this->create(file_path, 0);
 }
 
 void Sprite::free()
@@ -34,16 +32,22 @@ std::string *Sprite::get_file_path() const
 	return file_path;
 }
 
-void Sprite::create(std::string *name, int z) {
+void Sprite::create(std::string *name, int z, DingleDots *dd) {
 	if (allocated) free();
+	this->dingle_dots = dd;
 	if (file_path) delete file_path;
 	this->z = z;
 	file_path = new std::string(name->c_str());
 	decoded_frame = av_frame_alloc();
 	ff_load_image();
+	this->pos.x = 0.5 * (this->dingle_dots->drawing_rect.width - this->pos.width);
+	this->pos.y = 0.5 * (this->dingle_dots->drawing_rect.height - this->pos.height);
+
 }
 
-
+int Sprite::activate() {
+	return activate_spin_and_scale_to_fit();
+}
 
 bool Sprite::render(std::vector<cairo_t *> &contexts)
 {
@@ -147,10 +151,11 @@ int Sprite::ff_load_image() {
 	avcodec_free_context(&codec_ctx);		//[sgan]To add
 	avformat_close_input(&format_ctx);
 	sws_freeContext(decoded_to_presentation_ctx);
-	if (ret < 0)
+	if (ret < 0) {
 		fprintf(stderr, "Error loading image file '%s'\n", file_path->c_str());
-	else
+	} else {
 		this->allocated = 1;
-		this->active = 1;
+		this->activate();
+	}
 	return ret;
 }

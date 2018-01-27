@@ -4,6 +4,7 @@
 #include <time.h>
 #include <vector>
 #include "easing.h"
+#include <boost/function.hpp>
 //#include "drawable.h"
 
 typedef enum {
@@ -54,10 +55,13 @@ public:
 	void update_value();
 	bool done();
 	double get_ratio_complete();
-	double left_secs();
-
+	double time_left_secs();
+	void add_finish_easer(Easer *e);
+	void add_finish_action(boost::function<void ()> action);
 	EasingFuncPtr easing_func;
+
 	Drawable *target;
+	boost::function<void(double)> setter;
 	DingleDots *dd;
 	bool active;
 	float duration_secs;
@@ -65,7 +69,9 @@ public:
 	double value_start;
 	double value_finish;
 	struct timespec start_ts;
-	std::vector<Easer *> start_when_finished;
+	std::vector<Easer *> finsh_easers;
+	std::vector<boost::function<void ()>> finish_actions;
+	void initialize(Drawable *target, Easer_Type type, boost::function<void (double)>, double value_start, double value_finish, double duration_secs);
 };
 
 #endif // EASER_H

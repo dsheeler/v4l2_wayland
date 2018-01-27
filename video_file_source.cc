@@ -1,5 +1,6 @@
 #include "dingle_dots.h"
 #include "video_file_source.h"
+#include <boost/bind.hpp>
 
 VideoFile::VideoFile() { active = 0; }
 int VideoFile::open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
@@ -56,8 +57,9 @@ int VideoFile::create(char *name, double x, double y, uint64_t z) {
 	this->pos.x = x;
 	this->pos.y = y;
 	this->z = z;
+	this->easers.erase(this->easers.begin(), this->easers.end());
 	pthread_create(&this->thread_id, NULL, VideoFile::thread, this);
-	int rc = pthread_setname_np(this->thread_id, "vw_videofile");
+	int rc = pthread_setname_np(this->thread_id, "vw_source_video_file");
 	if (rc != 0) {
 		errno = rc;
 		perror("pthread_setname_np");
@@ -81,6 +83,10 @@ int VideoFile::destroy() {
 	this->rotation_radians = 0;
 	this->playing = 0;
 	return 0;
+}
+
+int VideoFile::activate() {
+	return this->activate_spin_and_scale_to_fit();
 }
 
 int VideoFile::play() {
@@ -111,6 +117,8 @@ void *VideoFile::thread(void *arg) {
 		vf->video_stream = vf->fmt_ctx->streams[vf->video_stream_idx];
 		vf->pos.width = vf->video_dec_ctx->width;
 		vf->pos.height = vf->video_dec_ctx->height;
+		vf->pos.x = 0.5 * (vf->dingle_dots->drawing_rect.width - vf->pos.width);
+		vf->pos.y = 0.5 * (vf->dingle_dots->drawing_rect.height - vf->pos.height);
 		vf->pix_fmt = vf->video_dec_ctx->pix_fmt;
 		ret = av_image_alloc(vf->video_dst_data, vf->video_dst_linesize,
 							 vf->pos.width, vf->pos.height, AV_PIX_FMT_ARGB, 1);
@@ -141,7 +149,6 @@ void *VideoFile::thread(void *arg) {
 	double pts;
 	vf->play();
 	vf->playing = 1;
-	vf->active = 1;
 	vf->fmt_ctx->iformat->flags & AVFMT_SEEK_TO_PTS;
 	while(avformat_seek_file(vf->fmt_ctx, vf->video_stream_idx, 0, 0, 0, 0) >= 0) {
 		vf->play();
@@ -170,22 +177,23 @@ void *VideoFile::thread(void *arg) {
 					int space = vf->video_dst_bufsize + sizeof(double);
 					int buf_space = jack_ringbuffer_write_space(vf->vbuf);
 					while (buf_space < space) {
-						gtk_widget_queue_draw(vf->dd->drawing_area);
+						gtk_widget_queue_draw(vf->dingle_dots->drawing_area);
 						pthread_cond_wait(&vf->data_ready, &vf->lock);
 						buf_space = jack_ringbuffer_write_space(vf->vbuf);
 					}
 					jack_ringbuffer_write(vf->vbuf, (const char *)&pts, sizeof(double));
 					jack_ringbuffer_write(vf->vbuf, (const char *)vf->video_dst_data[0],
 							vf->video_dst_bufsize);
-					gtk_widget_queue_draw(vf->dd->drawing_area);
+					if (!vf->active) vf->activate();
+					gtk_widget_queue_draw(vf->dingle_dots->drawing_area);
 				}
 			}
-			gtk_widget_queue_draw(vf->dd->drawing_area);
+			gtk_widget_queue_draw(vf->dingle_dots->drawing_area);
 			av_frame_free(&vf->frame);
 		}
 		vf->decoding_finished = 1;
 		while (vf->playing) {
-			gtk_widget_queue_draw(vf->dd->drawing_area);
+			gtk_widget_queue_draw(vf->dingle_dots->drawing_area);
 			pthread_cond_wait(&vf->data_ready, &vf->lock);
 		}
 	}

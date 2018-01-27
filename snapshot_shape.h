@@ -16,6 +16,8 @@ public:
 	void set_motion_state(uint8_t state);
 	double radius_on;
 	Easer countdown_radius_easer;
+	double get_radius_on() const;
+	void set_radius_on(double value);
 };
 
 #endif // SNAPSHOT_SHAPE_H

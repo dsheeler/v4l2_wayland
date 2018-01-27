@@ -1,7 +1,10 @@
 #include <math.h>
+#include <boost/function.hpp>
+#include <boost/bind.hpp>
 
 #include "drawable.h"
 #include "easer.h"
+#include "dingle_dots.h"
 
 double Drawable::get_opacity() const
 {
@@ -11,6 +14,7 @@ double Drawable::get_opacity() const
 void Drawable::set_opacity(double value)
 {
 	opacity = value > 1.0 ? 1.0 : (value < 0.0 ? 0.0 : value);
+	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 }
 
 double Drawable::get_scale() const
@@ -21,6 +25,77 @@ double Drawable::get_scale() const
 void Drawable::set_scale(double value)
 {
 	scale = value < 0 ? scale : value;
+	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
+}
+
+int Drawable::activate_spin_and_scale_to_fit() {
+	if (!this->active) {
+		this->easers.erase(this->easers.begin(), this->easers.end());
+		this->scale = min(this->dingle_dots->drawing_rect.width / this->pos.width,
+						  this->dingle_dots->drawing_rect.height / this->pos.height);
+		double duration = 2;
+		//Easer *er = new Easer();
+		//er->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, boost::bind(&Drawable::set_opacity, this, _1), 0, 1, duration);
+		Easer *er2 = new Easer();
+		er2->initialize(this, EASER_BACK_EASE_OUT, boost::bind(&Drawable::set_rotation, this, _1), -3*2*M_PI, 0, 2*duration);
+		Easer *er3 = new Easer();
+		er3->initialize(this, EASER_EXPONENTIAL_EASE_OUT, boost::bind(&Drawable::set_scale, this, _1), 0, this->scale, 2*duration);
+		this->active = 1;
+		//er->start();
+		er2->start();
+		er3->start();
+		gtk_widget_queue_draw(this->dingle_dots->drawing_area);
+	}
+	return 0;
+}
+
+int Drawable::activate() {
+	if (!this->active) {
+		this->easers.erase(this->easers.begin(), this->easers.end());
+		double duration = 0.8;
+		Easer *er = new Easer();
+		er->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, boost::bind(&Drawable::set_scale, this, _1), 0, 3, 0.75 * duration);
+		Easer *er2 = new Easer();
+		er2->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, boost::bind(&Drawable::set_scale, this, _1), 3, 1, 0.25 *duration);
+		er->add_finish_easer(er2);
+		this->active = 1;
+		er->start();
+		gtk_widget_queue_draw(this->dingle_dots->drawing_area);
+	}
+	return 0;
+}
+
+void Drawable::deactivate_action()
+{
+	if (active) {
+		this->active = 0;
+	}
+}
+
+int Drawable::deactivate() {
+	double duration = 0.4;
+	Easer *e = new Easer();
+	Easer *e2 = new Easer();
+	e->initialize(this,EASER_CIRCULAR_EASE_IN_OUT, boost::bind(&Drawable::set_scale,
+															   this, _1),
+				  this->scale, 3 * this->scale, 0.75 * duration);
+	e2->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, boost::bind(&Drawable::set_scale,
+																 this, _1),
+				   3 * this->scale, 0, 0.25 * duration);
+	e2->add_finish_action(std::bind(&Drawable::deactivate_action, this));
+	e->add_finish_easer(e2);
+	e->start();
+}
+
+
+DingleDots *Drawable::get_dingle_dots() const
+{
+	return dingle_dots;
+}
+
+void Drawable::set_dingle_dots(DingleDots *value)
+{
+	dingle_dots = value;
 }
 
 Drawable::Drawable() {
@@ -52,10 +127,6 @@ void Drawable::update_easers() {
 			if (easer->done()) {
 				to_finalize.push_back(easer);
 			}
-		} else {
-			it = easers.erase(it);
-			if (it == this->easers.end()) break;
-			else --it;
 		}
 	}
 	while(to_finalize.size()) {
@@ -94,11 +165,13 @@ bool Drawable::render_surface(std::vector<cairo_t *> &contexts, cairo_surface_t 
 void Drawable::rotate(double angle)
 {
 	this->rotation_radians += angle;
+	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 }
 
 void Drawable::set_rotation(double angle)
 {
 	this->rotation_radians = angle;
+	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 }
 
 void Drawable::set_mdown(double x, double y, int64_t z) {

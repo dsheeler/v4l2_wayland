@@ -111,34 +111,37 @@ EasingFuncPtr Easer::easer_type_to_easing_func(Easer_Type type)
 	return func;
 }
 
-void Easer::initialize(Drawable *target, DingleDots *dd, Easer_Type type, double *tvalue, double value_start, double value_finish,
-				  double duration_secs)
+void Easer::initialize(Drawable *target, Easer_Type type, boost::function<void(double)> functor,
+					   double value_start, double value_finish,
+					   double duration_secs)
 {
 	this->active = FALSE;
 	this->target = target;
-	this->dd = dd;
-	this->value = tvalue;
+	this->value = 0;
+	this->setter = functor;
 	this->duration_secs = duration_secs;
 	this->value_start = value_start;
 	this->value_finish = value_finish;
 	this->easing_func = easer_type_to_easing_func(type);
 }
 
-
 void Easer::start() {
 	target->easers.push_back(this);
 	this->active = TRUE;
 	clock_gettime(CLOCK_MONOTONIC, &this->start_ts);
-	dd->set_animating(dd->get_animating()+1);
 }
 
 void Easer::finalize() {
-	*this->value = this->value_finish;
-	dd->set_animating(dd->get_animating() - 1);
-	for (std::vector<Easer *>::iterator it = this->start_when_finished.begin();
-		 it != this->start_when_finished.end(); ++it) {
+	this->setter(this->value_finish);
+	for (std::vector<Easer *>::iterator it = this->finsh_easers.begin();
+		 it != this->finsh_easers.end(); ++it) {
 		Easer *e = *it;
 		e->start();
+	}
+	for (std::vector<boost::function <void()>>::iterator it = this->finish_actions.begin();
+		 it != this->finish_actions.end(); ++it) {
+		auto action = *it;
+		action();
 	}
 	this->active = FALSE;
 }
@@ -150,7 +153,7 @@ void Easer::update_value() {
 	ratio_complete = min(1.0, this->get_ratio_complete());
 	easer_value = (this->easing_func)(ratio_complete);
 	delta = this->value_finish - this->value_start;
-	*this->value = this->value_start + easer_value * delta;
+	this->setter(this->value_start + easer_value * delta);
 }
 
 bool Easer::done()
@@ -176,8 +179,18 @@ double Easer::get_ratio_complete() {
 	return ratio_complete;
 }
 
-double Easer::left_secs()
+double Easer::time_left_secs()
 {
 	return (1.0 - this->get_ratio_complete()) * this->duration_secs;
+}
+
+void Easer::add_finish_easer(Easer *e)
+{
+	this->finsh_easers.push_back(e);
+}
+
+void Easer::add_finish_action(boost::function<void()> action)
+{
+	this->finish_actions.push_back(action);
 }
 

@@ -22,12 +22,13 @@ public:
 	Sprite(std::string *file_path);
 	~Sprite();
 	std::string *get_file_path() const;
-	void create(std::string *name, int z);
+	void create(std::string *name, int z, DingleDots *dd);
 	bool render(std::vector<cairo_t *> &contexts);
 	void free();
 
-	void r(std::vector<cairo_t *> &contexts, cairo_surface_t *tsurf);
+	//void r(std::vector<cairo_t *> &contexts, cairo_surface_t *tsurf);
 
+	int activate();
 protected:
 	int ff_load_image();
 private:

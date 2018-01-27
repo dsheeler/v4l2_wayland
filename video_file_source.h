@@ -31,8 +31,6 @@ public:
 	/*private:*/
 	static int open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
 								  AVFormatContext *fmt_ctx, enum AVMediaType type);
-	DingleDots *dd;
-
 	char name[256];
 	AVFormatContext *fmt_ctx;
 	AVCodecContext *video_dec_ctx;
@@ -56,6 +54,7 @@ public:
 	double current_playtime;
 	struct timespec play_start_ts;
 	jack_ringbuffer_t *vbuf;
+	int activate();
 };
 
 #endif

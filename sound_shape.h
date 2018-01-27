@@ -28,8 +28,7 @@ public:
 			  double x, double y, double r, color *c, DingleDots *dd);
 	bool virtual render(std::vector<cairo_t *> &contexts);
 	void render_label(cairo_t *cr, char *text_to_append);
-	int activate();
-	int deactivate();
+	void deactivate_action();
 	int in(double x, double y);
 	int virtual set_on();
 	virtual int set_off();
@@ -39,7 +38,6 @@ public:
 	virtual void set_motion_state(uint8_t state);
 	//	private:
 	double shutdown_time;
-	DingleDots *dd;
 	uint8_t on;
 	uint8_t double_clicked_on;
 	uint8_t motion_state;
@@ -53,6 +51,7 @@ public:
 	color color_normal;
 	color color_on;
 	double get_secs_since_last_on();
+
 };
 
 int color_init(color *c, double r, double g, double b, double a);
@@ -60,5 +59,4 @@ color color_copy(color *c);
 struct hsva rgb2hsv(color *c);
 color hsv2rgb(struct hsva *in);
 color color_lighten(color *in, double mag);
-
 #endif
