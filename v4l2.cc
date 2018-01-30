@@ -314,14 +314,14 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 	struct timespec ts;
 	bool ret = false;
 	if (this->active) {
-		int space = 4*this->pos.width*this->pos.height + sizeof(struct timespec);
-		if (jack_ringbuffer_read_space(this->rbuf) >= space) {
+		uint space = 4*this->pos.width*this->pos.height + sizeof(struct timespec);
+		while (jack_ringbuffer_read_space(this->rbuf) >= space) {
 			ret = true;
 			jack_ringbuffer_read(this->rbuf, (char *)&ts, sizeof(struct timespec));
 			jack_ringbuffer_read(this->rbuf, (char *)this->read_buf, 4*this->pos.width*this->pos.height);
-			if (jack_ringbuffer_read_space(this->rbuf) >= space) {
+			/*if (jack_ringbuffer_read_space(this->rbuf) >= space) {
 				gtk_widget_queue_draw(dingle_dots->drawing_area);
-			}
+			}*/
 			if (pthread_mutex_trylock(&this->lock) == 0) {
 				pthread_cond_signal(&this->data_ready);
 				pthread_mutex_unlock(&this->lock);
@@ -338,7 +338,6 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 }
 
 void V4l2::get_dimensions(std::string device, std::vector<std::pair<int, int>> &w_h) {
-	struct v4l2_fmtdesc fmt;
 	struct v4l2_frmsizeenum frmsize;
 	int fd;
 	fd = open(device.c_str(), O_RDWR /* required */ | O_NONBLOCK, 0);
@@ -346,10 +345,8 @@ void V4l2::get_dimensions(std::string device, std::vector<std::pair<int, int>> &
 		fprintf(stderr, "Cannot open '%s': %d, %s\n",
 				device.c_str(), errno, strerror(errno));
 	}
-	fmt.index = 0;
-	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	frmsize.pixel_format = V4L2_PIX_FMT_YUYV;
-	frmsize.index = 1;
+	frmsize.index = 1; /*Don't understand why 0 seems messed up. start at 1???*/
 	while (xioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) >= 0) {
 		if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
 			w_h.push_back(std::pair<int, int> (frmsize.discrete.width,
@@ -363,7 +360,7 @@ typedef std::map<std::string, std::string> dev_map;
 
 static bool is_v4l_dev(const char *name)
 {
-	char *dev = "video";
+	const char *dev = "video";
 	unsigned l = strlen(dev);
 	if (!memcmp(name, dev, l)) {
 		if (isdigit(name[l]))
@@ -375,7 +372,7 @@ static bool is_v4l_dev(const char *name)
 static int calc_node_val(const char *s)
 {
 	int n = 0;
-	char *dev = "video";
+	const char *dev = "video";
 	s = strrchr(s, '/') + 1;
 	unsigned l = strlen(dev);
 
@@ -403,7 +400,6 @@ void V4l2::list_devices(std::vector<std::string> &files) {
 	struct dirent *ep;
 	dev_map links;
 	dev_map cards;
-	struct v4l2_capability vcap;
 	struct v4l2_format fmt;
 
 	dp = opendir("/dev");

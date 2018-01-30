@@ -57,25 +57,31 @@ bool Sprite::render(std::vector<cairo_t *> &contexts)
 				this->pos.width, this->pos.height, 4 * this->pos.width);
 	render_surface(contexts, tsurf);
 	cairo_surface_destroy(tsurf);
+	return TRUE;
 }
 
 int Sprite::ff_load_image() {
 	AVInputFormat *iformat = NULL;
 	AVFormatContext *format_ctx = NULL;
 	AVCodec *codec;
+	AVCodecParameters *codec_parms;
 	AVCodecContext *codec_ctx;
-	int frame_decoded, ret = 0;
+	int ret = 0;
 	AVPacket pkt;
 	struct SwsContext *decoded_to_presentation_ctx;
 
-	av_init_packet(&pkt);
 
 	av_register_all();
 
 	iformat = av_find_input_format("image2");
+	if (iformat == NULL) {
+		fprintf(stderr, "Failed to find image format\n");
+		return -1;
+	}
+
 	if ((ret = avformat_open_input(&format_ctx, file_path->c_str(), iformat, NULL)) < 0) {
 		fprintf(stderr,
-		"Failed to open input file '%s'\n", file_path);
+		"Failed to open input file '%s'\n", file_path->c_str());
 		return ret;
 	}
 
@@ -84,21 +90,22 @@ int Sprite::ff_load_image() {
 		return ret;
 	}
 
-	codec_ctx = format_ctx->streams[0]->codec;				//[sgan]To remove
-	codec = avcodec_find_decoder(codec_ctx->codec_id);	//[sgan]To modify
+	codec_parms = format_ctx->streams[0]->codecpar;
+	codec = avcodec_find_decoder(codec_parms->codec_id);
 	if (!codec) {
 		fprintf(stderr, "Failed to find codec\n");
 		ret = AVERROR(EINVAL);
-		goto end;
+		return ret;
 	}
 
-	codec_ctx = avcodec_alloc_context3(codec);	//[sgan]To add
-	if (!codec_ctx) return -1;									//[sgan]To add
+	codec_ctx = avcodec_alloc_context3(codec);
+	if (!codec_ctx) return -1;
 
+	av_init_packet(&pkt);
 
-	codec_ctx->width=format_ctx->streams[0]->codec->width;			//[sgan]To add
-	codec_ctx->height=format_ctx->streams[0]->codec->height;		//[sgan]To add
-	codec_ctx->pix_fmt=format_ctx->streams[0]->codec->pix_fmt;	//[sgan]To add
+	codec_ctx->width = format_ctx->streams[0]->codecpar->width;
+	codec_ctx->height = format_ctx->streams[0]->codecpar->height;
+	codec_ctx->pix_fmt = (AVPixelFormat)format_ctx->streams[0]->codecpar->format;
 
 	if ((ret = avcodec_open2(codec_ctx, codec, NULL)) < 0) {
 		fprintf(stderr, "Failed to open codec\n");
@@ -117,40 +124,41 @@ int Sprite::ff_load_image() {
 		goto end;
 	}
 
-	ret = avcodec_decode_video2(codec_ctx, decoded_frame, &frame_decoded, &pkt);
-	if (ret < 0 || !frame_decoded) {
-		fprintf(stderr, "Failed to decode image from file\n");
-		if (ret >= 0)
+	ret = avcodec_send_packet(codec_ctx,&pkt);
+	if (ret < 0) {
+		fprintf(stderr, "Error submitting the packet to the decoder\n");
 		ret = -1;
 		goto end;
 	}
-	this->pos.width = decoded_frame->width;
-	this->pos.height = decoded_frame->height;
-	presentation_frame = av_frame_alloc();
-	presentation_frame->format = AV_PIX_FMT_BGRA;
-	presentation_frame->width = this->pos.width;
-	presentation_frame->height = this->pos.height;
-	ret = av_image_alloc(presentation_frame->data, presentation_frame->linesize,
-						 presentation_frame->width, presentation_frame->height,
-						 (AVPixelFormat)presentation_frame->format, 1);
-	if (ret < 0) {
-		fprintf(stderr, "Sprite: Could not allocate raw picture buffer\n");
-		exit(1);
-	}
-	decoded_to_presentation_ctx = sws_getContext(decoded_frame->width, decoded_frame->height,
-												 (AVPixelFormat) decoded_frame->format, presentation_frame->width,
-											presentation_frame->height, (AVPixelFormat) presentation_frame->format, SWS_BICUBIC, NULL, NULL, NULL);
+	if ((ret = avcodec_receive_frame(codec_ctx, decoded_frame)) >= 0) {
+		this->pos.width = decoded_frame->width;
+		this->pos.height = decoded_frame->height;
+		presentation_frame = av_frame_alloc();
+		presentation_frame->format = AV_PIX_FMT_BGRA;
+		presentation_frame->width = this->pos.width;
+		presentation_frame->height = this->pos.height;
+		ret = av_image_alloc(presentation_frame->data, presentation_frame->linesize,
+							 presentation_frame->width, presentation_frame->height,
+							 (AVPixelFormat)presentation_frame->format, 1);
+		if (ret < 0) {
+			fprintf(stderr, "Sprite: Could not allocate raw picture buffer\n");
+			exit(1);
+		}
+		decoded_to_presentation_ctx = sws_getContext(decoded_frame->width, decoded_frame->height,
+													 (AVPixelFormat) decoded_frame->format, presentation_frame->width,
+													 presentation_frame->height, (AVPixelFormat) presentation_frame->format, SWS_BICUBIC, NULL, NULL, NULL);
 
-	sws_scale(decoded_to_presentation_ctx, (const uint8_t * const*)decoded_frame->data,
-			decoded_frame->linesize, 0, decoded_frame->height,
-			(uint8_t * const*)presentation_frame->data,
-			presentation_frame->linesize);
+		sws_scale(decoded_to_presentation_ctx, (const uint8_t * const*)decoded_frame->data,
+				  decoded_frame->linesize, 0, decoded_frame->height,
+				  (uint8_t * const*)presentation_frame->data,
+				  presentation_frame->linesize);
+		sws_freeContext(decoded_to_presentation_ctx);
+	}
 	end:
-	av_free_packet(&pkt);
+	av_packet_unref(&pkt);
 	//avcodec_close(codec_ctx);					//[sgan]To remove
 	avcodec_free_context(&codec_ctx);		//[sgan]To add
-	avformat_close_input(&format_ctx);
-	sws_freeContext(decoded_to_presentation_ctx);
+	av_frame_free(&decoded_frame);
 	if (ret < 0) {
 		fprintf(stderr, "Error loading image file '%s'\n", file_path->c_str());
 	} else {

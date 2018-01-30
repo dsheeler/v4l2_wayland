@@ -66,7 +66,7 @@ bool SoundShape::render(std::vector<cairo_t *> &contexts) {
 	return true;
 }
 
-void SoundShape::render_label(cairo_t *cr, char *text_to_append) {
+void SoundShape::render_label(cairo_t *cr, const char *text_to_append) {
 	PangoLayout *layout;
 	PangoFontDescription *desc;
 	int width, height;

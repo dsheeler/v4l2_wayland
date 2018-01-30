@@ -28,23 +28,26 @@ void Drawable::set_scale(double value)
 	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 }
 
+int Drawable::scale_to_fit(double duration) {
+	this->scale = min(this->dingle_dots->drawing_rect.width / this->pos.width,
+					  this->dingle_dots->drawing_rect.height / this->pos.height);
+	Easer *e = new Easer();
+	e->initialize(this, EASER_BACK_EASE_OUT, boost::bind(&Drawable::set_scale, this, _1), 0, this->scale, duration);
+	e->start();
+	return 0;
+}
+
 int Drawable::activate_spin_and_scale_to_fit() {
 	if (!this->active) {
-		this->easers.erase(this->easers.begin(), this->easers.end());
+		this->easers.clear();
 		this->scale = min(this->dingle_dots->drawing_rect.width / this->pos.width,
 						  this->dingle_dots->drawing_rect.height / this->pos.height);
 		double duration = 2;
-		//Easer *er = new Easer();
-		//er->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, boost::bind(&Drawable::set_opacity, this, _1), 0, 1, duration);
 		Easer *er2 = new Easer();
-		er2->initialize(this, EASER_BACK_EASE_OUT, boost::bind(&Drawable::set_rotation, this, _1), -3*2*M_PI, 0, 2*duration);
-		Easer *er3 = new Easer();
-		er3->initialize(this, EASER_EXPONENTIAL_EASE_OUT, boost::bind(&Drawable::set_scale, this, _1), 0, this->scale, 2*duration);
+		er2->initialize(this, EASER_SINE_EASE_OUT, boost::bind(&Drawable::set_rotation, this, _1), -3*2*M_PI, 0, 2*duration);
+		this->scale_to_fit(duration);
 		this->active = 1;
-		//er->start();
 		er2->start();
-		er3->start();
-		gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 	}
 	return 0;
 }
@@ -85,6 +88,7 @@ int Drawable::deactivate() {
 	e2->add_finish_action(std::bind(&Drawable::deactivate_action, this));
 	e->add_finish_easer(e2);
 	e->start();
+	return 0;
 }
 
 
@@ -136,7 +140,7 @@ void Drawable::update_easers() {
 	}
 }
 
-bool Drawable::render(std::vector<cairo_t *> &contexts) {
+bool Drawable::render(std::vector<cairo_t *> &) {
 	return FALSE;
 }
 
@@ -266,10 +270,10 @@ void Drawable::render_halo(cairo_t *cr, color c, double len) {
 
 void Drawable::render_hovered(cairo_t *cr) {
 	color c;
-	c.r = 0.25;
-	c.g = 0;
+	c.r = 1;
+	c.g = 1;
 	c.b = 1;
-	c.a = 0.5;
+	c.a = 0.25;
 	cairo_rectangle(cr, 0.0, 0.0, this->pos.width, this->pos.height);
 	cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
 	cairo_fill(cr);

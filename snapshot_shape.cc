@@ -6,7 +6,7 @@ SnapshotShape::SnapshotShape()
 	active = 0;
 }
 
-void SnapshotShape::init(char *label, double x, double y, double r, color c,
+void SnapshotShape::init(const char *label, double x, double y, double r, color c,
 						 void *dd)
 {
 	this->clear_state();

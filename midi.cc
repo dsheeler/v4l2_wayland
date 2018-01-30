@@ -135,7 +135,7 @@ int midi_scale_text_to_id(char *name) {
 	return -1;
 }
 
-char *midi_scale_id_to_text(int scaleid) {
+const char *midi_scale_id_to_text(int scaleid) {
 	switch (scaleid) {
 		case MAJOR:
 			return "Major";
@@ -151,7 +151,7 @@ char *midi_scale_id_to_text(int scaleid) {
 }
 
 void midi_note_to_octave_name(uint8_t midi_note, char *text) {
-	char *note_names[] = {"C", "C#", "D", "D#", "E",
+	const char *note_names[] = {"C", "C#", "D", "D#", "E",
 						  "F", "F#", "G", "G#", "A", "A#", "B"};
 	int note_names_idx, note_octave_num;
 	note_octave_num = midi_note / 12 - 1;

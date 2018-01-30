@@ -136,7 +136,7 @@ static AVFrame *alloc_audio_frame(enum AVSampleFormat sample_fmt,
 	return frame;
 }
 
-static void open_audio(AVFormatContext *oc, AVCodec *codec, OutputStream *ost,
+static void open_audio(AVCodec *codec, OutputStream *ost,
 					   AVDictionary *opt_arg) {
 	AVCodecContext *c;
 	int nb_samples;
@@ -194,7 +194,7 @@ int get_audio_frame(DingleDots *dd, OutputStream *ost, AVFrame **ret_frame) {
 		ret_frame = NULL;
 		return 1;
 	}
-	int size = sizeof(float)*frame->nb_samples*ost->enc->channels;
+	uint size = sizeof(float)*frame->nb_samples*ost->enc->channels;
 	if (jack_ringbuffer_read_space(audio_ring_buf) < size) {
 		return -1;
 	} else {
@@ -267,7 +267,7 @@ int write_audio_frame(DingleDots *dd, AVFormatContext *oc,
 /**************************************************************/
 /* video output */
 
-static void open_video(int width, int height, AVFormatContext *oc, AVCodec *codec, OutputStream *ost, AVDictionary *opt_arg)
+static void open_video(int width, int height, AVCodec *codec, OutputStream *ost, AVDictionary *opt_arg)
 {
 	int ret;
 	char err[AV_ERROR_MAX_STRING_SIZE];
@@ -420,7 +420,7 @@ int write_video_frame(DingleDots *dd, AVFormatContext *oc, OutputStream *ost)
 	}
 }
 
-void close_stream(AVFormatContext *oc, OutputStream *ost)
+void close_stream(OutputStream *ost)
 {
 	avcodec_free_context(&ost->enc);
 	av_frame_free(&ost->frame);
@@ -459,8 +459,8 @@ int init_output(DingleDots *dd) {
 	av_dict_set(&opt, "cpu-used", "-8", 0);
 	av_dict_set(&opt, "deadline", "realtime", 0);
 	open_video(dd->drawing_rect.width, dd->drawing_rect.height,
-			   dd->video_output_context, video_codec, &dd->video_thread_info.stream, opt);
-	open_audio(dd->video_output_context, audio_codec, &dd->audio_thread_info.stream, opt);
+			   video_codec, &dd->video_thread_info.stream, opt);
+	open_audio(audio_codec, &dd->audio_thread_info.stream, opt);
 	av_dump_format(dd->video_output_context, 0, filename, 1);
 	if (!(fmt->flags & AVFMT_NOFILE)) {
 		ret = avio_open(&dd->video_output_context->pb, filename, AVIO_FLAG_WRITE);

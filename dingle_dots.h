@@ -25,12 +25,14 @@ typedef struct midi_key_t midi_key_t;
 
 #define STR_LEN 80
 #define MAX_NUM_V4L2 4
+#define MAX_NUM_VIDEO_FILES 2
+#define MAX_NUM_SPRITES 32
+#define MAX_NUM_SOUND_SHAPES 128
 
 class DingleDots {
 public:
 	DingleDots();
-	int init(char *dev_name, int width, int height,
-			 char *video_file_name, int video_bitrate);
+	int init(int width, int height, int video_bitrate);
 	int free();
 	int deactivate_sound_shapes();
 	int add_note(char *scale_name,

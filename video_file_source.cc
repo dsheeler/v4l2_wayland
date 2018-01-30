@@ -85,9 +85,9 @@ int VideoFile::destroy() {
 	return 0;
 }
 
-int VideoFile::activate() {
-	return this->activate_spin_and_scale_to_fit();
-}
+//int VideoFile::activate() {
+//	return this->activate_spin_and_scale_to_fit();
+//}
 
 int VideoFile::play() {
 	this->current_playtime = 0;
@@ -97,9 +97,6 @@ int VideoFile::play() {
 
 void *VideoFile::thread(void *arg) {
 	int ret;
-	int got_frame;
-	char err[AV_ERROR_MAX_STRING_SIZE];
-	got_frame = 0;
 	VideoFile *vf = (VideoFile *)arg;
 	av_register_all();
 	vf->fmt_ctx = NULL;
@@ -111,7 +108,6 @@ void *VideoFile::thread(void *arg) {
 		printf("could not find stream information\n");
 		return NULL;
 	}
-	av_dump_format(vf->fmt_ctx, 0, vf->name, 0);
 	if (open_codec_context(&vf->video_stream_idx, &vf->video_dec_ctx, vf->fmt_ctx,
 						   AVMEDIA_TYPE_VIDEO) >= 0) {
 		vf->video_stream = vf->fmt_ctx->streams[vf->video_stream_idx];
@@ -142,54 +138,51 @@ void *VideoFile::thread(void *arg) {
 	vf->decoded_frame->width = vf->pos.width;
 	vf->decoded_frame->height = vf->pos.height;
 	av_image_alloc(vf->decoded_frame->data, vf->decoded_frame->linesize,
-				   vf->decoded_frame->width, vf->decoded_frame->height, (AVPixelFormat)vf->decoded_frame->format, 1);
+				   vf->decoded_frame->width, vf->decoded_frame->height,
+				   (AVPixelFormat)vf->decoded_frame->format, 1);
 	vf->allocated = 1;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	pthread_mutex_lock(&vf->lock);
 	double pts;
-	vf->play();
-	vf->playing = 1;
-	vf->fmt_ctx->iformat->flags & AVFMT_SEEK_TO_PTS;
-	while(avformat_seek_file(vf->fmt_ctx, vf->video_stream_idx, 0, 0, 0, 0) >= 0) {
+	while(av_seek_frame(vf->fmt_ctx, vf->video_stream_idx, 0, AVFMT_SEEK_TO_PTS) >= 0) {
 		vf->play();
 		vf->playing = 1;
-
 		vf->decoding_started = 1;
 		while(av_read_frame(vf->fmt_ctx, &vf->pkt) >= 0) {
 			if (vf->pkt.stream_index == vf->video_stream_idx) {
-				vf->frame = av_frame_alloc();
-				ret = avcodec_decode_video2(vf->video_dec_ctx, vf->frame,
-											&got_frame, &vf->pkt);
+				ret = avcodec_send_packet(vf->video_dec_ctx,&vf->pkt);
 				if (ret < 0) {
-					av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
-					printf("Error decoding video frame (%s)\n", err);
-				}
-				if (vf->pkt.dts != AV_NOPTS_VALUE) {
-					pts = av_frame_get_best_effort_timestamp(vf->frame);
+					fprintf(stderr, "Error submitting the packet to the decoder\n");
 				} else {
-					pts = 0;
-				}
-				pts *= av_q2d(vf->video_stream->time_base);
-				if (got_frame) {
-					sws_scale(vf->resample, (uint8_t const * const *)vf->frame->data,
-							  vf->frame->linesize, 0, vf->frame->height, vf->video_dst_data,
-							  vf->video_dst_linesize);
-					int space = vf->video_dst_bufsize + sizeof(double);
-					int buf_space = jack_ringbuffer_write_space(vf->vbuf);
-					while (buf_space < space) {
+					vf->frame = av_frame_alloc();
+					while ((ret = avcodec_receive_frame(vf->video_dec_ctx, vf->frame)) >= 0) {
+						if (vf->pkt.dts != AV_NOPTS_VALUE) {
+							pts = av_frame_get_best_effort_timestamp(vf->frame);
+						} else {
+							pts = 0;
+						}
+						pts *= av_q2d(vf->video_stream->time_base);
+						sws_scale(vf->resample, (uint8_t const * const *)vf->frame->data,
+								  vf->frame->linesize, 0, vf->frame->height, vf->video_dst_data,
+								  vf->video_dst_linesize);
+						int space = vf->video_dst_bufsize + sizeof(double);
+						int buf_space = jack_ringbuffer_write_space(vf->vbuf);
+						while (buf_space < space) {
+							gtk_widget_queue_draw(vf->dingle_dots->drawing_area);
+							pthread_cond_wait(&vf->data_ready, &vf->lock);
+							buf_space = jack_ringbuffer_write_space(vf->vbuf);
+						}
+						jack_ringbuffer_write(vf->vbuf, (const char *)&pts, sizeof(double));
+						jack_ringbuffer_write(vf->vbuf, (const char *)vf->video_dst_data[0],
+								vf->video_dst_bufsize);
+						if (!vf->active) vf->activate();
 						gtk_widget_queue_draw(vf->dingle_dots->drawing_area);
-						pthread_cond_wait(&vf->data_ready, &vf->lock);
-						buf_space = jack_ringbuffer_write_space(vf->vbuf);
 					}
-					jack_ringbuffer_write(vf->vbuf, (const char *)&pts, sizeof(double));
-					jack_ringbuffer_write(vf->vbuf, (const char *)vf->video_dst_data[0],
-							vf->video_dst_bufsize);
-					if (!vf->active) vf->activate();
 					gtk_widget_queue_draw(vf->dingle_dots->drawing_area);
+					av_frame_free(&vf->frame);
 				}
 			}
 			gtk_widget_queue_draw(vf->dingle_dots->drawing_area);
-			av_frame_free(&vf->frame);
 		}
 		vf->decoding_finished = 1;
 		while (vf->playing) {
@@ -197,10 +190,20 @@ void *VideoFile::thread(void *arg) {
 			pthread_cond_wait(&vf->data_ready, &vf->lock);
 		}
 	}
-	av_free_packet(&vf->pkt);
-	av_frame_unref(vf->frame);
-
+	av_packet_unref(&vf->pkt);
 	pthread_mutex_unlock(&vf->lock);
+	return 0;
+}
+
+int VideoFile::activate() {
+	if (!this->active) {
+		this->easers.clear();
+		this->scale_to_fit(2.0);
+		Easer *e = new Easer();
+		e->initialize(this, EASER_LINEAR, boost::bind(&Drawable::set_rotation, this, _1), 0, 5 * 2 * M_PI, 10);
+		this->active = 1;
+		e->start();
+	}
 	return 0;
 }
 

@@ -40,7 +40,7 @@ int write_video_frame(DingleDots *dd, AVFormatContext *oc,
 int write_audio_frame(DingleDots *dd, AVFormatContext *oc,
  OutputStream *ost);
 int init_output(DingleDots *dd);
-void close_stream(AVFormatContext *oc, OutputStream *ost);
+void close_stream(OutputStream *ost);
 extern jack_ringbuffer_t *video_ring_buf, *audio_ring_buf;
 extern volatile int can_capture;
 extern pthread_mutex_t av_thread_lock;

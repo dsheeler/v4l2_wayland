@@ -1,5 +1,5 @@
-#if !defined (_DRAGGABLE_H)
-#define _DRAGGABLE_H (1)
+#if !defined (_DRAWABLE_H)
+#define _DRAWABLE_H (1)
 
 #include "gtk/gtk.h"
 #include <vector>
@@ -48,7 +48,7 @@ public:
 	friend bool operator<(const Drawable& l, const Drawable& r) {
 		return l.z < r.z;
 	}
-	virtual bool render(std::vector<cairo_t *> &contexts);
+	virtual bool render(std::vector<cairo_t *> &);
 	void rotate(double angle);
 	void set_rotation(double angle);
 	double get_rotation() { return this->rotation_radians; }
@@ -64,6 +64,7 @@ public:
 	void set_dingle_dots(DingleDots *value);
 
 	int activate_spin_and_scale_to_fit();
+	int scale_to_fit(double duration);
 protected:
 	virtual void deactivate_action();
 };

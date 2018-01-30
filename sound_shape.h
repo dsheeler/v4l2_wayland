@@ -12,10 +12,8 @@ typedef struct color color;
 #include <stdint.h>
 #include <gdk/gdk.h>
 #include "drawable.h"
-//#include "dingle_dots.h"
 
 #define NCHAR 32
-#define MAX_NUM_SOUND_SHAPES 256
 
 #ifdef __cplusplus
 using namespace std;
@@ -27,7 +25,7 @@ public:
 	virtual void init(char *label, uint8_t midi_note, uint8_t midi_channel,
 			  double x, double y, double r, color *c, DingleDots *dd);
 	bool virtual render(std::vector<cairo_t *> &contexts);
-	void render_label(cairo_t *cr, char *text_to_append);
+	void render_label(cairo_t *cr, const char *text_to_append);
 	void deactivate_action();
 	int in(double x, double y);
 	int virtual set_on();

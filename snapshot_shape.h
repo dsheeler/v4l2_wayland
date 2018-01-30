@@ -8,7 +8,7 @@ class SnapshotShape : public SoundShape
 {
 public:
 	SnapshotShape();
-	void init(char *label, double x, double y, double r, color c, void *dd);
+	void init(const char *label, double x, double y, double r, color c, void *dd);
 	int set_on();
 	int set_off();
 	bool render(std::vector<cairo_t *> &contexts);

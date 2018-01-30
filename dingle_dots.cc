@@ -7,8 +7,8 @@
 
 
 DingleDots::DingleDots() { }
-int DingleDots::init(char *dev_name, int width, int height,
-					 char *video_file_name, int video_bitrate) {
+int DingleDots::init(int width, int height,
+					 int video_bitrate) {
 	int ret;
 	this->s_pressed = 0;
 	this->smdown = 0;
@@ -19,7 +19,6 @@ int DingleDots::init(char *dev_name, int width, int height,
 	this->animating = 0;
 	this->nports = 2;
 	this->make_new_tld = 0;
-	strncpy(this->video_file_name, video_file_name, STR_LEN);
 	this->video_bitrate = video_bitrate;
 	this->analysis_rect.width = 260;
 	this->analysis_rect.height = 148;
@@ -108,7 +107,7 @@ void DingleDots::add_scale(midi_key_t *key, int midi_channel,
 	for (i = 0; i < key->num_steps; i++) {
 		char key_name[NCHAR];
 		char base_name[NCHAR];
-		char *scale;
+		const char *scale;
 		midi_note_to_octave_name(key->base_note, base_name);
 		scale = midi_scale_id_to_text(key->scaleid);
 		sprintf(key_name, "%s %s", base_name, scale);

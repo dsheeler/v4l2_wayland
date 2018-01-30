@@ -592,7 +592,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	cairo_restore(screen_cr);
 	clock_gettime(CLOCK_REALTIME, &snapshot_ts);
 	int drawing_size = 4 * dd->drawing_frame->width * dd->drawing_frame->height;
-	int tsize = drawing_size + sizeof(struct timespec);
+	uint tsize = drawing_size + sizeof(struct timespec);
 	if (dd->do_snapshot) {
 		if (jack_ringbuffer_write_space(dd->snapshot_thread_info.ring_buf) >= (size_t)tsize) {
 			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (const char *)dd->drawing_frame->data[0],
@@ -688,13 +688,12 @@ int process(jack_nframes_t nframes, void *arg) {
 	return 0;
 }
 
-void jack_shutdown (void *arg) {
+void jack_shutdown (void *) {
 	printf("JACK shutdown\n");
 	abort();
 }
 
 void setup_jack(DingleDots *dd) {
-	unsigned int i;
 	size_t in_size;
 	dd->can_process = 0;
 	dd->jack_overruns = 0;
@@ -722,7 +721,7 @@ void setup_jack(DingleDots *dd) {
 	fftw_in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
 	fftw_out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
 	p = fftw_plan_dft_1d(FFT_SIZE, fftw_in, fftw_out, FFTW_FORWARD, FFTW_ESTIMATE);
-	for (i = 0; i < dd->nports; i++) {
+	for (int i = 0; i < dd->nports; i++) {
 		char name[64];
 		sprintf(name, "input%d", i + 1);
 		if ((dd->in_ports[i] = jack_port_register (dd->client, name, JACK_DEFAULT_AUDIO_TYPE,
@@ -775,7 +774,7 @@ void stop_recording(DingleDots *dd) {
 	gtk_widget_set_sensitive(dd->record_button, 0);
 }
 
-static gboolean configure_event_cb (GtkWidget *widget,
+static gboolean configure_event_cb (GtkWidget *,
 									GdkEventConfigure *event, gpointer data) {
 	DingleDots *dd;
 	dd = (DingleDots *)data;
@@ -784,7 +783,7 @@ static gboolean configure_event_cb (GtkWidget *widget,
 	return TRUE;
 }
 
-static gboolean window_state_event_cb (GtkWidget *widget,
+static gboolean window_state_event_cb (GtkWidget *,
 									   GdkEventWindowState *event, gpointer   data) {
 	DingleDots *dd;
 	dd = (DingleDots *)data;
@@ -796,13 +795,18 @@ static gboolean window_state_event_cb (GtkWidget *widget,
 	return TRUE;
 }
 
-static gboolean draw_cb (GtkWidget *widget, cairo_t *cr, gpointer   data) {
+static gint queue_draw_timeout_cb(gpointer data) {
+	DingleDots *dd;
+	dd = (DingleDots *)data;
+	if (dd->recording_started && !dd->recording_stopped) {
+		gtk_widget_queue_draw(dd->drawing_area);
+	}
+	return TRUE;
+}
+static gboolean draw_cb (GtkWidget *, cairo_t *cr, gpointer   data) {
 	DingleDots *dd;
 	dd = (DingleDots *)data;
 	process_image(cr, dd);
-	if (dd->get_animating()) {
-		gtk_widget_queue_draw(dd->drawing_area);
-	}
 	return TRUE;
 }
 
@@ -862,7 +866,7 @@ void mark_hovered(bool use_sources, DingleDots *dd) {
 	}
 }
 
-static gboolean motion_notify_event_cb(GtkWidget *widget,
+static gboolean motion_notify_event_cb(GtkWidget *,
 									   GdkEventMotion *event, gpointer data) {
 	int i;
 	DingleDots *dd = (DingleDots *)data;
@@ -995,7 +999,7 @@ static gboolean double_press_event_cb(GtkWidget *widget,
 	return FALSE;
 }
 
-static gboolean button_press_event_cb(GtkWidget *widget,
+static gboolean button_press_event_cb(GtkWidget *,
 									  GdkEventButton *event, gpointer data) {
 	int i;
 	DingleDots * dd = (DingleDots *)data;
@@ -1088,7 +1092,7 @@ static gboolean button_press_event_cb(GtkWidget *widget,
 	return FALSE;
 }
 
-static gboolean button_release_event_cb(GtkWidget *widget,
+static gboolean button_release_event_cb(GtkWidget *,
 										GdkEventButton *event, gpointer data) {
 	DingleDots * dd;
 	int i;
@@ -1119,7 +1123,7 @@ static gboolean button_release_event_cb(GtkWidget *widget,
 		dd->selection_in_progress = 0;
 		gtk_widget_queue_draw(dd->drawing_area);
 		return TRUE;
-	} else if (!event->state & GDK_SHIFT_MASK && event->button == GDK_BUTTON_SECONDARY) {
+	} else if (!(event->state & GDK_SHIFT_MASK) && event->button == GDK_BUTTON_SECONDARY) {
 		dd->smdown = 0;
 		dd->make_new_tld = 1;
 		dd->doing_tld = 1;
@@ -1154,7 +1158,7 @@ void apply_scrolling_operations_to_list(GdkEventScroll *event, DingleDots *dd,
 	}
 }
 
-static gboolean scroll_cb(GtkWidget *widget, GdkEventScroll *event,
+static gboolean scroll_cb(GtkWidget *, GdkEventScroll *event,
 						  gpointer data) {
 	DingleDots *dd = (DingleDots *)data;
 
@@ -1212,7 +1216,7 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
 	return FALSE;
 }
 
-static gboolean on_key_release(GtkWidget *widget, GdkEventKey *event,
+static gboolean on_key_release(GtkWidget *, GdkEventKey *event,
 							   gpointer data) {
 	DingleDots *dd = (DingleDots *)data;
 	if (event->keyval == GDK_KEY_s || event->keyval == GDK_KEY_S) {
@@ -1226,7 +1230,7 @@ static gboolean on_key_release(GtkWidget *widget, GdkEventKey *event,
 	return FALSE;
 }
 
-static gboolean delete_cb(GtkWidget *widget, gpointer data) {
+static gboolean delete_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
 	if (!dd->delete_active) {
@@ -1237,24 +1241,25 @@ static gboolean delete_cb(GtkWidget *widget, gpointer data) {
 	return TRUE;
 }
 
-static gboolean record_cb(GtkWidget *widget, gpointer data) {
+static gboolean record_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
 	if (!dd->recording_started && !dd->recording_stopped) {
 		start_recording(dd);
+		gtk_widget_queue_draw(dd->drawing_area);
 	} else if (dd->recording_started && !dd->recording_stopped) {
 		stop_recording(dd);
 	}
 	return TRUE;
 }
 
-static gboolean quit_cb(GtkWidget *widget, gpointer data) {
+static gboolean quit_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
 	g_application_quit(dd->app);
 	return TRUE;
 }
-static gboolean show_sprite_cb(GtkWidget *widget, gpointer data) {
+static gboolean show_sprite_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
 	GtkWidget *dialog;
@@ -1274,18 +1279,21 @@ static gboolean show_sprite_cb(GtkWidget *widget, gpointer data) {
 		GtkFileChooser *chooser = GTK_FILE_CHOOSER (dialog);
 		fname = gtk_file_chooser_get_filename(chooser);
 		std::string filename(fname);
-		int index = dd->current_sprite_index++ % MAX_NUM_VIDEO_FILES;
-		Sprite *s = &dd->sprites[index];
-		s->create(&filename, dd->next_z++, dd);
-		//s->activate();
-		gtk_widget_queue_draw(dd->drawing_area);
+		for (int index = 0; index < MAX_NUM_SPRITES; ++index) {
+			Sprite *s = &dd->sprites[index];
+			if (!s->active) {
+				s->create(&filename, dd->next_z++, dd);
+				gtk_widget_queue_draw(dd->drawing_area);
+				break;
+			}
+		}
 		g_free (fname);
 	}
 	gtk_widget_destroy (dialog);
 	return TRUE;
 }
 
-static gboolean play_file_cb(GtkWidget *widget, gpointer data) {
+static gboolean play_file_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
 	GtkWidget *dialog;
@@ -1377,7 +1385,7 @@ static gboolean set_modes_cb(GtkWidget *widget, gpointer data) {
 	return TRUE;
 }
 
-static gboolean camera_cb(GtkWidget *widget, gpointer data) {
+static gboolean camera_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
 	GtkWidget *dialog;
@@ -1430,7 +1438,7 @@ static gboolean camera_cb(GtkWidget *widget, gpointer data) {
 	return TRUE;
 }
 
-static gboolean snapshot_cb(GtkWidget *widget, gpointer data) {
+static gboolean snapshot_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
 	dd->do_snapshot = 1;
@@ -1439,7 +1447,7 @@ static gboolean snapshot_cb(GtkWidget *widget, gpointer data) {
 
 
 
-static gboolean make_scale_cb(GtkWidget *widget, gpointer data) {
+static gboolean make_scale_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	GdkRGBA gc;
 	color c;
@@ -1554,7 +1562,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_box_pack_start(GTK_BOX(vbox), camera_button, FALSE, FALSE, 0);
 	dd->scale_combo = gtk_combo_box_text_new();
 	int i = 0;
-	char *name = midi_scale_id_to_text(i);
+	const char *name = midi_scale_id_to_text(i);
 	while (strcmp("None", name) != 0) {
 		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(dd->scale_combo), NULL, name);
 		name = midi_scale_id_to_text(++i);
@@ -1637,7 +1645,7 @@ static void mainloop(DingleDots *dd) {
 	g_application_run(G_APPLICATION(dd->app), 0, NULL);
 }
 
-static void signal_handler(int sig) {
+static void signal_handler(int) {
 	fprintf(stderr, "signal received, exiting ...\n");
 	exit(0);
 }
@@ -1649,14 +1657,14 @@ void setup_signal_handler() {
 	signal(SIGINT, signal_handler);
 }
 
-static void usage(DingleDots *dd, FILE *fp, int argc, char **argv)
+static void usage(DingleDots *, FILE *fp, int, char **argv)
 {
 	fprintf(fp,
 			"Usage: %s [options]\n\n"
 			"Options:\n"
-			"-d | --device name   Video device name\n"
 			"-h | --help          Print this message\n"
-			"-o | --output        filename of video file output\n"
+			"-w	| --width         display width in pixels"
+			"-g | --height        display height in pixels"
 			"-b | --bitrate       bit rate of video file output\n"
 			"",
 			argv[0]);
@@ -1666,26 +1674,19 @@ static const char short_options[] = "d:ho:b:w:g:x:y:";
 
 static const struct option
 		long_options[] = {
-{ "device", required_argument, NULL, 'd' },
 { "help",   no_argument,       NULL, 'h' },
-{ "output", required_argument, NULL, 'o' },
 { "bitrate", required_argument, NULL, 'b' },
 { "width", required_argument, NULL, 'w' },
 { "height", required_argument, NULL, 'g' },
-{ "tld_width", required_argument, NULL, 'x' },
-{ "tld_height", required_argument, NULL, 'y' },
 { 0, 0, 0, 0 }
 };
 
 int main(int argc, char **argv) {
 	DingleDots dingle_dots;
-	char *video_file_name;
 	int width = 1280;
 	int height = 720;
 	int video_bitrate = 1000000;
-	char *dev_name = "/dev/video0";
 	srand(time(NULL));
-	video_file_name = "";
 	for (;;) {
 		int idx;
 		int c;
@@ -1695,12 +1696,6 @@ int main(int argc, char **argv) {
 			break;
 		switch (c) {
 			case 0: /* getopt_long() flag */
-				break;
-			case 'd':
-				dev_name = optarg;
-				break;
-			case 'o':
-				video_file_name = optarg;
 				break;
 			case 'b':
 				video_bitrate = atoi(optarg);
@@ -1719,9 +1714,10 @@ int main(int argc, char **argv) {
 				exit(EXIT_FAILURE);
 		}
 	}
-	dingle_dots.init(dev_name, width, height, video_file_name, video_bitrate);
+	dingle_dots.init(width, height, video_bitrate);
 	setup_jack(&dingle_dots);
 	setup_signal_handler();
+	g_timeout_add(40, queue_draw_timeout_cb, &dingle_dots);
 	mainloop(&dingle_dots);
 	dingle_dots.deactivate_sound_shapes();
 	dingle_dots.free();

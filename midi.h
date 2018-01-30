@@ -38,6 +38,6 @@ void midi_process_output(jack_nframes_t nframes, DingleDots *dd);
 float midi_to_freq(int midi_note);
 void midi_key_init_by_scale_id(midi_key_t *key, uint8_t base_note, int scaleid);
 int midi_scale_text_to_id(char *name);
-char *midi_scale_id_to_text(int scaleid);
+const char *midi_scale_id_to_text(int scaleid);
 void midi_note_to_octave_name(uint8_t midi_note, char *text);
 #endif
