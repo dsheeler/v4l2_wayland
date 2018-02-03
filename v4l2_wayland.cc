@@ -643,18 +643,16 @@ double hanning_window(int i, int N) {
 
 int process(jack_nframes_t nframes, void *arg) {
 	DingleDots *dd = (DingleDots *)arg;
-	int chn;
-	size_t i;
 	static int first_call = 1;
 	if (!dd->can_process) return 0;
 	midi_process_output(nframes, dd);
-	for (chn = 0; chn < dd->nports; chn++) {
+	for (int chn = 0; chn < dd->nports; chn++) {
 		dd->in[chn] = (jack_default_audio_sample_t *)jack_port_get_buffer(dd->in_ports[chn], nframes);
 		dd->out[chn] = (jack_default_audio_sample_t *)jack_port_get_buffer(dd->out_ports[chn], nframes);
 		kmeter_process(&dd->meters[chn], dd->in[chn], nframes);
 	}
 	if (nframes >= FFT_SIZE) {
-		for (i = 0; i < FFT_SIZE; i++) {
+		for (int i = 0; i < FFT_SIZE; i++) {
 			fftw_in[i][0] = dd->in[0][i] * hanning_window(i, FFT_SIZE);
 			fftw_in[i][1] = 0.0;
 		}
@@ -666,15 +664,45 @@ int process(jack_nframes_t nframes, void *arg) {
 		dd->audio_thread_info.stream.samples_count = 0;
 		first_call = 0;
 	}
-	for (i = 0; i < nframes; i++) {
-		for (chn = 0; chn < dd->nports; chn++) {
+	for (uint i = 0; i < nframes; i++) {
+		for (int chn = 0; chn < dd->nports; chn++) {
 			dd->out[chn][i] = dd->in[chn][i];
 		}
 	}
+	for (int i = 0; i < MAX_NUM_VIDEO_FILES; ++i) {
+		VideoFile *vf = &dd->vf[i];
+		if (vf->active && vf->audio_playing) {
+			jack_default_audio_sample_t sample;
+			if (vf->audio_decoding_started) {
+				if (vf->audio_decoding_finished &&
+						jack_ringbuffer_read_space(vf->abuf) == 0) {
+					vf->audio_playing = 0;
+					if (pthread_mutex_trylock(&vf->video_lock) == 0) {
+						pthread_cond_signal(&vf->video_data_ready);
+						pthread_mutex_unlock(&vf->video_lock);
+					}
+				} else{
+					for (uint frm = 0; frm < nframes; ++frm) {
+						for (int chn = 0; chn < 2; ++chn) {
+							if (jack_ringbuffer_read_space(vf->abuf) >= sizeof(sample)) {
+								jack_ringbuffer_read(vf->abuf, (char *)&sample, sizeof(sample));
+								dd->out[chn][frm] += sample;
+							}
+						}
+					}
+					vf->nb_frames_played += nframes;
+					if (pthread_mutex_trylock(&vf->audio_lock) == 0) {
+						pthread_cond_signal(&vf->audio_data_ready);
+						pthread_mutex_unlock(&vf->audio_lock);
+					}
+				}
+			}
+		}
+	}
 	if (dd->recording_started && !dd->audio_done) {
-		for (i = 0; i < nframes; i++) {
-			for (chn = 0; chn < dd->nports; chn++) {
-				if (jack_ringbuffer_write (audio_ring_buf, (const char *) (dd->in[chn]+i),
+		for (uint i = 0; i < nframes; i++) {
+			for (int chn = 0; chn < dd->nports; chn++) {
+				if (jack_ringbuffer_write (audio_ring_buf, (const char *) (dd->out[chn]+i),
 										   sample_size) < sample_size) {
 					printf("jack overrun: %ld\n", ++dd->jack_overruns);
 				}
@@ -779,7 +807,6 @@ static gboolean configure_event_cb (GtkWidget *,
 	DingleDots *dd;
 	dd = (DingleDots *)data;
 	dd->scale = (double)(event->height) / dd->drawing_rect.height;
-	/* We've handled the configure event, no need for further processing.*/
 	return TRUE;
 }
 

@@ -7,6 +7,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
 #include <libavutil/imgutils.h>
 #ifdef __cplusplus
 }
@@ -34,26 +35,38 @@ public:
 	char name[256];
 	AVFormatContext *fmt_ctx;
 	AVCodecContext *video_dec_ctx;
+	AVCodecContext *audio_dec_ctx;
 	AVStream *video_stream;
-	struct SwsContext *resample;
+	AVStream *audio_stream;
+	struct SwsContext *video_resample;
+	struct SwrContext *audio_resample;
 	enum AVPixelFormat pix_fmt;
 	int video_stream_idx;
+	int audio_stream_idx;
 	uint8_t *video_dst_data[4];
 	int video_dst_linesize[4];
 	int video_dst_bufsize;
-	AVFrame *frame;
-	AVFrame *decoded_frame;
+	AVFrame *video_frame;
+	AVFrame *decoded_video_frame;
+	AVFrame *audio_frame;
 	AVPacket pkt;
 	pthread_t thread_id;
-	pthread_mutex_t lock;
-	pthread_cond_t data_ready;
+	pthread_mutex_t video_lock;
+	pthread_cond_t video_data_ready;
+	pthread_mutex_t audio_lock;
+	pthread_cond_t audio_data_ready;
 	int playing;
-	int decoding_started;
-	int decoding_finished;
+	int audio_playing;
+	int video_decoding_started;
+	int video_decoding_finished;
+	int audio_decoding_started;
+	int audio_decoding_finished;
+	uint64_t nb_frames_played;
 	double total_playtime;
 	double current_playtime;
 	struct timespec play_start_ts;
 	jack_ringbuffer_t *vbuf;
+	jack_ringbuffer_t *abuf;
 	int activate();
 };
 
