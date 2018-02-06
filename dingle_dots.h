@@ -22,14 +22,15 @@ typedef struct midi_key_t midi_key_t;
 #include "video_file_source.h"
 #include "v4l2.h"
 #include "sprite.h"
+#include "easable.h"
 
 #define STR_LEN 80
 #define MAX_NUM_V4L2 4
-#define MAX_NUM_VIDEO_FILES 2
+#define MAX_NUM_VIDEO_FILES 8
 #define MAX_NUM_SPRITES 32
 #define MAX_NUM_SOUND_SHAPES 128
 
-class DingleDots {
+class DingleDots : public Easable {
 public:
 	DingleDots();
 	int init(int width, int height, int video_bitrate);
@@ -54,6 +55,7 @@ public:
 	int use_rand_color_for_scale;
 	int shift_pressed;
 	int delete_active;
+	double selection_box_alpha;
 	uint8_t animating;
 	uint32_t video_bitrate;
 	AVFormatContext *video_output_context;
@@ -118,6 +120,11 @@ public:
 	void set_animating(const uint8_t &value);
 	void get_sound_shapes(std::vector<Drawable *> &sound_shapes);
 	void get_sources(std::vector<Drawable *> &list);
+	double get_selection_box_alpha() const;
+	void set_selection_box_alpha(double value);
+	void render_selection_box(cairo_t *cr);
+	void set_selecting_on();
+	void set_selecting_off();
 };
 
 #endif

@@ -55,12 +55,16 @@ public:
 	pthread_cond_t video_data_ready;
 	pthread_mutex_t audio_lock;
 	pthread_cond_t audio_data_ready;
+	pthread_mutex_t pause_lock;
+	pthread_cond_t pause_unpuase;
 	int playing;
+	int paused;
 	int audio_playing;
 	int video_decoding_started;
 	int video_decoding_finished;
 	int audio_decoding_started;
 	int audio_decoding_finished;
+	uint8_t have_audio;
 	uint64_t nb_frames_played;
 	double total_playtime;
 	double current_playtime;
@@ -68,6 +72,7 @@ public:
 	jack_ringbuffer_t *vbuf;
 	jack_ringbuffer_t *abuf;
 	int activate();
+	void toggle_play_pause();
 };
 
 #endif

@@ -41,7 +41,7 @@ int DingleDots::init(int width, int height,
 	this->show_shapshot_shape = 0;
 	this->mdown = 0;
 	this->dragging = 0;
-	this->selection_in_progress = 0;
+	this->set_selecting_off();
 	this->motion_threshold = 0.001;
 	for (int i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
 		this->sound_shapes[i].clear_state();
@@ -71,6 +71,7 @@ int DingleDots::deactivate_sound_shapes() {
 	}
 	return 0;
 }
+
 
 int DingleDots::free() {
 	if (this->analysis_resize) {
@@ -116,6 +117,42 @@ void DingleDots::add_scale(midi_key_t *key, int midi_channel,
 					   x_delta * (i + 1) * this->drawing_rect.width, y,
 					   this->drawing_rect.width/32, c);
 	}
+}
+
+void DingleDots::render_selection_box(cairo_t *cr) {
+	cairo_save(cr);
+	cairo_rectangle(cr, floor(this->selection_rect.x)+0.5, floor(this->selection_rect.y)+0.5,
+					this->selection_rect.width, this->selection_rect.height);
+	cairo_set_source_rgba(cr, 1, 1, 1, 0.2 * this->selection_box_alpha);
+	cairo_fill_preserve(cr);
+	cairo_set_source_rgba(cr, 1, 1, 1, 1 * this->selection_box_alpha);
+	cairo_set_line_width(cr, 0.5);
+	cairo_stroke(cr);
+	cairo_restore(cr);
+}
+
+void DingleDots::set_selecting_on() {
+	this->selection_in_progress = 1;
+	this->selection_box_alpha = 1.0;
+	this->easers.clear();
+	gtk_widget_queue_draw(this->drawing_area);
+}
+
+void DingleDots::set_selecting_off() {
+	this->selection_in_progress = 0;
+	gtk_widget_queue_draw(this->drawing_area);
+}
+
+double DingleDots::get_selection_box_alpha() const
+{
+	return selection_box_alpha;
+}
+
+void DingleDots::set_selection_box_alpha(double value)
+{
+	selection_box_alpha = value;
+	gtk_widget_queue_draw(this->drawing_area);
+
 }
 
 uint8_t DingleDots::get_animating() const {

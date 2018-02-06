@@ -49,16 +49,17 @@ void V4l2::create(DingleDots *dd, char *dev_name, double width, double height, u
 	this->pos.width = width;
 	this->pos.height = height;
 	pthread_create(&this->thread_id, NULL, V4l2::thread, this);
-	int rc = pthread_setname_np(this->thread_id, "vw_v4l2_source");
-	if (rc != 0) {
-		errno = rc;
-		perror("pthread_setname_np");
-	}
+
 }
 
 void *V4l2::thread(void *arg) {
 	V4l2 *v = (V4l2 *)arg;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	int rc = pthread_setname_np(v->thread_id, "v4l2_wayland_v4l2_source");
+	if (rc != 0) {
+		errno = rc;
+		perror("pthread_setname_np");
+	}
 	v->open_device();
 	v->init_device();
 	v->rbuf = jack_ringbuffer_create(5*4*v->pos.width*v->pos.height);

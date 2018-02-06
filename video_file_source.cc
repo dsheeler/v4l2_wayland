@@ -55,19 +55,25 @@ int VideoFile::open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
 }
 
 int VideoFile::create(char *name, double x, double y, uint64_t z) {
-	strncpy(this->name, name, 254);
+	strncpy(this->name, name, 255);
 	this->rotation_radians = 0;
 	this->pos.x = x;
 	this->pos.y = y;
 	this->z = z;
+	this->have_audio = 0;
 	this->nb_frames_played = 0;
+	this->playing = 0;
+	this->paused = 0;
+	this->allocated = 0;
+	this->active = 0;
+	this->audio_playing = 0;
+	this->video_decoding_finished = 0;
+	this->video_decoding_started = 0;
+	this->audio_decoding_finished = 0;
+	this->audio_decoding_started = 0;
 	this->easers.erase(this->easers.begin(), this->easers.end());
 	pthread_create(&this->thread_id, NULL, VideoFile::thread, this);
-	int rc = pthread_setname_np(this->thread_id, "vw_source_video_file");
-	if (rc != 0) {
-		errno = rc;
-		perror("pthread_setname_np");
-	}
+
 	return 0;
 }
 
@@ -84,15 +90,15 @@ int VideoFile::destroy() {
 	av_freep(&this->decoded_video_frame->data[0]);
 	av_frame_free(&this->decoded_video_frame);
 	this->active = 0;
+	this->have_audio =0;
 	this->allocated = 0;
 	this->video_decoding_finished = 0;
 	this->video_decoding_started = 0;
 	this->pos.x = this->pos.y = 0;
 	this->rotation_radians = 0;
 	this->playing = 0;
-	return 0;
 	pthread_cancel(this->thread_id);
-
+	return 0;
 }
 
 int VideoFile::play() {
@@ -104,6 +110,11 @@ int VideoFile::play() {
 void *VideoFile::thread(void *arg) {
 	int ret;
 	VideoFile *vf = (VideoFile *)arg;
+	int rc = pthread_setname_np(vf->thread_id, "v4l2_wayland_vf");
+	if (rc != 0) {
+		errno = rc;
+		perror("pthread_setname_np");
+	}
 	av_register_all();
 	vf->fmt_ctx = NULL;
 	if (avformat_open_input(&vf->fmt_ctx, vf->name, NULL, NULL) < 0) {
@@ -119,13 +130,8 @@ void *VideoFile::thread(void *arg) {
 						   AVMEDIA_TYPE_AUDIO) >= 0) {
 		vf->audio_stream = vf->fmt_ctx->streams[vf->audio_stream_idx];
 		vf->audio_frame = av_frame_alloc();
-
-	} else {
-		avformat_close_input(&vf->fmt_ctx);
-		av_frame_free(&vf->audio_frame);
-		return NULL;
+		vf->have_audio = 1;
 	}
-
 	if (open_codec_context(&vf->video_stream_idx, &vf->video_dec_ctx, vf->fmt_ctx,
 						   AVMEDIA_TYPE_VIDEO) >= 0) {
 		vf->video_stream = vf->fmt_ctx->streams[vf->video_stream_idx];
@@ -147,14 +153,16 @@ void *VideoFile::thread(void *arg) {
 	}
 	vf->video_resample = sws_getContext(vf->pos.width, vf->pos.height, vf->pix_fmt,
 								  vf->pos.width, vf->pos.height, AV_PIX_FMT_BGRA, SWS_BICUBIC, NULL, NULL, NULL);
-	vf->audio_resample = swr_alloc_set_opts(NULL,
-											AV_CH_LAYOUT_STEREO,
-											AV_SAMPLE_FMT_FLTP,
-											jack_get_sample_rate(vf->dingle_dots->client),
-											vf->audio_stream->codecpar->channel_layout,
-											(AVSampleFormat) vf->audio_stream->codecpar->format,
-											vf->audio_stream->codecpar->sample_rate, 0, NULL);
-	swr_init(vf->audio_resample);
+	if (vf->have_audio) {
+		vf->audio_resample = swr_alloc_set_opts(NULL,
+												AV_CH_LAYOUT_STEREO,
+												AV_SAMPLE_FMT_FLTP,
+												jack_get_sample_rate(vf->dingle_dots->client),
+												vf->audio_stream->codecpar->channel_layout,
+												(AVSampleFormat) vf->audio_stream->codecpar->format,
+												vf->audio_stream->codecpar->sample_rate, 0, NULL);
+		swr_init(vf->audio_resample);
+	}
 	av_init_packet(&vf->pkt);
 	vf->pkt.data = NULL;
 	vf->pkt.size = 0;
@@ -182,9 +190,11 @@ void *VideoFile::thread(void *arg) {
 	double pts;
 	uint8_t **output = NULL;
 	int out_samples, max_out_samples;
-	out_samples = max_out_samples = 1024;
-	av_samples_alloc_array_and_samples(&output, NULL, 2, out_samples,
-					 AV_SAMPLE_FMT_FLTP, 1);
+	if (vf->have_audio) {
+		out_samples = max_out_samples = 1024;
+		av_samples_alloc_array_and_samples(&output, NULL, 2, out_samples,
+										   AV_SAMPLE_FMT_FLTP, 1);
+	}
 	while(av_seek_frame(vf->fmt_ctx, vf->video_stream_idx, 0, AVFMT_SEEK_TO_PTS) >= 0) {
 		vf->play();
 		vf->playing = 1;
@@ -193,7 +203,12 @@ void *VideoFile::thread(void *arg) {
 		vf->audio_decoding_started = 1;
 		vf->nb_frames_played = 0;
 		while(av_read_frame(vf->fmt_ctx, &vf->pkt) >= 0) {
-			if (vf->pkt.stream_index == vf->audio_stream_idx) {
+			if (vf->paused) {
+				pthread_cond_wait(&vf->pause_unpuase, &vf->pause_lock);
+				jack_ringbuffer_reset(vf->vbuf);
+				jack_ringbuffer_reset(vf->abuf);
+			}
+			if (vf->have_audio && (vf->pkt.stream_index == vf->audio_stream_idx)) {
 				ret = avcodec_send_packet(vf->audio_dec_ctx,&vf->pkt);
 				if (ret < 0) {
 					fprintf(stderr, "Error submitting the packet to the decoder\n");
@@ -286,7 +301,10 @@ void *VideoFile::thread(void *arg) {
 		}
 	}
 end:
-	av_freep(&output[0]);
+	if (vf->have_audio) {
+		av_freep(&output[0]);
+		av_frame_free(&vf->audio_frame);
+	}
 	vf->destroy();
 	return 0;
 }
@@ -298,6 +316,19 @@ int VideoFile::activate() {
 		this->active = 1;
 	}
 	return 0;
+}
+
+void VideoFile::toggle_play_pause()
+{
+	if (!this->paused)
+		this->paused = 1;
+	else {
+		this->paused = 0;
+		if (pthread_mutex_trylock(&this->pause_lock) == 0) {
+			pthread_cond_signal(&this->pause_unpuase);
+			pthread_mutex_unlock(&this->pause_lock);
+		}
+	}
 }
 
 bool VideoFile::render(std::vector<cairo_t *> &contexts) {
@@ -312,28 +343,30 @@ bool VideoFile::render(std::vector<cairo_t *> &contexts) {
 			diff_sec = ((double)this->nb_frames_played) / jack_get_sample_rate(this->dingle_dots->client);
 			double pts;
 			if (this->video_decoding_started) {
-				if (this->video_decoding_finished && jack_ringbuffer_read_space(this->vbuf) == 0) {
-					this->playing = 0;
-					if (pthread_mutex_trylock(&this->video_lock) == 0) {
-						pthread_cond_signal(&this->video_data_ready);
-						pthread_mutex_unlock(&this->video_lock);
-					}
-				} else {
-					while (jack_ringbuffer_read_space(this->vbuf) >= (this->video_dst_bufsize + sizeof(double))) {
-						jack_ringbuffer_peek(this->vbuf, (char *)&pts, sizeof(double));
-						if (diff_sec >= pts) {
-							jack_ringbuffer_read_advance(this->vbuf, sizeof(double));
-							jack_ringbuffer_read(this->vbuf, (char *)this->decoded_video_frame->data[0], this->video_dst_bufsize);
-							if (pthread_mutex_trylock(&this->video_lock) == 0) {
-								pthread_cond_signal(&this->video_data_ready);
-								pthread_mutex_unlock(&this->video_lock);
+				if (!this->paused) {
+					if (this->video_decoding_finished && jack_ringbuffer_read_space(this->vbuf) == 0) {
+						this->playing = 0;
+						if (pthread_mutex_trylock(&this->video_lock) == 0) {
+							pthread_cond_signal(&this->video_data_ready);
+							pthread_mutex_unlock(&this->video_lock);
+						}
+					} else {
+						while (jack_ringbuffer_read_space(this->vbuf) >= (this->video_dst_bufsize + sizeof(double))) {
+							jack_ringbuffer_peek(this->vbuf, (char *)&pts, sizeof(double));
+							if (diff_sec >= pts) {
+								jack_ringbuffer_read_advance(this->vbuf, sizeof(double));
+								jack_ringbuffer_read(this->vbuf, (char *)this->decoded_video_frame->data[0], this->video_dst_bufsize);
+								if (pthread_mutex_trylock(&this->video_lock) == 0) {
+									pthread_cond_signal(&this->video_data_ready);
+									pthread_mutex_unlock(&this->video_lock);
+								}
+							} else {
+								if (pthread_mutex_trylock(&this->video_lock) == 0) {
+									pthread_cond_signal(&this->video_data_ready);
+									pthread_mutex_unlock(&this->video_lock);
+								}
+								break;
 							}
-						} else {
-							if (pthread_mutex_trylock(&this->video_lock) == 0) {
-								pthread_cond_signal(&this->video_data_ready);
-								pthread_mutex_unlock(&this->video_lock);
-							}
-							break;
 						}
 					}
 				}

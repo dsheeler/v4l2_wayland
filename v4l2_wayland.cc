@@ -27,6 +27,7 @@
 #include <vector>
 #include <memory>
 #include <cstring>
+#include <boost/bind.hpp>
 
 #include "dingle_dots.h"
 #include "kmeter.h"
@@ -37,6 +38,7 @@
 #include "v4l2.h"
 #include "drawable.h"
 #include "video_file_source.h"
+#include "easable.h"
 
 fftw_complex                   *fftw_in, *fftw_out;
 fftw_plan                      p;
@@ -210,17 +212,7 @@ static void render_detection_box(cairo_t *cr, int initializing,
 	cairo_restore(cr);
 }
 
-static void render_selection_box(cairo_t *cr, DingleDots *dd) {
-	cairo_save(cr);
-	cairo_rectangle(cr, floor(dd->selection_rect.x)+0.5, floor(dd->selection_rect.y)+0.5,
-					dd->selection_rect.width, dd->selection_rect.height);
-	cairo_set_source_rgba(cr, 1, 1, 1, 0.2);
-	cairo_fill_preserve(cr);
-	cairo_set_source_rgba(cr, 1, 1, 1, 1);
-	cairo_set_line_width(cr, 0.5);
-	cairo_stroke(cr);
-	cairo_restore(cr);
-}
+
 
 static void render_pointer(cairo_t *cr, double x, double y) {
 	double l = 10.;
@@ -554,10 +546,11 @@ void process_image(cairo_t *screen_cr, void *arg) {
 							 dd->user_tld_rect.width, dd->user_tld_rect.height);
 	}
 	if (dd->selection_in_progress) {
+		dd->update_easers();
 		if (render_drawing_surf) {
-			render_selection_box(drawing_cr, dd);
+			dd->render_selection_box(drawing_cr);
 		}
-		render_selection_box(screen_cr, dd);
+		dd->render_selection_box(screen_cr);
 		for (i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
 			SoundShape *ss = &dd->sound_shapes[i];
 			if (!ss->active) continue;
@@ -671,7 +664,7 @@ int process(jack_nframes_t nframes, void *arg) {
 	}
 	for (int i = 0; i < MAX_NUM_VIDEO_FILES; ++i) {
 		VideoFile *vf = &dd->vf[i];
-		if (vf->active && vf->audio_playing) {
+		if (vf->active && vf->audio_playing && !vf->paused) {
 			jack_default_audio_sample_t sample;
 			if (vf->audio_decoding_started) {
 				if (vf->audio_decoding_finished &&
@@ -1001,17 +994,38 @@ static gboolean double_press_event_cb(GtkWidget *widget,
 			event->button == GDK_BUTTON_PRIMARY &&
 			!dd->delete_active) {
 		uint8_t found = 0;
-		for (int i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
-			if (!dd->sound_shapes[i].active) continue;
-			double x, y;
-			x = event->x / dd->scale;//dd->drawing_rect.width / dd->screen_frame->width;
-			y = event->y / dd->scale;//dd->drawing_rect.height / dd->screen_frame->height;
-			if (dd->sound_shapes[i].in(x, y)) {
-				found = 1;
-				if (dd->sound_shapes[i].double_clicked_on) {
-					dd->sound_shapes[i].double_clicked_on = 0;
-				} else {
-					dd->sound_shapes[i].double_clicked_on = 1;
+		double x, y;
+		x = event->x / dd->scale;;
+		y = event->y / dd->scale;
+		if (!(event->state & GDK_SHIFT_MASK)) {
+			for (int i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
+				if (!dd->sound_shapes[i].active) continue;
+				if (dd->sound_shapes[i].in(x, y)) {
+					found = 1;
+					if (dd->sound_shapes[i].double_clicked_on) {
+						dd->sound_shapes[i].double_clicked_on = 0;
+					} else {
+						dd->sound_shapes[i].double_clicked_on = 1;
+					}
+				}
+			}
+		} else {
+			std::vector<VideoFile *> video_files;
+
+			for (int i = 0; i < MAX_NUM_VIDEO_FILES; ++i) {
+				VideoFile *vf = &dd->vf[i];
+				if (vf->active) {
+					video_files.push_back(vf);
+				}
+			}
+			std::sort(video_files.begin(), video_files.end(), [](VideoFile *a, VideoFile *b) { return a->z > b->z; });
+			for (std::vector<VideoFile *>::iterator it = video_files.begin();
+				 it != video_files.end(); ++it) {
+				VideoFile *vf = *it;
+				if (vf->in(x, y)) {
+					vf->toggle_play_pause();
+					found = 1;
+					break;
 				}
 			}
 		}
@@ -1092,7 +1106,7 @@ static gboolean button_press_event_cb(GtkWidget *,
 			}
 			return false;
 		}
-		dd->selection_in_progress = 1;
+		dd->set_selecting_on();
 		dd->selection_rect.x = dd->mouse_pos.x;
 		dd->selection_rect.y = dd->mouse_pos.y;
 		dd->selection_rect.width = 0;
@@ -1138,16 +1152,22 @@ static gboolean button_release_event_cb(GtkWidget *,
 			if (!dd->sound_shapes[i].active) continue;
 			dd->sound_shapes[i].mdown = 0;
 		}
-		std::vector<Drawable *> draggables;
-		get_sources(dd, draggables);
-		for (std::vector<Drawable *>::iterator it = draggables.begin(); it != draggables.end(); ++it) {
+		std::vector<Drawable *> sources;
+		get_sources(dd, sources);
+		for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if ((*it)->active) {
 				(*it)->mdown = 0;
 			}
 		}
 		dd->mdown = 0;
 		dd->dragging = 0;
-		dd->selection_in_progress = 0;
+		if (dd->selection_in_progress) {
+			Easer *e = new Easer();
+			e->initialize(dd, EASER_LINEAR, boost::bind(&DingleDots::set_selection_box_alpha, dd, _1), 1.0, 0.0, 0.2);
+			e->add_finish_action(boost::bind(&DingleDots::set_selecting_off, dd));
+			dd->add_easer(e);
+			e->start();
+		}
 		gtk_widget_queue_draw(dd->drawing_area);
 		return TRUE;
 	} else if (!(event->state & GDK_SHIFT_MASK) && event->button == GDK_BUTTON_SECONDARY) {
@@ -1339,13 +1359,13 @@ static gboolean play_file_cb(GtkWidget *, gpointer data) {
 		char *filename;
 		GtkFileChooser *chooser = GTK_FILE_CHOOSER (dialog);
 		filename = gtk_file_chooser_get_filename (chooser);
-		int index = dd->current_video_file_source_index++ % MAX_NUM_VIDEO_FILES;
-		if(dd->vf[index].allocated) {
-			printf("video_file %d alloced\n", index);
-			dd->vf[index].destroy();
+		for (int i = 0; i < MAX_NUM_VIDEO_FILES; ++i) {
+			if(!dd->vf[i].allocated) {
+				dd->vf[i].dingle_dots = dd;
+				dd->vf[i].create(filename, 0.0, 0.0, dd->next_z++);
+				break;
+			}
 		}
-		dd->vf[index].dingle_dots = dd;
-		dd->vf[index].create(filename, 0.0, 0.0, dd->next_z++);
 		g_free (filename);
 	}
 	gtk_widget_destroy (dialog);

@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "v4l2_wayland.h"
 #include "easer.h"
+#include "easable.h"
 
 struct rectangle_double {
 	double x;
@@ -14,8 +15,7 @@ struct rectangle_double {
 	double height;
 };
 
-//class Easer;
-class Drawable {
+class Drawable : public Easable {
 private:
 	void render_label(cairo_t *cr);
 public:
@@ -33,7 +33,6 @@ public:
 	uint8_t active;
 	bool selected;
 	GdkPoint selected_pos;
-	std::vector<Easer *> easers;
 	DingleDots *dingle_dots;
 public:
 	Drawable();
@@ -41,7 +40,6 @@ public:
 	Drawable(double x, double y, int64_t z, double opacity, double scale);
 	virtual int deactivate();
 	virtual int activate();
-	void update_easers();
 	void set_mdown(double x, double y, int64_t z);
 	void drag(double mouse_x, double mouse_y);
 	virtual int in(double x_in, double y_in);

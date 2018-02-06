@@ -111,7 +111,7 @@ EasingFuncPtr Easer::easer_type_to_easing_func(Easer_Type type)
 	return func;
 }
 
-void Easer::initialize(Drawable *target, Easer_Type type, boost::function<void(double)> functor,
+void Easer::initialize(Easable *target, Easer_Type type, boost::function<void(double)> functor,
 					   double value_start, double value_finish,
 					   double duration_secs)
 {
@@ -126,7 +126,7 @@ void Easer::initialize(Drawable *target, Easer_Type type, boost::function<void(d
 }
 
 void Easer::start() {
-	target->easers.push_back(this);
+	target->add_easer(this);
 	this->active = TRUE;
 	clock_gettime(CLOCK_MONOTONIC, &this->start_ts);
 }
