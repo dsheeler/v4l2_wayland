@@ -925,8 +925,13 @@ static gboolean motion_notify_event_cb(GtkWidget *,
 		}
 	}
 	if (dd->selection_in_progress) {
-		dd->selection_rect.width = dd->mouse_pos.x - dd->mdown_pos.x;
-		dd->selection_rect.height = dd->mouse_pos.y - dd->mdown_pos.y;
+		if (dd->mdown) {
+			dd->selection_rect.width = dd->mouse_pos.x - dd->mdown_pos.x;
+			dd->selection_rect.height = dd->mouse_pos.y - dd->mdown_pos.y;
+		} else {
+			dd->selection_rect.width = dd->mup_pos.x - dd->mdown_pos.x;
+			dd->selection_rect.height = dd->mup_pos.y - dd->mdown_pos.y;
+		}
 		if (dd->selection_rect.width < 0) {
 			dd->selection_rect.width = -dd->selection_rect.width;
 			dd->selection_rect.x = dd->mdown_pos.x - dd->selection_rect.width;
@@ -1138,9 +1143,14 @@ static gboolean button_release_event_cb(GtkWidget *,
 	DingleDots * dd;
 	int i;
 	dd = (DingleDots *)data;
+	dd->mouse_pos.x = event->x / dd->scale;
+	dd->mouse_pos.y = event->y / dd->scale;
+	dd->mup_pos.x = dd->mouse_pos.x;
+	dd->mup_pos.y = dd->mouse_pos.y;
 	mark_hovered(event->state & GDK_SHIFT_MASK, dd);
 	if (event->button == GDK_BUTTON_PRIMARY) {
 		if (!dd->dragging && !dd->selection_in_progress) {
+
 			for (i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
 				if (!dd->sound_shapes[i].active) continue;
 				if (!dd->sound_shapes[i].mdown) {
@@ -1170,12 +1180,12 @@ static gboolean button_release_event_cb(GtkWidget *,
 		}
 		gtk_widget_queue_draw(dd->drawing_area);
 		return TRUE;
-	} else if (!(event->state & GDK_SHIFT_MASK) && event->button == GDK_BUTTON_SECONDARY) {
+	} /*else if (!(event->state & GDK_SHIFT_MASK) && event->button == GDK_BUTTON_SECONDARY) {
 		dd->smdown = 0;
 		dd->make_new_tld = 1;
 		dd->doing_tld = 1;
 		return TRUE;
-	}
+	}*/
 	return FALSE;
 }
 

@@ -41,7 +41,7 @@ int DingleDots::init(int width, int height,
 	this->show_shapshot_shape = 0;
 	this->mdown = 0;
 	this->dragging = 0;
-	this->set_selecting_off();
+	this->selection_in_progress = 0;
 	this->motion_threshold = 0.001;
 	for (int i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
 		this->sound_shapes[i].clear_state();

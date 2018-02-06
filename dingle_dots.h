@@ -98,6 +98,7 @@ public:
 	uint8_t smdown;
 	uint8_t s_pressed;
 	GdkPoint mdown_pos;
+	GdkPoint mup_pos;
 	GtkWidget *ctl_window;
 	GtkWidget *drawing_area;
 	GtkWidget *scale_combo;
