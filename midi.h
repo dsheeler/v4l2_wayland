@@ -31,6 +31,7 @@ struct midi_key_t {
 	int scaleid;
 	int steps[MAX_SCALE_LENGTH];
 	int num_steps;
+	int channel;
 };
 
 void midi_queue_new_message(int b0, int b1, int b2, DingleDots *dd);

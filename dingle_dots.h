@@ -107,6 +107,7 @@ public:
 	GtkWidget *scale_color_button;
 	GtkWidget *record_button;
 	GtkWidget *delete_button;
+	GtkWidget *channel_combo;
 	long jack_overruns;
 	int nports;
 	jack_default_audio_sample_t **in;

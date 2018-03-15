@@ -28,6 +28,7 @@
 #include <memory>
 #include <cstring>
 #include <boost/bind.hpp>
+#include <gtk/gtk.h>
 
 #include "dingle_dots.h"
 #include "kmeter.h"
@@ -359,6 +360,8 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	cairo_surface_t *sources_surf;
 	cairo_t *drawing_cr;
 	cairo_surface_t *drawing_surf;
+	struct timespec start_ts, end_ts;
+	clock_gettime(CLOCK_MONOTONIC, &start_ts);
 	if (first_data) {
 		save_buf_sources = (uint32_t *)malloc(dd->sources_frame->linesize[0] * dd->sources_frame->height);
 	}
@@ -568,10 +571,13 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			}
 		}
 	}
+	//
+	cairo_restore(screen_cr);
 	if (render_drawing_surf) {
 		render_pointer(drawing_cr, dd->mouse_pos.x, dd->mouse_pos.y);
+		//gtk_widget_draw(GTK_WIDGET(dd->ctl_window), drawing_cr);
 	}
-	render_pointer(screen_cr, dd->mouse_pos.x, dd->mouse_pos.y);
+	render_pointer(screen_cr, dd->scale * dd->mouse_pos.x, dd->scale * dd->mouse_pos.y);
 	if (dd->doing_tld) {
 		if (render_drawing_surf) {
 			render_detection_box(drawing_cr, 0, dd->ascale_factor_x*newbox.rect.x,
@@ -582,7 +588,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 							 dd->ascale_factor_y*newbox.rect.y, dd->ascale_factor_x*newbox.rect.width,
 							 dd->ascale_factor_y*newbox.rect.height);
 	}
-	cairo_restore(screen_cr);
+
 	clock_gettime(CLOCK_REALTIME, &snapshot_ts);
 	int drawing_size = 4 * dd->drawing_frame->width * dd->drawing_frame->height;
 	uint tsize = drawing_size + sizeof(struct timespec);
@@ -628,6 +634,10 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	cairo_destroy(drawing_cr);
 	cairo_surface_destroy(sources_surf);
 	cairo_surface_destroy(drawing_surf);
+	clock_gettime(CLOCK_MONOTONIC, &end_ts);
+	struct timespec diff_ts;
+	timespec_diff(&start_ts, &end_ts, &diff_ts);
+	printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
 }
 
 double hanning_window(int i, int N) {
@@ -823,6 +833,7 @@ static gint queue_draw_timeout_cb(gpointer data) {
 	}
 	return TRUE;
 }
+
 static gboolean draw_cb (GtkWidget *, cairo_t *cr, gpointer   data) {
 	DingleDots *dd;
 	dd = (DingleDots *)data;
@@ -1511,6 +1522,7 @@ static gboolean make_scale_cb(GtkWidget *, gpointer data) {
 	dd = (DingleDots *)data;
 	char *text_scale;
 	char text_note[4];
+	int channel;
 	text_scale =
 			gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(dd->scale_combo));
 	sprintf(text_note, "%s",
@@ -1524,7 +1536,8 @@ static gboolean make_scale_cb(GtkWidget *, gpointer data) {
 		gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(dd->scale_color_button), &gc);
 		color_init(&c, gc.red, gc.green, gc.blue, gc.alpha);
 	}
-	dd->add_scale(&key, 1, &c);
+	channel = atoi(gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(dd->channel_combo)));
+	dd->add_scale(&key, channel, &c);
 	return TRUE;
 }
 
@@ -1543,6 +1556,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	GtkWidget *camera_button;
 	GtkWidget *make_scale_button;
 	GtkWidget *aspect;
+	GtkWidget *channel_hbox;
+	GtkWidget *channel_label;
 	DingleDots *dd;
 	int ret;
 	dd = (DingleDots *)user_data;
@@ -1633,6 +1648,19 @@ static void activate(GtkApplication *app, gpointer user_data) {
 		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(dd->note_combo), id, text);
 	}
 	gtk_combo_box_set_active(GTK_COMBO_BOX(dd->note_combo), 60);
+	dd->channel_combo = gtk_combo_box_text_new();
+	for (int i = 0; i < 16; ++i) {
+		char id[3];
+		char text[NCHAR];
+		snprintf(text, 3, "%d", i);
+		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(dd->channel_combo), id, text);
+
+	}
+	gtk_combo_box_set_active(GTK_COMBO_BOX(dd->channel_combo), 0);
+	channel_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+	channel_label = gtk_label_new("CHANNEL");
+	gtk_box_pack_start(GTK_BOX(channel_hbox), dd->channel_combo, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(channel_hbox), channel_label, FALSE, FALSE, 0);
 	make_scale_button = gtk_button_new_with_label("MAKE SCALE");
 	dd->rand_color_button = gtk_check_button_new_with_label("RANDOM COLOR");
 	GdkRGBA gc;
@@ -1648,10 +1676,12 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->note_combo, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->scale_color_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), dd->rand_color_button, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(note_hbox), channel_hbox, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(note_hbox), dd->channel_combo, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(note_hbox), make_scale_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), dd->delete_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), qbutton, FALSE, FALSE, 0);
-	gtk_container_add (GTK_CONTAINER (window), aspect);
+	gtk_container_add (GTK_CONTAINER(window), aspect);
 	gtk_container_add (GTK_CONTAINER (dd->ctl_window), vbox);
 
 	g_signal_connect(dd->record_button, "clicked", G_CALLBACK(record_cb), dd);

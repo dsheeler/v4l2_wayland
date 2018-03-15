@@ -269,6 +269,6 @@ void Drawable::render_shadow(cairo_t *cr) {
 	c.r = 0;
 	c.g = 0;
 	c.b = 0;
-	c.a = 0.5;
-	render_halo(cr, c, 5);
+	c.a = 0.25;
+	render_halo(cr, c, 10);
 }
