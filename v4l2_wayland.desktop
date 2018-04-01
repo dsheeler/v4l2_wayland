@@ -4,6 +4,6 @@ Encoding=UTF-8
 Name=V4L2 Wayland
 Comment=A computer vision musical instrument
 Exec=v4l2_wayland
-Icon=/usr/share/icons/hicolor/scalable/apps/v4l2_wayland.svg
+Icon=v4l2_wayland
 Categories=AudioVideo
 Terminal=false
