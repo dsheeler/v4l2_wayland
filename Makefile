@@ -17,8 +17,8 @@ LFLAGS = $(shell pkg-config --libs cairo) \
 				 -lccv -lm -lpng -ljpeg -lswscale -lavutil -lswresample \
 				 -lavformat -lavcodec -lpthread -ljack
 LIBS =
-CFLAGS = -O3 -ffast-math -Wall
-#CFLAGS =-g -Wall
+#CFLAGS = -O3 -ffast-math -Wall
+CFLAGS =-g -Wall
 CFLAGS +=	$(shell pkg-config --cflags pangocairo) \
 				 	$(shell pkg-config --cflags gtk+-3.0) \
 				 	$(shell pkg-config --cflags fftw3)

@@ -396,13 +396,13 @@ static bool sort_on_device_name(const std::string &s1, const std::string &s2)
 
 
 
-void V4l2::list_devices(std::vector<std::string> &files) {
+void V4l2::list_devices(std::map<std::string, std::string> &cards) {
 	DIR *dp;
 	struct dirent *ep;
 	dev_map links;
-	dev_map cards;
 	struct v4l2_format fmt;
-
+	struct v4l2_capability vcap;
+	std::vector<std::string> files;
 	dp = opendir("/dev");
 	if (dp == NULL) {
 		perror ("Couldn't open the directory");
@@ -443,6 +443,7 @@ void V4l2::list_devices(std::vector<std::string> &files) {
 		char link[64+1];
 		int link_len;
 		std::string target;
+		;
 
 		link_len = readlink(iter->c_str(), link, 64);
 		if (link_len < 0) {	/* Not a link or error */
@@ -465,9 +466,25 @@ void V4l2::list_devices(std::vector<std::string> &files) {
 			links[target] = *iter;
 		else
 			links[target] += ", " + *iter;
-		iter = files.erase(iter);
 	}
 
 	std::sort(files.begin(), files.end(), sort_on_device_name);
+	for (dev_vec::iterator iter = files.begin();
+		 iter != files.end(); ++iter) {
+		int fd = open(iter->c_str(), O_RDWR);
+		std::string bus_info;
 
+		if (fd < 0)
+			continue;
+		int err = ioctl(fd, VIDIOC_QUERYCAP, &vcap);
+		close(fd);
+		if (err)
+			continue;
+		bus_info = (const char *)vcap.bus_info;
+		if (cards[*iter].empty())
+			cards[*iter] += *iter + " -- " +
+					std::string((char *)vcap.card) + " (" + bus_info + ")";
+		if (!(links[*iter].empty()))
+			cards[*iter] += " <- " + links[*iter];
+	}
 }

@@ -1433,7 +1433,7 @@ static gboolean set_modes_cb(GtkWidget *widget, gpointer data) {
 	GtkComboBoxText *resolution_combo = (GtkComboBoxText *) data;
 	gtk_combo_box_text_remove_all(resolution_combo);
 	std::vector<std::pair<int, int>> width_height;
-	gchar *name = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(widget));
+	const gchar *name = gtk_combo_box_get_active_id(GTK_COMBO_BOX(widget));
 	V4l2::get_dimensions(name, width_height);
 	int index = 0;
 
@@ -1461,23 +1461,20 @@ static gboolean camera_cb(GtkWidget *, gpointer data) {
 	GtkWidget *combo;
 	GtkWidget *resolution_combo;
 	int res;
-	int index;
 	GtkDialogFlags flags = (GtkDialogFlags)(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT);
 	dialog = gtk_dialog_new_with_buttons("Open Camera", GTK_WINDOW(dd->ctl_window),
 										 flags, "Open", GTK_RESPONSE_ACCEPT, "Cancel", GTK_RESPONSE_REJECT, NULL);
 	dialog_content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
 	combo = gtk_combo_box_text_new();
 
-	std::vector<std::string> files;
+	std::map<std::string, std::string> files;
 	V4l2::list_devices(files);
-	index = 0;
-	for (std::vector<std::string>::iterator it = files.begin();
+	for (std::map<std::string, std::string>::iterator it = files.begin();
 		 it != files.end(); ++it) {
 		char index_str[64];
 		memset(index_str, '\0', sizeof(index_str));
-		snprintf(index_str, 63, "%d", index);
-		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), index_str, (*it).c_str());
-		++index;
+		snprintf(index_str, 63,"%s", it->first.c_str());
+		gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo), index_str, it->second.c_str());
 	}
 	resolution_combo = gtk_combo_box_text_new();
 	gtk_container_add(GTK_CONTAINER(dialog_content), combo);
@@ -1490,14 +1487,14 @@ static gboolean camera_cb(GtkWidget *, gpointer data) {
 	gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 0);
 	res = gtk_dialog_run(GTK_DIALOG(dialog));
 	if (res == GTK_RESPONSE_ACCEPT) {
-		gchar *name = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(combo));
+		const gchar *name = gtk_combo_box_get_active_id(GTK_COMBO_BOX(combo));
 		gchar *res_str = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(resolution_combo));
 		gchar *w, *h;
 		w = strsep(&res_str, "x");
 		h = strsep(&res_str, "x");
 		for(int i = 0; i < MAX_NUM_V4L2; i++) {
 			if (!dd->v4l2[i].allocated) {
-				dd->v4l2[i].create(dd, name, atof(w), atof(h), dd->next_z++);
+				dd->v4l2[i].create(dd, (char *)name, atof(w), atof(h), dd->next_z++);
 				break;
 			}
 		}

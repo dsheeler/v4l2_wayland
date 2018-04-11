@@ -3,6 +3,7 @@
 
 #include <poll.h>
 #include <assert.h>
+#include <map>
 #include <linux/videodev2.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -50,7 +51,7 @@ public:
 	void init_mmap();
 	bool render(std::vector<cairo_t *> &contexts);
 	static void get_dimensions(std::string device, std::vector<std::pair<int, int> > &w_h);
-	static void list_devices(std::vector<std::string> &files);
+	static void list_devices(std::map<std::string, std::string> &files);
 private:
 	static void* thread(void *v);
 	static int xioctl(int fh, int request, void *arg);
