@@ -23,6 +23,7 @@ typedef struct midi_key_t midi_key_t;
 #include "v4l2.h"
 #include "sprite.h"
 #include "easable.h"
+#include "video_file_out.h"
 
 #define STR_LEN 80
 #define MAX_NUM_V4L2 4
@@ -33,7 +34,7 @@ typedef struct midi_key_t midi_key_t;
 class DingleDots : public Easable {
 public:
 	DingleDots();
-	int init(int width, int height, int video_bitrate);
+	int init(int width, int height);
 	int free();
 	int deactivate_sound_shapes();
 	int add_note(char *scale_name,
@@ -43,25 +44,14 @@ public:
 				   color *c);
 	GApplication *app;
 	gboolean fullscreen;
-	char video_file_name[STR_LEN];
-	int recording_started;
-	int recording_stopped;
 	int can_process;
 	int can_capture;
-	int audio_done;
-	int video_done;
-	int trailer_written;
 	int make_new_tld;
 	int use_rand_color_for_scale;
 	int shift_pressed;
 	int delete_active;
 	double selection_box_alpha;
 	uint8_t animating;
-	uint32_t video_bitrate;
-	AVFormatContext *video_output_context;
-	struct timespec out_frame_ts;
-	disk_thread_info_t audio_thread_info;
-	disk_thread_info_t video_thread_info;
 	disk_thread_info_t snapshot_thread_info;
 	AVFrame *sources_frame;
 	AVFrame *drawing_frame;
@@ -72,6 +62,7 @@ public:
 	AVFrame *video_frame;
 	double scale;
 	VideoFile vf[MAX_NUM_VIDEO_FILES];
+	VideoFileOut vfo[MAX_NUM_VIDEO_FILES];
 	int current_video_file_source_index;
 	int current_sprite_index;
 	V4l2 v4l2[MAX_NUM_V4L2];

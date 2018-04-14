@@ -7,19 +7,17 @@
 
 
 DingleDots::DingleDots() { }
-int DingleDots::init(int width, int height,
-					 int video_bitrate) {
+int DingleDots::init(int width, int height) {
 	int ret;
 	this->s_pressed = 0;
 	this->smdown = 0;
 	this->drawing_rect.width = width;
 	this->drawing_rect.height = height;
-	this->recording_started = 0;
-	this->recording_stopped = 0;
+
 	this->animating = 0;
 	this->nports = 2;
 	this->make_new_tld = 0;
-	this->video_bitrate = video_bitrate;
+
 	this->analysis_rect.width = 260;
 	this->analysis_rect.height = 148;
 	this->ascale_factor_x = this->drawing_rect.width / (double)this->analysis_rect.width;
@@ -48,18 +46,16 @@ int DingleDots::init(int width, int height,
 	}
 	snapshot_shape.init("SNAPSHOT", this->drawing_rect.width / 2., this->drawing_rect.width / 16.,
 						this->drawing_rect.width / 32., random_color(), this);
-	pthread_mutex_init(&this->video_thread_info.lock, NULL);
-	pthread_mutex_init(&this->audio_thread_info.lock, NULL);
+
 	pthread_mutex_init(&this->snapshot_thread_info.lock, NULL);
-	pthread_cond_init(&this->video_thread_info.data_ready, NULL);
-	pthread_cond_init(&this->audio_thread_info.data_ready, NULL);
+
 	pthread_cond_init(&this->snapshot_thread_info.data_ready, NULL);
 	uint32_t rb_size = 200 * 4 * 640 * 360;
 	this->snapshot_thread_info.ring_buf = jack_ringbuffer_create(rb_size);
 	memset(this->snapshot_thread_info.ring_buf->buf, 0,
 		   this->snapshot_thread_info.ring_buf->size);
-	pthread_create(&this->snapshot_thread_info.thread_id, NULL, snapshot_disk_thread,
-				   this);
+//	pthread_create(&this->snapshot_thread_info.thread_id, NULL, snapshot_disk_thread,
+//				   this);
 	return 0;
 }
 
