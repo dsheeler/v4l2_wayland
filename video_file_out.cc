@@ -30,15 +30,36 @@ void VideoFileOut::deallocate_video() {
 
 }
 
+int VideoFileOut::get_recording_audio() const
+{
+	return recording_audio;
+}
+
+void VideoFileOut::set_recording_audio(int value)
+{
+	recording_audio = value;
+}
+
+void VideoFileOut::wake_up_audio_write_thread()
+{
+	if (pthread_mutex_trylock(&this->audio_thread_info.lock) == 0) {
+		pthread_cond_signal(&this->audio_thread_info.data_ready);
+		pthread_mutex_unlock (&this->audio_thread_info.lock);
+	}
+}
+
 void *VideoFileOut::audio_thread(void *arg) {
 	int ret;
 	VideoFileOut *vf = (VideoFileOut *)arg;
-	pthread_mutex_t *lock = vf->get_audio_lock();
-	pthread_cond_t *data_ready = vf->get_audio_data_ready();
 	vf->allocate_audio();
+	pthread_mutex_t *lock = vf->get_audio_lock();
+	pthread_cond_t *data_ready;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	pthread_mutex_lock(lock);
+	vf->set_recording_audio(1);
 	while(1) {
+		lock = vf->get_audio_lock();
+		data_ready = vf->get_audio_data_ready();
 		ret = vf->write_audio_frame();
 		if (ret == 1) {
 			vf->set_audio_done(1);
@@ -67,12 +88,11 @@ timespec *VideoFileOut::get_audio_first_time()
 void *VideoFileOut::video_thread(void *arg) {
 	int ret;
 	VideoFileOut *vf = (VideoFileOut*)arg;
+	vf->allocate_video();
 	pthread_mutex_t *lock = vf->get_video_lock();
 	pthread_cond_t *data_ready = vf->get_video_data_ready();
-	vf->allocate_video();
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 	pthread_mutex_lock(lock);
-	vf->allocate_audio();
 	while(1) {
 		ret = vf->write_video_frame();
 		if (ret == 1) {
@@ -92,26 +112,32 @@ void *VideoFileOut::video_thread(void *arg) {
 
 void VideoFileOut::start_recording(int width, int height, int bitrate) {
 	struct timespec ts;
-	if (strlen(name) == 0) {
-		clock_gettime(CLOCK_REALTIME, &ts);
-		timespec2file_name(name, VF_STR_LEN, "Videos", "webm", &ts);
-	}
+	clock_gettime(CLOCK_REALTIME, &ts);
+	timespec2file_name(name, VF_STR_LEN, "Videos", "webm", &ts);
 	this->width = width;
 	this->height = height;
 	this->bitrate = bitrate;
 	this->init_output();
-	recording_started = 1;
-	recording_stopped = 0;
+	this->audio_done = 0;
+	this->video_done = 0;
+	this->trailer_written = 0;
+	this->recording_audio = 0;
+	this->recording_video = 0;
+	this->first_call_audio = 1;
+	this->first_call_video = 1;
 	pthread_create(&audio_thread_info.thread_id, NULL, audio_thread,
 				   this);
 	pthread_create(&video_thread_info.thread_id, NULL, video_thread,
 				   this);
+	recording_started = 1;
+	recording_stopped = 0;
 }
 
 void VideoFileOut::write_trailer()
 {
 	av_write_trailer(this->video_output_context);
 	this->trailer_written = 1;
+	printf("TRAILER\n");
 }
 
 jack_ringbuffer_t *VideoFileOut::get_audio_ringbuffer()
@@ -130,6 +156,7 @@ pthread_cond_t *VideoFileOut::get_audio_data_ready()
 }
 
 void VideoFileOut::stop_recording() {
+	recording_started = 0;
 	recording_stopped = 1;
 }
 
@@ -148,19 +175,19 @@ pthread_cond_t *VideoFileOut::get_video_data_ready()
 	return &this->video_thread_info.data_ready;
 }
 
-void VideoFileOut::set_video_first_time(timespec val)
+void VideoFileOut::set_video_first_time(struct timespec val)
 {
 	video_first_time = val;
 }
 
 int VideoFileOut::get_video_first_call()
 {
-	return first_call;
+	return first_call_video;
 }
 
 void VideoFileOut::set_video_first_call(int val)
 {
-	first_call = val;
+	first_call_video = val;
 }
 
 int VideoFileOut::get_video_done()
@@ -185,12 +212,12 @@ void VideoFileOut::set_audio_samples_count(int val)
 
 int VideoFileOut::get_audio_first_call()
 {
-	return first_call;
+	return first_call_audio;
 }
 
 void VideoFileOut::set_audio_first_call(int val)
 {
-	this->first_call = val;
+	this->first_call_audio = val;
 }
 
 int VideoFileOut::get_audio_done()
@@ -227,22 +254,32 @@ static void log_packet(const AVFormatContext *fmt_ctx, const AVPacket *pkt)
 		   " duration_time:%s stream_index:%d\n",
 		   pts, pts_str, dts, dts_str, dur, dur_str, pkt->stream_index);
 }
+static int write_frame(pthread_mutex_t *lock, AVFormatContext *fmt_ctx,
+					   const AVRational *time_base, AVStream *st, AVPacket *pkt) {
+	pthread_mutex_lock(lock);
+	int ret;
+	/* rescale output packet timestamp values from codec to stream timebase */
+	av_packet_rescale_ts(pkt, *time_base, st->time_base);
+	pkt->stream_index = st->index;
+	/* Write the compressed frame to the media file. */
+	ret = av_interleaved_write_frame(fmt_ctx, pkt);
+	pthread_mutex_unlock(lock);
+	return ret;
+}
 
-int VideoFileOut::write_frame(AVPacket *pkt) {
+/*int VideoFileOut::write_frame(AVPacket *pkt) {
 	AVFormatContext *fmt_ctx = this->video_output_context;
 	const AVRational time_base = this->video_st.enc->time_base;
 	AVStream *st = this->video_st.st;
 	pthread_mutex_lock(&av_thread_lock);
 	int ret;
-	/* rescale output packet timestamp values from codec to stream timebase */
 	av_packet_rescale_ts(pkt, time_base, st->time_base);
 	pkt->stream_index = st->index;
-	/* Write the compressed frame to the media file. */
 	if (0) log_packet(fmt_ctx, pkt);
 	ret = av_interleaved_write_frame(fmt_ctx, pkt);
 	pthread_mutex_unlock(&av_thread_lock);
 	return ret;
-}
+}*/
 
 /* Add an output stream. */
 static void add_stream(OutputStream *ost, AVFormatContext *oc,
@@ -392,7 +429,7 @@ static void open_audio(AVCodec *codec, OutputStream *ost,
 }
 
 int VideoFileOut::get_audio_frame(AVFrame **ret_frame) {
-	OutputStream *ost = &this->video_st;
+	OutputStream *ost = &this->audio_thread_info.stream;
 	AVFrame *frame = ost->tmp_frame;
 	int j, i;
 	float *q = (float*)frame->data[0];
@@ -461,7 +498,8 @@ int VideoFileOut::write_audio_frame() {
 			exit(1);
 		}
 		while(avcodec_receive_packet(c, &pkt) >= 0) {
-			ret = write_frame(&pkt);
+			ret = write_frame(&this->av_thread_lock, this->video_output_context,
+							  &c->time_base, ost->st, &pkt);
 			if (ret < 0) {
 				av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
 				fprintf(stderr, "Error while writing audio frame: %s\n", err);
@@ -542,7 +580,7 @@ static void open_video(int width, int height, AVCodec *codec, OutputStream *ost,
 }
 
 int VideoFileOut::get_video_frame(AVFrame **ret_frame) {
-	OutputStream *ost = &this->video_st;
+	OutputStream *ost = &this->video_thread_info.stream;
 	AVCodecContext *c = ost->enc;
 	*ret_frame = NULL;
 	int size = ost->out_frame.size + sizeof(struct timespec);
@@ -561,8 +599,8 @@ int VideoFileOut::get_video_frame(AVFrame **ret_frame) {
 		double diff;
 		struct timespec *now;
 		now = &ost->out_frame.ts;
-		diff = now->tv_sec + 1e-9*now->tv_nsec - (ost->first_time.tv_sec +
-												  1e-9*ost->first_time.tv_nsec);
+		diff = now->tv_sec + 1e-9*now->tv_nsec - (this->video_first_time.tv_sec +
+												  1e-9*this->video_first_time.tv_nsec);
 		ost->next_pts = (int) c->time_base.den * diff / c->time_base.num;
 		if (!ost->sws_ctx) {
 			ost->sws_ctx = sws_getContext(c->width, c->height,
@@ -588,7 +626,7 @@ int VideoFileOut::get_video_frame(AVFrame **ret_frame) {
  * return 1 when encoding is finished, 0 otherwise
  */
 int VideoFileOut::write_video_frame() {
-	OutputStream *ost = &this->video_st;
+	OutputStream *ost = &this->video_thread_info.stream;
 	int ret;
 	AVCodecContext *c;
 	AVFrame *tframe;
@@ -610,7 +648,8 @@ int VideoFileOut::write_video_frame() {
 			exit(1);
 		}
 		while (avcodec_receive_packet(c, &pkt) >= 0) {
-			ret = write_frame(&pkt);
+			ret = write_frame(&this->av_thread_lock, this->video_output_context,
+							  &c->time_base, ost->st, &pkt);
 			if (ret < 0) {
 				av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
 				fprintf(stderr, "Error while writing video frame: %s\n", err);
@@ -628,7 +667,8 @@ int VideoFileOut::write_video_frame() {
 			exit(1);
 		}
 		while (avcodec_receive_packet(c, &pkt) >= 0) {
-			ret = write_frame(&pkt);
+			ret = write_frame(&this->av_thread_lock, this->video_output_context,
+							  &c->time_base, ost->st, &pkt);
 			if (ret < 0) {
 				av_make_error_string(err, AV_ERROR_MAX_STRING_SIZE, ret);
 				fprintf(stderr, "Error while writing video frame: %s\n", err);

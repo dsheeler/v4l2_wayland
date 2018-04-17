@@ -55,7 +55,7 @@ void V4l2::create(DingleDots *dd, char *dev_name, double width, double height, u
 void *V4l2::thread(void *arg) {
 	V4l2 *v = (V4l2 *)arg;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-	int rc = pthread_setname_np(v->thread_id, "v4l2_wayland_v4l2_source");
+	int rc = pthread_setname_np(v->thread_id, "vw_v4l2_source");
 	if (rc != 0) {
 		errno = rc;
 		perror("pthread_setname_np");

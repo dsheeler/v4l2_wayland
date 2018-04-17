@@ -592,7 +592,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	clock_gettime(CLOCK_MONOTONIC, &end_ts);
 	struct timespec diff_ts;
 	timespec_diff(&start_ts, &end_ts, &diff_ts);
-	printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
+	//printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
 }
 
 double hanning_window(int i, int N) {
@@ -601,7 +601,6 @@ double hanning_window(int i, int N) {
 
 int process(jack_nframes_t nframes, void *arg) {
 	DingleDots *dd = (DingleDots *)arg;
-	static int first_call = 1;
 	if (!dd->can_process) return 0;
 	midi_process_output(nframes, dd);
 	for (int chn = 0; chn < dd->nports; chn++) {
@@ -616,12 +615,7 @@ int process(jack_nframes_t nframes, void *arg) {
 		}
 		fftw_execute(p);
 	}
-	if (first_call) {
-		struct timespec *ats = dd->vfo[0].get_audio_first_time();
-		clock_gettime(CLOCK_MONOTONIC, ats);
-		dd->vfo[0].set_audio_samples_count(0);
-		first_call = 0;
-	}
+
 	for (uint i = 0; i < nframes; i++) {
 		for (int chn = 0; chn < dd->nports; chn++) {
 			dd->out[chn][i] = dd->in[chn][i];
@@ -657,23 +651,27 @@ int process(jack_nframes_t nframes, void *arg) {
 			}
 		}
 	}
-	int sample_size = sizeof(jack_default_audio_sample_t);
-	if (dd->vfo[0].get_recording_started() && !dd->vfo[0].get_audio_done()) {
+	uint32_t sample_size = sizeof(jack_default_audio_sample_t);
+	if (dd->vfo[0].get_recording_started() && !dd->vfo[0].get_audio_done() &&
+			dd->vfo[0].get_recording_audio()) {
+		jack_ringbuffer_t *rb = dd->vfo[0].get_audio_ringbuffer();
+		if (dd->vfo[0].get_audio_first_call()) {
+			struct timespec *ats = dd->vfo[0].get_audio_first_time();
+			clock_gettime(CLOCK_MONOTONIC, ats);
+			dd->vfo[0].set_audio_samples_count(0);
+			dd->vfo[0].set_audio_first_call(0);
+		}
 		for (uint i = 0; i < nframes; i++) {
 			for (int chn = 0; chn < dd->nports; chn++) {
-				jack_ringbuffer_t *rb = dd->vfo[0].get_audio_ringbuffer();
 				if (jack_ringbuffer_write(rb, (const char *) (dd->out[chn]+i),
 										  sample_size) < sample_size) {
-					printf("jack overrun: %ld\n", ++dd->jack_overruns);
+					//printf("jack overrun: %ld\n", ++dd->jack_overruns);
 				}
 			}
 		}
-		pthread_mutex_t *lock = dd->vfo[0].get_audio_lock();
-		if (pthread_mutex_trylock (lock) == 0) {
-			pthread_cond_signal (dd->vfo[0].get_audio_data_ready());
-			pthread_mutex_unlock (lock);
-		}
+		dd->vfo[0].wake_up_audio_write_thread();
 	}
+	dd->vfo[0].wake_up_audio_write_thread();
 	return 0;
 }
 
@@ -1248,12 +1246,12 @@ static gboolean delete_cb(GtkWidget *, gpointer data) {
 static gboolean record_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
-	if (!dd->vfo[0].get_recording_started() && !dd->vfo[0].get_recording_stopped()) {
+	if (!dd->vfo[0].get_recording_started()) {
 		dd->vfo[0].start_recording(dd->drawing_rect.width,
 								   dd->drawing_rect.height,
-								   666000);
+								   1000000);
 		gtk_widget_queue_draw(dd->drawing_area);
-	} else if (dd->vfo[0].get_recording_started() && !dd->vfo[0].get_recording_stopped()) {
+	} else if (!dd->vfo[0].get_recording_stopped()) {
 		dd->vfo[0].stop_recording();
 		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dd->record_button), 0);
 		//gtk_widget_set_sensitive(dd->record_button, 0);

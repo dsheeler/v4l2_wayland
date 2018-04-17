@@ -70,7 +70,6 @@ public:
 	pthread_cond_t *get_audio_data_ready();
 	void set_audio_ringbuffer(jack_ringbuffer_t *val);
 
-	int write_frame(AVPacket *pkt);
 	int get_audio_frame(AVFrame **ret_frame);
 	int get_video_frame(AVFrame **ret_frame);
 	int init_output();
@@ -79,7 +78,13 @@ public:
 	int allocate_video();
 	void deallocate_audio();
 	void deallocate_video();
+	int get_recording_audio() const;
+	void set_recording_audio(int value);
+	void wake_up_audio_write_thread();
+
 	private:
+	int recording_audio;
+	int recording_video;
 	struct timespec video_first_time;
 	static void *audio_thread(void *);
 	static void *video_thread(void *);
@@ -103,7 +108,8 @@ public:
 	disk_thread_info_t video_thread_info;
 	OutputStream video_st;
 	int can_capture;
-	int first_call = 1;
+	int first_call_audio = 1;
+	int first_call_video = 1;
 
 
 };

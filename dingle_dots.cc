@@ -54,8 +54,8 @@ int DingleDots::init(int width, int height) {
 	this->snapshot_thread_info.ring_buf = jack_ringbuffer_create(rb_size);
 	memset(this->snapshot_thread_info.ring_buf->buf, 0,
 		   this->snapshot_thread_info.ring_buf->size);
-//	pthread_create(&this->snapshot_thread_info.thread_id, NULL, snapshot_disk_thread,
-//				   this);
+	pthread_create(&this->snapshot_thread_info.thread_id, NULL, snapshot_disk_thread,
+				   this);
 	return 0;
 }
 
