@@ -7,7 +7,7 @@ int VideoFileOut::allocate_audio() {
 	pthread_cond_init(&audio_thread_info.data_ready, NULL);
 	audio_ring_buf = jack_ringbuffer_create (2 *
 											 sizeof(jack_default_audio_sample_t) *
-											 16384);
+											 96000);
 	memset(audio_ring_buf->buf, 0, audio_ring_buf->size);
 	return 0;
 }
@@ -51,7 +51,11 @@ void VideoFileOut::wake_up_audio_write_thread()
 void *VideoFileOut::audio_thread(void *arg) {
 	int ret;
 	VideoFileOut *vf = (VideoFileOut *)arg;
-	vf->allocate_audio();
+	int rc = pthread_setname_np(vf->get_audio_thread_info()->thread_id, "vw_audio_out");
+	if (rc != 0) {
+		errno = rc;
+		perror("pthread_setname_np");
+	}vf->allocate_audio();
 	pthread_mutex_t *lock = vf->get_audio_lock();
 	pthread_cond_t *data_ready;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
@@ -80,6 +84,10 @@ disk_thread_info_t *VideoFileOut::get_video_thread_info() {
 	return &this->video_thread_info;
 }
 
+disk_thread_info_t *VideoFileOut::get_audio_thread_info() {
+	return &this->audio_thread_info;
+}
+
 timespec *VideoFileOut::get_audio_first_time()
 {
 	return &this->audio_thread_info.stream.first_time;
@@ -88,6 +96,11 @@ timespec *VideoFileOut::get_audio_first_time()
 void *VideoFileOut::video_thread(void *arg) {
 	int ret;
 	VideoFileOut *vf = (VideoFileOut*)arg;
+	int rc = pthread_setname_np(vf->get_video_thread_info()->thread_id, "vw_video_out");
+	if (rc != 0) {
+		errno = rc;
+		perror("pthread_setname_np");
+	}
 	vf->allocate_video();
 	pthread_mutex_t *lock = vf->get_video_lock();
 	pthread_cond_t *data_ready = vf->get_video_data_ready();
@@ -125,12 +138,13 @@ void VideoFileOut::start_recording(int width, int height, int bitrate) {
 	this->recording_video = 0;
 	this->first_call_audio = 1;
 	this->first_call_video = 1;
+	recording_stopped = 0;
+	recording_started = 1;
 	pthread_create(&audio_thread_info.thread_id, NULL, audio_thread,
 				   this);
 	pthread_create(&video_thread_info.thread_id, NULL, video_thread,
 				   this);
-	recording_started = 1;
-	recording_stopped = 0;
+
 }
 
 void VideoFileOut::write_trailer()

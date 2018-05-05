@@ -13,7 +13,9 @@ extern "C" {
 }
 #endif
 #include <gtk/gtk.h>
+#include <canberra.h>
 #include "v4l2_wayland.h"
+#include <fftw3.h>
 typedef struct midi_key_t midi_key_t;
 #include "sound_shape.h"
 #include "snapshot_shape.h"
@@ -37,6 +39,7 @@ public:
 	int init(int width, int height);
 	int free();
 	int deactivate_sound_shapes();
+	int setup_jack();
 	int add_note(char *scale_name,
 				 int scale_num, int midi_note, int midi_channel,
 				 double x, double y, double r, color *c);
@@ -69,7 +72,7 @@ public:
 	Sprite sprites[MAX_NUM_SPRITES];
 	SnapshotShape snapshot_shape;
 	SoundShape sound_shapes[MAX_NUM_SOUND_SHAPES];
-	kmeter meters[2];
+	Meter meters[2];
 	GdkRectangle drawing_rect;
 	int doing_motion;
 	int doing_tld;
@@ -97,10 +100,14 @@ public:
 	GtkWidget *rand_color_button;
 	GtkWidget *scale_color_button;
 	GtkWidget *record_button;
+	GtkWidget *bitrate_entry;
 	GtkWidget *delete_button;
 	GtkWidget *channel_combo;
+	ca_context *event_sound_ctx;
 	long jack_overruns;
 	int nports;
+	fftw_complex *fftw_in, *fftw_out;
+	fftw_plan p;
 	jack_default_audio_sample_t **in;
 	jack_default_audio_sample_t **out;
 	jack_port_t **in_ports;

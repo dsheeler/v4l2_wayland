@@ -110,7 +110,7 @@ int VideoFile::play() {
 void *VideoFile::thread(void *arg) {
 	int ret;
 	VideoFile *vf = (VideoFile *)arg;
-	int rc = pthread_setname_np(vf->thread_id, "v4l2_wayland_vf");
+	int rc = pthread_setname_np(vf->thread_id, "vw_video_source");
 	if (rc != 0) {
 		errno = rc;
 		perror("pthread_setname_np");
@@ -309,14 +309,7 @@ end:
 	return 0;
 }
 
-int VideoFile::activate() {
-	if (!this->active) {
-		this->easers.clear();
-		this->scale_to_fit(2.0);
-		this->active = 1;
-	}
-	return 0;
-}
+
 
 void VideoFile::toggle_play_pause()
 {

@@ -63,7 +63,8 @@ public:
 
 	int activate_spin_and_scale_to_fit();
 	int scale_to_fit(double duration);
-protected:
+	int fade_in(double duration);
+	protected:
 	virtual void deactivate_action();
 };
 

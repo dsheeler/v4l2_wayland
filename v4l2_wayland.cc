@@ -22,7 +22,6 @@
 #include <jack/midiport.h>
 #include <linux/input.h>
 #include <cairo/cairo.h>
-#include <fftw3.h>
 #include <algorithm>
 #include <vector>
 #include <memory>
@@ -43,8 +42,6 @@
 
 #include "easable.h"
 
-fftw_complex                   *fftw_in, *fftw_out;
-fftw_plan                      p;
 static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
 static ccv_tld_t               *tld = 0;
 
@@ -455,18 +452,18 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			sound_shapes.push_back(s);
 		}
 	}
+	for (i = 0; i < 2; i++) {
+		sound_shapes.push_back(&dd->meters[i]);
+	}
 	std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z < b->z; } );
 	for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
 		Drawable *d = *it;
 		d->update_easers();
 		if (d->active) d->render(ss_contexts);
 	}
-
+#define RENDER_KMETERS
 #if defined(RENDER_KMETERS)
-	for (i = 0; i < 2; i++) {
-		kmeter_render(&dd->meters[i], drawing_cr, 1.);
-		kmeter_render(&dd->meters[i], screen_cr, 1.);
-	}
+
 #endif
 #if defined(RENDER_FFT)
 	double space;
@@ -544,6 +541,11 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	int drawing_size = 4 * dd->drawing_frame->width * dd->drawing_frame->height;
 	uint tsize = drawing_size + sizeof(struct timespec);
 	if (dd->do_snapshot) {
+		ca_context_play (dd->event_sound_ctx, 0,
+			CA_PROP_EVENT_ID, "camera-shutter",
+			CA_PROP_EVENT_DESCRIPTION, "camera shutter",
+			NULL);
+
 		if (jack_ringbuffer_write_space(dd->snapshot_thread_info.ring_buf) >= (size_t)tsize) {
 			jack_ringbuffer_write(dd->snapshot_thread_info.ring_buf, (const char *)dd->drawing_frame->data[0],
 					drawing_size);
@@ -592,141 +594,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	clock_gettime(CLOCK_MONOTONIC, &end_ts);
 	struct timespec diff_ts;
 	timespec_diff(&start_ts, &end_ts, &diff_ts);
-	//printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
-}
-
-double hanning_window(int i, int N) {
-	return 0.5 * (1 - cos(2 * M_PI * i / (N - 1)));
-}
-
-int process(jack_nframes_t nframes, void *arg) {
-	DingleDots *dd = (DingleDots *)arg;
-	if (!dd->can_process) return 0;
-	midi_process_output(nframes, dd);
-	for (int chn = 0; chn < dd->nports; chn++) {
-		dd->in[chn] = (jack_default_audio_sample_t *)jack_port_get_buffer(dd->in_ports[chn], nframes);
-		dd->out[chn] = (jack_default_audio_sample_t *)jack_port_get_buffer(dd->out_ports[chn], nframes);
-		kmeter_process(&dd->meters[chn], dd->in[chn], nframes);
-	}
-	if (nframes >= FFT_SIZE) {
-		for (int i = 0; i < FFT_SIZE; i++) {
-			fftw_in[i][0] = dd->in[0][i] * hanning_window(i, FFT_SIZE);
-			fftw_in[i][1] = 0.0;
-		}
-		fftw_execute(p);
-	}
-
-	for (uint i = 0; i < nframes; i++) {
-		for (int chn = 0; chn < dd->nports; chn++) {
-			dd->out[chn][i] = dd->in[chn][i];
-		}
-	}
-	for (int i = 0; i < MAX_NUM_VIDEO_FILES; ++i) {
-		VideoFile *vf = &dd->vf[i];
-		if (vf->active && vf->audio_playing && !vf->paused) {
-			jack_default_audio_sample_t sample;
-			if (vf->audio_decoding_started) {
-				if (vf->audio_decoding_finished &&
-						jack_ringbuffer_read_space(vf->abuf) == 0) {
-					vf->audio_playing = 0;
-					if (pthread_mutex_trylock(&vf->video_lock) == 0) {
-						pthread_cond_signal(&vf->video_data_ready);
-						pthread_mutex_unlock(&vf->video_lock);
-					}
-				} else{
-					for (uint frm = 0; frm < nframes; ++frm) {
-						for (int chn = 0; chn < 2; ++chn) {
-							if (jack_ringbuffer_read_space(vf->abuf) >= sizeof(sample)) {
-								jack_ringbuffer_read(vf->abuf, (char *)&sample, sizeof(sample));
-								dd->out[chn][frm] += sample;
-							}
-						}
-					}
-					vf->nb_frames_played += nframes;
-					if (pthread_mutex_trylock(&vf->audio_lock) == 0) {
-						pthread_cond_signal(&vf->audio_data_ready);
-						pthread_mutex_unlock(&vf->audio_lock);
-					}
-				}
-			}
-		}
-	}
-	uint32_t sample_size = sizeof(jack_default_audio_sample_t);
-	if (dd->vfo[0].get_recording_started() && !dd->vfo[0].get_audio_done() &&
-			dd->vfo[0].get_recording_audio()) {
-		jack_ringbuffer_t *rb = dd->vfo[0].get_audio_ringbuffer();
-		if (dd->vfo[0].get_audio_first_call()) {
-			struct timespec *ats = dd->vfo[0].get_audio_first_time();
-			clock_gettime(CLOCK_MONOTONIC, ats);
-			dd->vfo[0].set_audio_samples_count(0);
-			dd->vfo[0].set_audio_first_call(0);
-		}
-		for (uint i = 0; i < nframes; i++) {
-			for (int chn = 0; chn < dd->nports; chn++) {
-				if (jack_ringbuffer_write(rb, (const char *) (dd->out[chn]+i),
-										  sample_size) < sample_size) {
-					//printf("jack overrun: %ld\n", ++dd->jack_overruns);
-				}
-			}
-		}
-		dd->vfo[0].wake_up_audio_write_thread();
-	}
-	dd->vfo[0].wake_up_audio_write_thread();
-	return 0;
-}
-
-void jack_shutdown (void *) {
-	printf("JACK shutdown\n");
-	abort();
-}
-
-void setup_jack(DingleDots *dd) {
-	size_t in_size;
-	dd->can_process = 0;
-	dd->jack_overruns = 0;
-	if ((dd->client = jack_client_open("v4l2_wayland",
-									   JackNoStartServer, NULL)) == 0) {
-		printf("jack server not running?\n");
-		exit(1);
-	}
-	jack_set_process_callback(dd->client, process, dd);
-	jack_on_shutdown(dd->client, jack_shutdown, NULL);
-	if (jack_activate(dd->client)) {
-		printf("cannot activate jack client\n");
-	}
-	dd->nports = 2;
-	dd->in_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * dd->nports);
-	dd->out_ports = (jack_port_t **) malloc(sizeof(jack_port_t *) * dd->nports);
-	in_size =  dd->nports * sizeof (jack_default_audio_sample_t *);
-	dd->in = (jack_default_audio_sample_t **) malloc (in_size);
-	dd->out = (jack_default_audio_sample_t **) malloc (in_size);
-
-	memset(dd->in, 0, in_size);
-	memset(dd->out, 0, in_size);
-	dd->midi_ring_buf = jack_ringbuffer_create(MIDI_RB_SIZE);
-	fftw_in = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
-	fftw_out = (fftw_complex *)fftw_malloc(sizeof(fftw_complex) * FFT_SIZE);
-	p = fftw_plan_dft_1d(FFT_SIZE, fftw_in, fftw_out, FFTW_FORWARD, FFTW_ESTIMATE);
-	for (int i = 0; i < dd->nports; i++) {
-		char name[64];
-		sprintf(name, "input%d", i + 1);
-		if ((dd->in_ports[i] = jack_port_register (dd->client, name, JACK_DEFAULT_AUDIO_TYPE,
-												   JackPortIsInput, 0)) == 0) {
-			printf("cannot register input port \"%s\"!\n", name);
-			jack_client_close(dd->client);
-			exit(1);
-		}
-		sprintf(name, "output%d", i + 1);
-		if ((dd->out_ports[i] = jack_port_register (dd->client, name, JACK_DEFAULT_AUDIO_TYPE,
-													JackPortIsOutput, 0)) == 0) {
-			printf("cannot register output port \"%s\"!\n", name);
-			jack_client_close(dd->client);
-			exit(1);
-		}
-	}
-	dd->midi_port = jack_port_register(dd->client, "output_midi",
-									   JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
-	dd->can_process = 1;
+	printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
 }
 
 void teardown_jack(DingleDots *dd) {
@@ -762,7 +630,7 @@ static gboolean window_state_event_cb (GtkWidget *,
 static gint queue_draw_timeout_cb(gpointer data) {
 	DingleDots *dd;
 	dd = (DingleDots *)data;
-	if (dd->vfo[0].get_recording_started() && !dd->vfo[0].get_recording_stopped()) {
+	if (dd->meters[0].active || dd->vfo[0].get_recording_started() && !dd->vfo[0].get_recording_stopped()) {
 		gtk_widget_queue_draw(dd->drawing_area);
 	}
 	return TRUE;
@@ -898,6 +766,10 @@ static gboolean motion_notify_event_cb(GtkWidget *,
 			SoundShape *s = &dd->sound_shapes[i];
 			if (s->active) sound_shapes.push_back(s);
 		}
+		for (int i = 0; i < 2; ++i) {
+			Meter *m = &dd->meters[i];
+			if (m->active) sound_shapes.push_back(m);
+		}
 		std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
 		for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
 			Drawable *s = *it;
@@ -1006,6 +878,9 @@ static gboolean button_press_event_cb(GtkWidget *,
 				SoundShape *s = &dd->sound_shapes[i];
 				if (s->active) sound_shapes.push_back(s);
 			}
+			for (int i = 0; i < 2; i++){
+				if (dd->meters[i].active) sound_shapes.push_back(&dd->meters[i]);
+			}
 			std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
 			for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
 				Drawable *s = *it;
@@ -1106,6 +981,9 @@ static gboolean button_release_event_cb(GtkWidget *,
 		for (i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
 			if (!dd->sound_shapes[i].active) continue;
 			dd->sound_shapes[i].mdown = 0;
+		}
+		for (int i = 0; i < 2; ++i) {
+			dd->meters[i].mdown = 0;
 		}
 		std::vector<Drawable *> sources;
 		get_sources(dd, sources);
@@ -1247,9 +1125,11 @@ static gboolean record_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
 	if (!dd->vfo[0].get_recording_started()) {
+		int bitrate;
+		bitrate = atoi(gtk_entry_get_text(GTK_ENTRY(dd->bitrate_entry)));
 		dd->vfo[0].start_recording(dd->drawing_rect.width,
 								   dd->drawing_rect.height,
-								   1000000);
+								   bitrate);
 		gtk_widget_queue_draw(dd->drawing_area);
 	} else if (!dd->vfo[0].get_recording_stopped()) {
 		dd->vfo[0].stop_recording();
@@ -1337,6 +1217,20 @@ static gboolean motion_cb(GtkWidget *widget, gpointer data) {
 		dd->doing_motion = 1;
 	} else {
 		dd->doing_motion = 0;
+	}
+	return TRUE;
+}
+
+static gboolean meter_cb(GtkWidget *widget, gpointer data) {
+	DingleDots *dd = (DingleDots*) data;
+	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+		for (int i = 0; i < 2; ++i) {
+			dd->meters[i].activate();
+		}
+	} else {
+		for (int i = 0; i < 2; ++i) {
+			dd->meters[i].deactivate();
+		}
 	}
 	return TRUE;
 }
@@ -1475,15 +1369,23 @@ static gboolean make_scale_cb(GtkWidget *, gpointer data) {
 	dd->add_scale(&key, channel, &c);
 	return TRUE;
 }
+static void bitrate_combo_change_cb(GtkComboBox *combo, gpointer user_data) {
+	DingleDots *dd = (DingleDots *)user_data;
+	int bitrate = atoi(gtk_combo_box_get_active_id(combo));
+	gtk_entry_set_text(GTK_ENTRY(dd->bitrate_entry), g_strdup_printf("%i", bitrate));
+}
 
 static void activate(GtkApplication *app, gpointer user_data) {
 	GtkWidget *window;
 	GtkWidget *drawing_area;
 	GtkWidget *note_hbox;
 	GtkWidget *toggle_hbox;
+	GtkWidget *record_hbox;
+	GtkWidget *bitrate_label;
 	GtkWidget *vbox;
 	GtkWidget *qbutton;
 	GtkWidget *mbutton;
+	GtkWidget *meter_button;
 	GtkWidget *play_file_button;
 	GtkWidget *show_sprite_button;
 	GtkWidget *snapshot_button;
@@ -1545,17 +1447,40 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	toggle_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
 	vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
 	dd->record_button = gtk_toggle_button_new_with_label("RECORD");
+	record_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+	GtkWidget *bitrate_combo = gtk_combo_box_text_new();
+	g_signal_connect(bitrate_combo, "changed", G_CALLBACK(bitrate_combo_change_cb), dd);
+
+	dd->bitrate_entry = gtk_entry_new();
+	gtk_entry_set_alignment(GTK_ENTRY(dd->bitrate_entry), 1.0);
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(bitrate_combo), "53000000", "2160p");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(bitrate_combo), "24000000", "1440p");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(bitrate_combo), "12000000", "1080p");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(bitrate_combo), "7500000", "720p");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(bitrate_combo), "4000000", "480p");
+	gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(bitrate_combo), "1500000", "360p");
+	gtk_combo_box_set_active_id(GTK_COMBO_BOX(bitrate_combo), "7500000");
+
 	dd->delete_button = gtk_toggle_button_new_with_label("DELETE");
 	qbutton = gtk_button_new_with_label("QUIT");
 	mbutton = gtk_check_button_new_with_label("MOTION DETECTION");
-	snapshot_shape_button = gtk_check_button_new_with_label("MOTION SNAPSHOT CONTROLLER");
+	meter_button = gtk_check_button_new_with_label("SOUND METERS");
+	snapshot_shape_button = gtk_check_button_new_with_label("MOTION SNAPSHOT SHAPE");
 	play_file_button = gtk_button_new_with_label("PLAY VIDEO FILE");
 	show_sprite_button = gtk_button_new_with_label("SHOW IMAGE");
 	snapshot_button = gtk_button_new_with_label("TAKE SNAPSHOT");
 	camera_button = gtk_button_new_with_label("OPEN CAMERA");
+	bitrate_label = gtk_label_new("VIDEO BITRATE:");
+	GtkWidget *bitrate_suffix = gtk_label_new("(bps)");
 	gtk_box_pack_start(GTK_BOX(toggle_hbox), mbutton, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(toggle_hbox), snapshot_shape_button, FALSE, FALSE, 0);
-	gtk_box_pack_start(GTK_BOX(vbox), dd->record_button, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(toggle_hbox), meter_button, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(record_hbox), bitrate_label, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(record_hbox), bitrate_combo, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(record_hbox), dd->bitrate_entry, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(record_hbox), bitrate_suffix, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(record_hbox), dd->record_button, TRUE, TRUE, 0);
+	gtk_box_pack_start(GTK_BOX(vbox), record_hbox, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), snapshot_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), toggle_hbox, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), play_file_button, FALSE, FALSE, 0);
@@ -1621,6 +1546,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	g_signal_connect(camera_button, "clicked", G_CALLBACK(camera_cb), dd);
 	g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);
 	g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
+	g_signal_connect(meter_button, "toggled", G_CALLBACK(meter_cb), dd);
 	g_signal_connect(play_file_button, "clicked", G_CALLBACK(play_file_cb), dd);
 	g_signal_connect(show_sprite_button, "clicked", G_CALLBACK(show_sprite_cb), dd);
 	g_signal_connect(dd->rand_color_button, "toggled", G_CALLBACK(rand_color_cb), dd);
@@ -1767,7 +1693,6 @@ static const struct option
 			}
 		}
 		dingle_dots.init(width, height);
-		setup_jack(&dingle_dots);
 		setup_signal_handler();
 		g_timeout_add(40, queue_draw_timeout_cb, &dingle_dots);
 		mainloop(&dingle_dots);

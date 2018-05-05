@@ -28,6 +28,14 @@ void Drawable::set_scale(double value)
 	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 }
 
+int Drawable::fade_in(double duration) {
+	this->opacity = 0.0;
+	Easer *e = new Easer();
+	e->initialize(this, EASER_LINEAR, boost::bind(&Drawable::set_opacity, this, _1), 0, 1.0, duration);
+	e->start();
+	return 0;
+}
+
 int Drawable::scale_to_fit(double duration) {
 	this->scale = min(this->dingle_dots->drawing_rect.width / this->pos.width,
 					  this->dingle_dots->drawing_rect.height / this->pos.height);

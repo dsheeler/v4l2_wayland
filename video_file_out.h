@@ -82,6 +82,7 @@ public:
 	void set_recording_audio(int value);
 	void wake_up_audio_write_thread();
 
+	disk_thread_info_t *get_audio_thread_info();
 	private:
 	int recording_audio;
 	int recording_video;

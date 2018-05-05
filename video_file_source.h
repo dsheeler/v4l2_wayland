@@ -71,7 +71,6 @@ public:
 	struct timespec play_start_ts;
 	jack_ringbuffer_t *vbuf;
 	jack_ringbuffer_t *abuf;
-	int activate();
 	void toggle_play_pause();
 };
 

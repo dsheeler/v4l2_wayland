@@ -1,6 +1,8 @@
 #include "snapshot_shape.h"
 #include "dingle_dots.h"
 
+#define SHUTDOWN_SECS 5
+
 SnapshotShape::SnapshotShape()
 {
 	active = 0;
@@ -18,7 +20,6 @@ void SnapshotShape::init(const char *label, double x, double y, double r, color 
 	this->r = r;
 	this->color_normal = color_copy(&c);
 	this->color_on = color_lighten(&c, 0.95);
-	this->shutdown_time = 5.0;
 }
 
 int SnapshotShape::set_on() {
@@ -72,6 +73,14 @@ bool SnapshotShape::render(std::vector<cairo_t *> &contexts) {
 	return true;
 }
 
+int beep_cb(gpointer data) {
+	DingleDots *dd = (DingleDots *)data;
+	ca_context_play(dd->event_sound_ctx, 0,
+		CA_PROP_EVENT_ID, "window-attention",
+		CA_PROP_EVENT_DESCRIPTION, "window attention",
+		NULL);
+	return FALSE;
+}
 
 void SnapshotShape::set_motion_state(uint8_t state) {
 	double final_radius = this->r;
@@ -80,9 +89,14 @@ void SnapshotShape::set_motion_state(uint8_t state) {
 		this->motion_state_to_off = 0;
 		this->countdown_radius_easer.initialize(this,
 										   EASER_LINEAR,
-										   std::bind(&SnapshotShape::set_radius_on, this, std::placeholders::_1), 0.0, final_radius,
-										   this->shutdown_time);
+										   std::bind(&SnapshotShape::set_radius_on,
+													 this, std::placeholders::_1),
+												final_radius, 0.0,
+												SHUTDOWN_SECS);
 		this->countdown_radius_easer.start();
+		for (int i = 0; i < SHUTDOWN_SECS; ++i) {
+			g_timeout_add(i * 1000, beep_cb, this->dingle_dots);
+		}
 		clock_gettime(CLOCK_MONOTONIC, &this->motion_ts);
 	} else {
 		if (this->motion_state) {

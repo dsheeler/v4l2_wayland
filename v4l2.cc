@@ -76,9 +76,6 @@ void *V4l2::thread(void *arg) {
 	return 0;
 }
 
-int V4l2::activate() {
-	return this->activate_spin_and_scale_to_fit();
-}
 int V4l2::read_frames() {
 	struct v4l2_buffer buf;
 	struct timespec ts;
@@ -487,4 +484,13 @@ void V4l2::list_devices(std::map<std::string, std::string> &cards) {
 		if (!(links[*iter].empty()))
 			cards[*iter] += " <- " + links[*iter];
 	}
+}
+
+int V4l2::activate() {
+	if (!this->active) {
+		this->easers.clear();
+		this->fade_in(4.0);
+		this->active = 1;
+	}
+	return 0;
 }

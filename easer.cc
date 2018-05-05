@@ -194,3 +194,4 @@ void Easer::add_finish_action(boost::function<void()> action)
 	this->finish_actions.push_back(action);
 }
 
+
