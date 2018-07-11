@@ -11,7 +11,7 @@ typedef struct color color;
 #include <string>
 #include <stdint.h>
 #include <gdk/gdk.h>
-#include "drawable.h"
+#include "vwdrawable.h"
 
 #define NCHAR 32
 
@@ -19,7 +19,7 @@ typedef struct color color;
 using namespace std;
 #endif
 class DingleDots;
-class SoundShape : public Drawable {
+class SoundShape : public vwDrawable {
 public:
 	SoundShape();
 	virtual void init(char *label, uint8_t midi_note, uint8_t midi_channel,
@@ -49,8 +49,9 @@ public:
 	color color_normal;
 	color color_on;
 	double get_secs_since_last_on();
-
+	int activate();
 };
+
 
 int color_init(color *c, double r, double g, double b, double a);
 color color_copy(color *c);

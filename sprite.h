@@ -13,9 +13,9 @@ extern "C" {
 #endif
 #include <string>
 
-#include "drawable.h"
+#include "vwdrawable.h"
 
-class Sprite : public Drawable
+class Sprite : public vwDrawable
 {
 public:
 	Sprite();

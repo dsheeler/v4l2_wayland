@@ -1,0 +1,1666 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="HeartChain is the first global, decentralized network for the sponsorship of medical, healthcare and biotech sector ventures and sponsors. Using crypto-currencies, tokens, blockchains and smart contract. Pre-ICO sale, coming soon. Sponsors will access and help develop best-in-class medical life science ventures before they hit the market. Health Science innovators have access to diversified and fair capital and retain control of their destiny, all with the support of a team of experts." />
+
+    <meta name="keywords" content="HeartChain, ICO, cryptocurrency, new cryptocurrency, fundraising, medical technology, life sciences, bio technology, investor, investment, Blockchain, Smart contracts, medical, innovation, support, pre-ICO, pre-sale, token, sponsorship, sponsor, tokenization, Crowdfunding,Bitcoin,Ethereum,Healthcare,Trade,Coin, Token, upcoming ICO, biotech, cardiovascular, medical device, smart contract">
+
+    <title>HeartChain: Revolutionizing how Life Science Ventures Reach Success</title>
+    <link rel="icon" type="image/png" sizes="25x25" href="images/favicon.png">
+
+
+    <!-- Bootstrap core CSS -->
+    <link href="css/bootstrap.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Heebo:100,300,400,500,700,800,900" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
+
+
+    <!-- animate CSS
+    ============================================ -->
+    <link rel="stylesheet" href="css/animate.css">
+    <link href="css/style.css?v=5843" rel="stylesheet" media="screen">
+    <link href="css/style-responsive.css?v=5368" rel="stylesheet" media="screen">
+
+</head>
+
+<body id="home">    
+    <div id="preloader">
+      <div id="status">&nbsp;</div>
+    </div>
+
+
+    <header class="header">
+        <div class="container">
+
+            <div class="mobile_nav">
+                <img src="images/bars.png" class="m-bars">
+                <img src="images/cross.png" class="m-cross">
+            </div>
+            <div class="logo">
+                <a href="#home" class="hidden-xs"><img src="images/logo_2.png" alt="HeartChain"></a>
+                <a href="#home" class="visible-xs"><img src="images/logo.svg" alt="HeartChain"></a>
+            </div>
+            
+            <div class="icons-box">            
+            <div class="social-toggle-icon">
+              <!--<a href="#" id="sti-box">-->
+                <img src="images/dots.png" class="sti-dots">
+                <img src="images/cross.png" class="sti-cross">
+              <!--</a>-->    
+              </div>
+              
+            
+            <div class="contact_icon">
+                <a href="#" id="ci-box">
+                    <img src="images/contact.png" class="ci-icon">
+                    <img src="images/cross.png" class="ci-cross">
+                </a>
+                <div class="update-box">
+                    <span><img src="images/arrow.png"></span>
+                    <div class="ub-box">
+                        <h3>CONTACT US</h3>
+
+                            <div class="sucess-msg">
+                                <form action="#" id="form_2" method="post" autocomplete="off" >
+                                    <input type="text" placeholder="Your name" name="name" id="name_2" required="required">
+                                    <input type="email" placeholder="Email address" name="email" id="email_2" required="required">
+                                    <textarea placeholder="Type your message here" id="message_2"></textarea>
+                                    <div class="text-center mob-left">
+                                        <input type="submit" value="SEND" name="submit">
+                                    </div>
+                                </form>
+                            </div>
+                    </div>
+                </div>
+            </div>
+            </div>
+            <div class="social-box">
+              <div class="social-icons">
+                <a href="https://medium.com/heartchain" target="_blank" class="icon-1"></a>
+                <a href="https://www.linkedin.com/company/heartchain/" target="_blank" class="icon-2"></a>
+                <a href="https://t.me/heart_chain" target="_blank" class="icon-3"></a>
+                <a href="https://www.facebook.com/HeartChainMedical" target="_blank" class="icon-4"></a>
+                <a href="https://twitter.com/HeartChainHQ" target="_blank" class="icon-5"></a>
+              </div>        
+            </div>
+            <div class="menu_bar">
+                <ul>
+                    <li><a href="#sec_1">WHY HEARTCHAIN</a></li>
+                    <li><a href="#sec_2">WHITEPAPER</a></li>
+                    <li><a href="#sec_3">OUR APPROACH</a></li>
+                    <li><a href="#sec_4">TIMELINE</a></li>
+                    <li><a href="#sec_5">THE TEAM</a></li>
+                    <li><a href="#sec_6">EVENTS</a></li>
+                    <li><a href="#sec_7">NEWS</a></li>
+                    <li><a href="#sec_8">COMMUNITY</a></li>
+
+                </ul>
+            </div>
+            </div>
+            
+            
+            <div class="clearfix"></div>
+        </div>
+    </header> 
+
+
+
+    <section class="section home_sec">
+        <div class="sec_overlay"></div>
+        <div class="bg_video">  
+                        <video autoplay loop id="video-background" muted plays-inline poster="video/video-2.jpg">
+              <source src="video/video-2.mov" type="video/mp4">
+            </video>
+        </div>
+
+        <div class="bg-image" style="background-image:url(video/video-2.jpg)">
+        </div>
+  
+        <div class="container">
+
+            <div class="new_menu_bar hidden-xs">
+                <div class="desk-logo">
+                    <a href="#home"><img src="images/logo.svg"></a>
+                </div>
+                <div class="contact_icon">
+                    <a href="#" id="ci-box-2">
+                        <span>EMAIL UPDATES</span>
+                        <img src="images/contact.png" class="ci-icon">
+                        <img src="images/cross.png" class="ci-cross">
+                    </a>
+                    <div class="update-box upbox-2">
+                        <span><img src="images/arrow.png"></span>
+                        <div class="ub-box">
+                            <h3>CONTACT US</h3>
+
+                                <div class="sucess-msg">
+                                    <form action="#" id="form_2" method="post" autocomplete="off" >
+                                        <input type="text" placeholder="Your name" name="name" id="name_2" required="required">
+                                        <input type="email" placeholder="Email address" name="email" id="email_2" required="required">
+                                        <textarea placeholder="Type your message here" id="message_2"></textarea>
+                                        <div class="text-center mob-left">
+                                            <input type="submit" value="SEND" name="submit">
+                                        </div>
+                                    </form>
+                                </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="clearfix"></div>
+                <div class="main_menu_bar">
+                    <ul>
+                        <li><a href="#sec_1">WHY HEARTCHAIN</a></li>
+                        <li><a href="#sec_2">WHITEPAPER</a></li>
+                        <li><a href="#sec_3">OUR APPROACH</a></li>
+                        <li><a href="#sec_4">TIMELINE</a></li>
+                        <li><a href="#sec_5">THE TEAM</a></li>
+                        <li><a href="#sec_6">EVENTS</a></li>
+                        <li><a href="#sec_7">NEWS</a></li>
+                        <li><a href="#sec_8">COMMUNITY</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="home_left_text">
+                        <h2>Revolutionizing how life science innovations get sponsored <br/><span>HeartChain eliminates the old-world problem of early-stage funding for vital life-saving medical and scientific research.</span></h2>
+                        <div class="hft_form">
+                            <h3>THE HEARTCHAIN PRIVATE SALE HAS STARTED</h3>
+                            <div class="sucess-msg">
+                                <form action="#" id="form_1" method="post" autocomplete="off" >
+                                    <input type="text" placeholder="Your name" name="name" id="name_1" required="required">
+                                    <input type="email" placeholder="Email address" name="email" id="email_1" required="required">
+                                    <input type="submit" value="KEEP ME UPDATED" name="submit">
+                                </form>
+                            </div>
+                        </div>
+                        <div class="hft_text">
+                            <h4>HeartChain Token (HCT) holders will benefit from:</h4>
+                            <ul>
+                                <li>Membership rights to buy tokens in exclusive, highly selective Life Science innovations only available on the HeartChain platform </li>
+                                <li>Significant discounts when buying the innovation tokens </li>
+                                <li>Further discounts on innovation tokens commensurate with HeartChain holdings </li>
+                        </ul>
+<!-- Global site tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-119795621-1"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'UA-119795621-1');
+</script>
+
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="video_holder">
+                        <a href="#" data-video="https://www.youtube.com/embed/M4L-Ml9R4pA" data-toggle="modal" data-target="#videoModal"><img src="video/play_video.svg" alt="HeartChain, the new way to bring medical innovation to life. Combining the technology of blockchain with the power of crowdfunding, HeartChain introduces a new way to participate in the life-saving innovations of tomorrow. "></a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section whyhc_sec">
+        <div class="container">
+            <div id="sec_1">
+                <div class="ws-head target_head wow fadeIn">
+                    <h2>Why HeartChain?<br/><span>HeartChain provides benefits to investors, <br/>researchers and the general community</span></h2>
+                </div>
+                <div class="ws-first">
+                    <div class="row wow fadeIn">
+                        
+                        <div class="col-lg-push-6 col-lg-6 col-md-push-6 col-md-6 col-sm-push-6 col-sm-6">
+                            <div class="wsf-text wsf-text-4">
+                                <div class="wsf-head">
+                                    <h4>THE FOUNDERS' VISION</h4>
+                                </div>
+                                <div class="wsf-info">
+                                    <h3>REVOLUTIONIZING LIFE-SCIENCE SUPPORT</h3>
+                                    <p>Play the video to hear the HeartChain founders describe how crowdfunding, blockchains and smart contracts will create the future of funding for medical technology companies. The HeartChain platform will offer everyone the opportunity to participate in financing and benefiting in life-changing innovations.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-pull-6 col-lg-6 col-md-pull-6 col-md-6 col-sm-pull-6 col-sm-6">
+                            <div class="ws-img-4">
+                                <a href="#" data-video="https://www.youtube.com/embed/qy6v-BYATsk" data-toggle="modal" data-target="#videoModal2"><img src="video/5ad761f15d467.svg" class="img-responsive" alt="Crypto currency, crowdfunding, medical innovations, finding, sponsorship, smart contracts, HeartChain"></a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="ws-first">
+                    <div class="row wow fadeIn">
+                        <div class="col-sm-6">
+                            <div class="ws-img-1">
+                                <img src="images/Why_HC_1st.svg" class="img-responsive" alt="Sponsors are the owners of HeartChain Tokens (HCT) and get to enjoy:">
+                            </div>
+                        </div>
+                        <div class="col-sm-6">
+                            <div class="wsf-text">
+                                <div class="wsf-head">
+                                    <h4>FOR SPONSORS</h4>
+                                </div>
+                                                                <div class="wsf-info">
+                                    <h3>Transparency</h3>
+                                    <p>Priority access to a pipeline of exclusive, fully-vetted life sciences product development opportunities</p>
+                                </div>
+                                                                <div class="wsf-info">
+                                    <h3>Diversity</h3>
+                                    <p>Interest in multiple product development projects - concurrently or consecutively</p>
+                                </div>
+                                                                <div class="wsf-info">
+                                    <h3>inclusion</h3>
+                                    <p>Participation in the fastest growing sectors of medical innovation</p>
+                                </div>
+                                                                <div class="wsf-info">
+                                    <h3>DO WELL, DO GOOD</h3>
+                                    <p>Assist in development of innovative medical products you may then use, donate to someone in need, or offer back to innovators at retail price</p>
+                                </div>
+                                                                <!-- <div class="wsf-info">
+                                    <h3>Transparency</h3>
+                                    <p>Access to a pipeline of exclusive, fully vetted life sciences product development opportunity</p>
+                                </div>
+                                <div class="wsf-info">
+                                    <h3>Diversity</h3>
+                                    <p>The ability to have interest in multiple product development projects</p>
+                                </div>
+                                <div class="wsf-info">
+                                    <h3>inclusion</h3>
+                                    <p>A platform for any sponsor to participate in the fastest growing sectors of medical innovation</p>
+                                </div>
+                                <div class="wsf-info">
+                                    <h3>DO WELL, DO GOOD</h3>
+                                    <p>Assist in development of innovative medical products you may then use, donate or offer back to innovators</p>
+                                </div> -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ws-sec wow fadeIn">
+
+                    <div class="row">
+                        <div class="col-lg-push-6 col-lg-6 col-md-push-6 col-md-6 col-sm-push-6 col-sm-6">
+                            <div class="ws-img-2">
+                                <img src="images/Why_HC_2nd.svg" class="img-responsive" alt="For the leaders of the medical innovations of tomorrow, HeartChain provides a diversified access to funding, with low friction and low cost along with the guidance you need to succeed.">
+                            </div>
+                        </div>
+                        <div class="col-lg-pull-6 col-lg-6 col-md-pull-6 col-md-6 col-sm-pull-6 col-sm-6">
+                            <div class="wss-text">
+                                <div class="wsf-head">
+                                    <h4>FOR INNOVATORS</h4>
+                                </div>
+                                                                <div class="wsf-info">
+                                    <h3>disruption</h3>
+                                    <p>A non-dilutive, off balance sheet, non-security related alternative to traditional VC investment and government grants</p>
+                                </div>
+                                                                <div class="wsf-info">
+                                    <h3>visibility</h3>
+                                    <p>A secure platform where your innovation can be seen by screened prospective investors</p>
+                                </div>
+                                                                <div class="wsf-info">
+                                    <h3>acceleration</h3>
+                                    <p>Bridging the gap between funding and commercialization with an efficient, transparent and discernible process that brings breakthroughs to life faster</p>
+                                </div>
+                                                                <div class="wsf-info">
+                                    <h3>support</h3>
+                                    <p>The HeartChain network of experts will provide guidance and resources, so you can focus on what you do best – innovative discoveries</p>
+                                </div>
+                                                                <!-- <div class="wsf-info">
+                                    <h3>disruption</h3>
+                                    <p>A non-security relating alternative to traditional VC investment and government grants</p>
+                                </div>
+                                <div class="wsf-info">
+                                    <h3>visibility</h3>
+                                    <p>A single platform where your emerging technology products can be seen by screened prospective investors</p>
+                                </div>
+                                <div class="wsf-info">
+                                    <h3>acceleration</h3>
+                                    <p>Bridging the gap between funding and commercialization with an efficient, transparent and discernible process that’ll bring breakthroughs to life faster</p>
+                                </div>
+                                <div class="wsf-info">
+                                    <h3>support</h3>
+                                    <p>Our network of experts provide guidance and resources, so you can focus on what you do best</p>
+                                </div> -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="whiteppr" id="sec_2">
+            <div class="container">
+                <div class="tl-head target_head wow fadeIn">
+                    <h2>WHITEPAPER</h2>
+                </div>
+
+                <div class="row">
+                    <div class="col-sm-6 wow fadeIn">
+                        <a href="file/HeartChainWhitePaper.pdf" target="_blank"><img src="images/5ad5f6efa7eea.png" class="img-responsive" alt="HeartChain is the first global, decentralized network for the sponsorship of medical, healthcare and biotech sector ventures and sponsors. Using crypto-currencies, tokens, blockchains and smart contract. Pre-ICO sale, coming soon. Sponsors will access and help develop best-in-class medical life science ventures before they hit the market. Health Science innovators have access to diversified and fair capital and retain control of their destiny, all with the support of a team of experts."></a>
+                    </div>
+                    <div class="col-sm-6 wow fadeIn">
+                        <div class="wppr-text">
+                            <p>Download the comprehensive whitepaper to learn how HeartChain will support medical innovation and produce a win-win situation for med-tech companies, their sponsors and the general community.</p><p>Version 1.2.1, May 2018</p>                            <a href="file/HeartChainWhitePaper.pdf" target="_blank">DOWNLOAD <br>WHITEPAPER <img src="images/download.png"></a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="container">
+            <div id="sec_3">
+                <div class="ws-head wow fadeIn">
+                    <h2 class="target_head">APPROACH</h2>
+                </div>
+
+                <div class="ws-app wow fadeIn">
+                    <div class="row">
+                        <div class="col-sm-5">
+                            <div class="ws-img-3">
+                                <img src="images/5abc95c9b833e.svg" class="img-responsive" alt="HeartChain's approach takes triaged and thoroughly vetted medical, biotech and health sciences innovations to then open access to a large pool of global Institutional, accredited or retail sponsors interested in supporting that promising company.  ">
+                            </div>
+                        </div>
+                        <div class="col-sm-7">
+                            <div class="app-text">
+                                <h3>Democratizing participation in health innovation inherently removes barriers and fuels success.</h3>
+                                <p>The medical and scientific research industries have very high rates of early-stage failure. This is due to a lack of access to capital, where VC structure is stacked against the science innovators' interest and where equity dilution discourages early stages sponsors. But this is all about to change.</p>
+<p>HeartChain will utilize blockchains and smart contracts, to makes sponsoring the development of medical innovation products accessible, transparent and friction-free for both sponsors and innovators.</p>
+<br>
+<p> How?</p>
+<br>
+<p><b>Sponsors </b>buy HeartChain Tokens (HCT). This gives them membership to the HeartChain community. Membership gives sponsors the opportunity to support the development of particular product innovations, at the early-stage lower cost of manufacture, at a discounted rate. Each product innovation has its own funding program on the HeartChain platform. Sponsors can participate in any project of their choice.</p>
+<p><b>Innovators</b> are instantaneously connected at early-stage development, with a huge pool of sponsors from around the world, at extremely low cost. This eliminates equity dilution and enables innovators to focus on R&D rather than fundraising.</p>
+<p>Join us, for good.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    <div id="sec_4">
+    <section class="section timeline">
+        <div class="timeline-cont">
+            <div class="tl-head target_head wow fadeIn">
+                <h2>TIMELINE</h2>
+            </div>
+            <!-- <div class="timeline-graphic hidden-xs wow fadeIn">
+                <img src="images/5abbe64939655.svg?v=1" alt="HeartChain timeline">
+
+                                <div class="tg-text tg-text-1">
+                    <h3>March</h3>
+                    <p>Friends & Family 50% discount</p>                </div>
+
+                                <div class="tg-text tg-text-2">
+                    <h3>April 20th PREICO</h3>
+                    <p>20% discount</p>                </div>
+
+                                <div class="tg-text tg-text-3">
+                    <h3>June</h3>
+                    <p>ICO <br>no discount</p>                </div>
+
+                                <div class="tg-text tg-text-4">
+                    <h3>February</h3>
+                    <p>Initial <br> website</p>                </div>
+
+                                <div class="tg-text tg-text-5">
+                    <h3>March</h3>
+                    <p>Formation of HeartChain advisory group</p>
+<p>Onboarding the first 3 portfolio companies</p>                </div>
+
+                                <div class="tg-text tg-text-6">
+                    <h3>June</h3>
+                    <p>Advisory group of scientific experts in place</p>
+<p>Signed up next 6 portfolio companies</p>                </div>
+
+                                <div class="tg-text tg-text-7">
+                    <h3>July</h3>
+                    <p>First portfolio ICO launched</p>
+<p>Full operating platform in place to launch portfolio ICO's</p>                </div>
+
+                                <div class="tg-text tg-text-8">
+                    <h3>August</h3>
+                    <p>Second portfolio ICO launched</p>                </div>
+
+                                <div class="tg-text tg-text-2">
+                    <h3>01 April to 31 May</h3>
+                    <p>20% discount</p>
+                </div>
+                <div class="tg-text tg-text-3">
+                    <h3>June</h3>
+                    <p>ICO <br>no discount</p>
+                </div>
+
+                <div class="tg-text tg-text-4">
+                    <h3>February</h3>
+                    <p>Initial <br> website</p>
+                </div>
+                <div class="tg-text tg-text-5">
+                    <h3>March</h3>
+                    <p>Formation of HeartChain advisory group</p>
+                    <p>Onboarding the first 3 portfolio companies</p>
+                </div>
+                <div class="tg-text tg-text-6">
+                    <h3>June</h3>
+                    <p>Advisory group of scientific experts in place</p>
+                    <p>Signed up next 6 portfolio companies</p>
+                </div>
+                <div class="tg-text tg-text-7">
+                    <h3>July</h3>
+                    <p>First portfolio ICO launched</p>
+                    <p>Full operating platform in place to launch portfolio ICO’s</p>
+                </div>
+                <div class="tg-text tg-text-8">
+                    <h3>August</h3>
+                    <p>Second portfolio ICO launched</p>
+                </div>
+            </div>
+            <div class="timeline-mob visible-xs wow fadeIn">
+                <img src="images/5abbe332c2507.svg" alt="HeartChain timeline" class="imag-responsive">
+            </div> -->
+            <div class="container">
+                <div class="new-timeline">
+                    <div class="row newtl-row">
+                                                <div class="col-md-2 col-sm-4 col-xs-6 newtl-col">
+                            <div class="newtl-text">
+                                <img src="images/tl_arrow.svg">
+                                <h3>April 2018</h3>
+                                <p>HeartChain friends and family private pre-TGE, April 2018</p>                            </div>
+                        </div>
+                                                <div class="col-md-2 col-sm-4 col-xs-6 newtl-col">
+                            <div class="newtl-text">
+                                <img src="images/tl_arrow.svg">
+                                <h3>May 2018</h3>
+                                <p>Formation of HeartChain advisory group</p>                            </div>
+                        </div>
+                                                <div class="col-md-2 col-sm-4 col-xs-6 newtl-col">
+                            <div class="newtl-text">
+                                <img src="images/tl_arrow.svg">
+                                <h3>June 2018</h3>
+                                <p>HeartChain public pre-TGE<br>– June 30</p>
+<p>Full advisory group of clinical and scientific experts in place</p>
+                            </div>
+                        </div>
+                                                <div class="col-md-2 col-sm-4 col-xs-6 newtl-col">
+                            <div class="newtl-text">
+                                <img src="images/tl_arrow.svg">
+                                <h3>July 2018</h3>
+                                <p>Signing up IC commerce</p>
+<p>Full operating platform in place to launch portfolio TGE</p>
+<p>HeartChain full TGE – July 31</p>
+                            </div>
+                        </div>
+                                                <div class="col-md-2 col-sm-4 col-xs-6 newtl-col">
+                            <div class="newtl-text">
+                                <img src="images/tl_arrow.svg">
+                                <h3>August 2018</h3>
+                                <p>First IPT# TGE launched</p>                            </div>
+                        </div>
+                                                <div class="col-md-2 col-sm-4 col-xs-6 newtl-col">
+                            <div class="newtl-text">
+                                <img src="images/tl_arrow.svg">
+                                <h3>October 2018</h3>
+                                <p>Second IPT# TGE launched</p>                            </div>
+                        </div>
+                        </div><div class="row newtl-row">                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+    </div>
+    <section class="section graphics">
+        <div class="container">
+            <div class="gr-first">
+                <div class="grf-head wow fadeIn">
+                    <h2>ICO TOKEN DISTRIBUTION</h2>
+                </div>
+
+                <div class="grf-graphic wow fadeIn">
+                    <img src="images/5b17e4cc37048.png" alt="HeartChain ICO token distribution" class="img-responsive">
+                </div>
+            </div>
+
+            <div class="gr-first">
+                <div class="grf-head wow fadeIn">
+                    <h2>ONGOING OPERATIONS</h2>
+                </div>
+
+                <div class="grf-graphic wow fadeIn">
+                    <img src="images/5abb68987c3ae.svg" alt="HeartChain onging operations" class="img-responsive">
+                </div>
+            </div>
+            <div class="gr-team" id="sec_5">
+                <div class="grf-head target_head wow fadeIn">
+                    <h2>the team</h2>
+                </div>
+                <div class="grt-holder">
+                    <div class="grt-sub-head">The Founders</div>
+                    
+                    <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#member_1">
+                        <div class="grtb-img">
+                            <img src="images/5af47f7993e1c.png" alt="Dr. Asher Holzer PhD, Chairman">
+                            <div class="in-icon">
+                                <a href="https://www.linkedin.com/in/asher-holzer-15188436/" target="_blank"><img src="images/in.svg"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text">
+                            <h3>Dr. Asher Holzer PhD</h3>
+                            <p>Chairman</p>
+                        </div>
+                    </div>
+
+                    
+                    <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#member_2">
+                        <div class="grtb-img">
+                            <img src="images/5af482bbc6056.png" alt="HeartChain, Vice Chairman">
+                            <div class="in-icon">
+                                <a href="https://www.linkedin.com/in/eytan-j-lombroso-4952832/" target="_blank"><img src="images/in.svg"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text">
+                            <h3>Eytan Lombroso</h3>
+                            <p>Vice Chairman</p>
+                        </div>
+                    </div>
+
+                    
+                    <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#member_3">
+                        <div class="grtb-img">
+                            <img src="images/5af86e0f94ac0.png" alt="Jean-Marc Orlando, Vice Chairman">
+                            <div class="in-icon">
+                                <a href="https://www.linkedin.com/in/jean-marc-orlando-542b88a/" target="_blank"><img src="images/in.svg"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text">
+                            <h3>Jean-Marc Orlando</h3>
+                            <p>Vice Chairman</p>
+                        </div>
+                    </div>
+
+                    
+                    <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#member_4">
+                        <div class="grtb-img">
+                            <img src="images/team-4.png" alt="Dr. Jeremy Stone MD MBA, Chief Scientific and Clinical Officer">
+                            <div class="in-icon">
+                                <a href="https://www.linkedin.com/in/jeremy-stone-md-mba/" target="_blank"><img src="images/in.svg"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text">
+                            <h3>Dr. Jeremy Stone MD MBA</h3>
+                            <p>Chief Scientific and Clinical Officer</p>
+                        </div>
+                    </div>
+
+                    
+                    <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#member_5">
+                        <div class="grtb-img">
+                            <img src="images/team-5.png" alt="Simon Leger, Chief Technical Officer">
+                            <div class="in-icon">
+                                <a href="https://www.linkedin.com/in/simonleger/" target="_blank"><img src="images/in.svg"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text">
+                            <h3>Simon Leger</h3>
+                            <p>Chief Technical Officer</p>
+                        </div>
+                    </div>
+
+                     
+                    <div class="grt-sub-head">ADVISORS</div> 
+                    
+                    <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#adv_1">
+                        <div class="grtb-img">
+                            <img src="images/adv-1.png" alt="Kelly H. Zou, PhD, PStat, ASA Fellow, Advisor HeartChain">
+                            <div class="in-icon">
+                                <a href="https://www.linkedin.com/in/kelly-h-zou-phd-asa-fellow-97307b16/" target="_blank"><img src="images/team/in-grey.svg"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text bw">
+                            <h3>Kelly H. Zou</h3>
+                            <p>Healthcare and Tokenization</p>
+                        </div>
+                    </div>
+
+                    
+                    <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#adv_2">
+                        <div class="grtb-img">
+                            <img src="images/adv-2.png" alt="Laurent de Bernede, HeartChain advisor">
+                            <div class="in-icon">
+                                <a href="https://www.linkedin.com/in/laurentdebernede/" target="_blank"><img src="images/team/in-grey.svg"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text bw">
+                            <h3>Laurent de Bernede</h3>
+                            <p>Crowdfunding, Blockchain and Finance</p>
+                        </div>
+                    </div>
+
+                    
+                    <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#adv_3">
+                        <div class="grtb-img">
+                            <img src="images/4a7cb1fafe9445e622c73630c46c423b.png" alt="James Lasry,  Advisor, Legal Counsel,  HeartChain">
+                            <div class="in-icon">
+                                <a href="https://www.linkedin.com/in/jameslasry/" target="_blank"><img src="images/team/in-grey.svg"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text bw">
+                            <h3>James Lasry</h3>
+                            <p>Legal Counsel and Regulations</p>
+                        </div>
+                    </div>
+
+                     
+                    <!-- <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#member_6">
+                        <div class="grtb-img">
+                            <img src="images/adv-1.png">
+                            <div class="in-icon">
+                                <a href="#"><img src="images/team/in-grey.svg"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text bw">
+                            <h3>Kelly H. Zou</h3>
+                            <p>Hendritet Etal</p>
+                        </div>
+                    </div>
+                    <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#member_1">
+                        <div class="grtb-img">
+                            <img src="images/adv-2.png">
+                            <div class="in-icon">
+                                <a href="#"><img src="images/team/in-grey.svg"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text bw">
+                            <h3>Laurent de Bernede</h3>
+                            <p>Lorem Ipsum</p>
+                        </div>
+                    </div> -->
+
+                    <div class="more-btn">
+                        <a href="#" id="show-more"><img src="images/team/btn_exp.svg"></a>
+                    </div>
+
+                    <div id="whole-team">
+                        <div class="grt-sub-head whole-team">MEET THE WHOLE TEAM</div> 
+                        
+                        <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#who_1">
+                            <div class="grtb-img">
+                                <img src="images/wt-2.png" alt="Malcolm Auld - Marketing">
+                                <div class="in-icon">
+                                    <a href="https://www.linkedin.com/in/malcolmauld/" target="_blank"><img src="images/team/in-grey.svg"></a>
+                                </div>
+                            </div>
+
+                            <div class="grtb-text bw">
+                                <h3>Malcolm Auld</h3>
+                                <p>Marketing, Content</p>
+                            </div>
+                        </div>
+
+                        
+                        <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#who_2">
+                            <div class="grtb-img">
+                                <img src="images/wt-3.png" alt="Nir AZZOUT,  Business development and event coordinator">
+                                <div class="in-icon">
+                                    <a href="https://www.linkedin.com/in/nir-hazzout-05027374/" target="_blank"><img src="images/team/in-grey.svg"></a>
+                                </div>
+                            </div>
+
+                            <div class="grtb-text bw">
+                                <h3>Nir Azzout</h3>
+                                <p>Events and Business Development</p>
+                            </div>
+                        </div>
+
+                        
+                        <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#who_3">
+                            <div class="grtb-img">
+                                <img src="images/wt-4.png" alt="Patrick Shirkey, Technology">
+                                <div class="in-icon">
+                                    <a href="https://www.linkedin.com/in/patrick-shirkey-85698822/" target="_blank"><img src="images/team/in-grey.svg"></a>
+                                </div>
+                            </div>
+
+                            <div class="grtb-text bw">
+                                <h3>Patrick Shirkey</h3>
+                                <p>Technology, Software</p>
+                            </div>
+                        </div>
+
+                        
+                        <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#who_4">
+                            <div class="grtb-img">
+                                <img src="images/5af86cf44c5c7.png" alt="Brad Ufkes, Blockchain and Crypto community manager, HeartChain">
+                                <div class="in-icon">
+                                    <a href="https://www.linkedin.com/in/brad-ufkes/" target="_blank"><img src="images/team/in-grey.svg"></a>
+                                </div>
+                            </div>
+
+                            <div class="grtb-text bw">
+                                <h3>Brad Ufkes</h3>
+                                <p>Community</p>
+                            </div>
+                        </div>
+
+                        
+                        <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#who_5">
+                            <div class="grtb-img">
+                                <img src="images/8a472b20db7a0857b38006ca6f932f64.png" alt="Omri Bein, Social Media and Research, HeartChain">
+                                <div class="in-icon">
+                                    <a href="https://www.linkedin.com/in/omri-bein-0823a3b7/" target="_blank"><img src="images/team/in-grey.svg"></a>
+                                </div>
+                            </div>
+
+                            <div class="grtb-text bw">
+                                <h3>Omri Bein</h3>
+                                <p>Social Media Marketing & Research</p>
+                            </div>
+                        </div>
+
+                         
+                        <!-- <div class="grt-box" data-toggle="modal" data-target="#member_1">
+                            <div class="grtb-img">
+                                <img src="images/wt-1.png">
+                                <div class="in-icon">
+                                    <a href="#"><img src="images/team/in-grey.svg"></a>
+                                </div>
+                            </div>
+
+                            <div class="grtb-text bw">
+                                <h3>David Bartel</h3>
+                                <p>UX, Brand</p>
+                            </div>
+                        </div>
+                        <div class="grt-box" data-toggle="modal" data-target="#member_1">
+                            <div class="grtb-img">
+                                <img src="images/wt-2.png">
+                                <div class="in-icon">
+                                    <a href="#"><img src="images/team/in-grey.svg"></a>
+                                </div>
+                            </div>
+
+                            <div class="grtb-text bw">
+                                <h3>Malcolm Auld</h3>
+                                <p>Dolor Sit</p>
+                            </div>
+                        </div>
+                        <div class="grt-box" data-toggle="modal" data-target="#member_1">
+                            <div class="grtb-img">
+                                <img src="images/wt-3.png">
+                                <div class="in-icon">
+                                    <a href="#"><img src="images/team/in-grey.svg"></a>
+                                </div>
+                            </div>
+
+                            <div class="grtb-text bw">
+                                <h3>Nir Azzout</h3>
+                                <p>Lorem Ipsum</p>
+                            </div>
+                        </div>
+                        <div class="grt-box" data-toggle="modal" data-target="#member_1">
+                            <div class="grtb-img">
+                                <img src="images/wt-4.png">
+                                <div class="in-icon">
+                                    <a href="#"><img src="images/team/in-grey.svg"></a>
+                                </div>
+                            </div>
+
+                            <div class="grtb-text bw">
+                                <h3>Patrick Sharkey</h3>
+                                <p>Hendritet Etal</p>
+                            </div>
+                        </div>
+                        <div class="grt-box" data-toggle="modal" data-target="#member_1">
+                            <div class="grtb-img">
+                                <img src="images/wt-5.png">
+                                <div class="in-icon">
+                                    <a href="#"><img src="images/team/in-grey.svg"></a>
+                                </div>
+                            </div>
+
+                            <div class="grtb-text bw">
+                                <h3>Nemanja Djordjevic</h3>
+                                <p>Graphic Design</p>
+                            </div>
+                        </div> -->
+                        <div class="more-btn">
+                            <a href="#" id="close-more"><img src="images/team/btn_col.svg"></a>
+                        </div>
+                    </div>
+
+                    <div class="grf-head target_head wow fadeIn">
+                        <h2>OUR PARTNERS</h2>
+                    </div>
+                    <div class="our-par">
+                        
+                        <a href="https://www.blockstate.co/" target="_blank"><img src="images/team/par-1.png"></a>
+
+                         
+                        
+                    </div>
+                    <!-- <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#member_1">
+                        <div class="grtb-img">
+                            <img src="images/team-1.png">
+                            <div class="in-icon">
+                                <a href="#"><img src="images/in.png"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text">
+                            <h3>Eytan Lombroso</h3>
+                            <p>Chief Executive Officer</p>
+                        </div>
+                    </div>
+                    <div class="grt-box wow fadeIn" data-toggle="modal" data-target="#member_2">
+                        <div class="grtb-img">
+                            <img src="images/team-2.png">
+                            <div class="in-icon">
+                                <a href="#"><img src="images/in.png"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text">
+                            <h3>Jean-Marc Orlando</h3>
+                            <p>President</p>
+                        </div>
+                    </div>
+                    <div class="grt-box wow fadeIn"  data-toggle="modal" data-target="#member_3">
+                        <div class="grtb-img">
+                            <img src="images/team-3.png">
+                            <div class="in-icon">
+                                <a href="#"><img src="images/in.png"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text">
+                            <h3>Dr. Asher Holzer PhD</h3>
+                            <p>Chairman</p>
+                        </div>
+                    </div>
+                    <div class="grt-box wow fadeIn"  data-toggle="modal" data-target="#member_4">
+                        <div class="grtb-img">
+                            <img src="images/team-4.png">
+                            <div class="in-icon">
+                                <a href="#"><img src="images/in.png"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text">
+                            <h3>Dr. Jeremy Stone MD MBA</h3>
+                            <p>Chief Scientific and Clinical Officer</p>
+                        </div>
+                    </div>
+                    <div class="grt-box wow fadeIn"  data-toggle="modal" data-target="#member_5">
+                        <div class="grtb-img">
+                            <img src="images/team-5.png">
+                            <div class="in-icon">
+                                <a href="#"><img src="images/in.png"></a>
+                            </div>
+                        </div>
+
+                        <div class="grtb-text">
+                            <h3>Simon Leger</h3>
+                            <p>Chief Technical Officer</p>
+                        </div>
+                    </div> -->
+                </div>
+            </div>
+
+        </div>
+    </section>
+
+    <section class="section events" id="sec_6">
+        <div class="container">
+            <div class="se-head target_head wow fadeIn">
+                <h2>Events</h2>
+            </div>
+
+            <div class="events-holder">
+                
+
+                <div class="eh-box wow fadeIn">
+                    <div class="eh-text">
+                        <div class="eh-date">
+                            <strong>11</strong>
+                            <span>Jun</span>
+                        </div>
+                        <div class="eht-text">   
+                            <h3>Boston</h3>
+                            <p>2nd Annual Healthcare Blockchain Summit.<br/>June 11-12, 2018</p>
+                            <a href="http://tcbi.org/hcblockchainplatform/" target="_blank">EVENT DETAILS</a>
+                        </div>
+                        <div class="clearfix"></div>
+                    </div>
+                </div>
+
+                
+
+                <div class="eh-box wow fadeIn">
+                    <div class="eh-text">
+                        <div class="eh-date">
+                            <strong>30</strong>
+                            <span>May</span>
+                        </div>
+                        <div class="eht-text">   
+                            <h3>Test2</h3>
+                            <p>This is also for test purpose</p>
+                            <a href="facebook.com" target="_blank">abc</a>
+                        </div>
+                        <div class="clearfix"></div>
+                    </div>
+                </div>
+
+                
+
+                <div class="eh-box wow fadeIn">
+                    <div class="eh-text">
+                        <div class="eh-date">
+                            <strong>23</strong>
+                            <span>May</span>
+                        </div>
+                        <div class="eht-text">   
+                            <h3>Test 3 </h3>
+                            <p>Test purpose. Test purpose. Test purpose. Test purpose. Test purpose. Test purpose. Test purpose.</p>
+                            <a href="abc" target="_blank">xyz</a>
+                        </div>
+                        <div class="clearfix"></div>
+                    </div>
+                </div>
+
+                
+
+                <div class="eh-box wow fadeIn">
+                    <div class="eh-text">
+                        <div class="eh-date">
+                            <strong>08</strong>
+                            <span>May</span>
+                        </div>
+                        <div class="eht-text">   
+                            <h3>Test</h3>
+                            <p>This is just for the test purpose</p>
+                            <a href="abc" target="_blank"></a>
+                        </div>
+                        <div class="clearfix"></div>
+                    </div>
+                </div>
+
+                                <!-- <div class="eh-box wow fadeIn">
+                    <div class="eh-text">
+                        <div class="eh-date">
+                            <strong>14</strong>
+                            <span>FEB</span>
+                        </div>
+                        <div class="eht-text">   
+                            <h3>Tel Aviv</h3>
+                            <p>The Semi-Annual Family Office & Wealth Management Meeting</p>
+                            <a href="#">Event Details</a>
+                        </div>
+                        <div class="clearfix"></div>
+                    </div>
+                </div>
+                <div class="eh-box wow fadeIn">
+                    <div class="eh-text">
+                        <div class="eh-date">
+                            <strong>08</strong>
+                            <span>FEB</span>
+                        </div>
+                        <div class="eht-text">   
+                            <h3>Gibralter</h3>
+                            <p>Blockchain and Bitcoin Conference</p>
+                            <a href="#">Event Details</a>
+                        </div>
+                        <div class="clearfix"></div>
+                    </div>
+                </div> -->
+            </div>
+        </div>
+    </section>
+    
+   <section class="section news" >
+      <div class="container">
+        <div id="sec_7">
+          <div class="news-head target_head wow fadeIn">
+              <h2>News</h2>
+          </div>
+          <div class="news-holder">
+            <div class="row wow fadein">
+                              <div class="col-sm-4">
+                <div class="news-box wow fadeIn">     
+                  <div class="news-img">
+                          <img src="images/b106bc318e6a5dbb7f94d5baa5189389.png" alt="news image">
+                  </div>
+                  <div class="news-text">
+                    <h3>Test Article Title That is Somewhat Long, I Guess, Maybe.</h3>
+                    <p><strong>Testington Times</strong> - September 22, 2018</p>
+                    <a href="www.google.com" target="_blank">read more</a>
+                  </div>
+                </div>
+              </div>
+                              <div class="col-sm-4">
+                <div class="news-box wow fadeIn">     
+                  <div class="news-img">
+                          <img src="images/362191e932b1c8dfce7bbc6efeeb76cc.png" alt="news image">
+                  </div>
+                  <div class="news-text">
+                    <h3>Test Article Title That is Somewhat Long, I Guess, Maybe.</h3>
+                    <p><strong>Daniel Sheeler's Website</strong> - April 5, 1999</p>
+                    <a href="http://danielsheeler.org" target="_blank">read more</a>
+                  </div>
+                </div>
+              </div>
+                              <div class="col-sm-4">
+                <div class="news-box wow fadeIn">     
+                  <div class="news-img">
+                          <img src="images/5b2389b747a14.png" alt="news image">
+                  </div>
+                  <div class="news-text">
+                    <h3>Video of Daniel Sheeler Using his Computer Vision Musical Instrument</h3>
+                    <p><strong>New York Times</strong> - November 4, 1993</p>
+                    <a href="http://danielsheeler.org" target="_blank">read more</a>
+                  </div>
+                </div>
+              </div>
+                            </div><div class="row wow fadein">
+                                </div>
+              <!--
+              <div class="col-xl-4 col-lg-4 col-md-4 col-sm-4">
+                <div class="news-box wow fadeIn">     
+                  <div class="news-img">
+                        <img src="images/news-2.png" alt="news image">
+                  </div>
+                  <div class="news-text">
+                    <h3>Lorem ipsum dolor sit amet, an eam idque tempor,
+Ius soleat mandamus in</h3>
+                    <p><strong>VentureBeat</strong> - April 30, 2018</p>
+                    <a href="#">read more</a>
+                  </div>
+                </div>
+              </div>
+              <div class="col-xl-4 col-lg-4 col-md-4 col-sm-4">
+                <div class="news-box wow fadeIn">     
+                  <div class="news-img">
+                        <img src="images/news-3.png"  alt="news image">
+                  </div>
+                  <div class="news-text">
+                      <h3>Test title 3 row</h3>
+                      <p><strong>Test Publication</strong> - August 5, 2018</p>
+                      <a href="#">read more</a>
+                  </div>
+                </div>
+              </div>-->
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer" id="sec_8">
+        <div class="container">
+            <div class="row">
+                <div class="col-sm-12">
+                    <div class="social-icons target_head">
+                        <a href="https://medium.com/heartchain" target="_blank" class="icon-1"></a>
+                        <a href="https://www.linkedin.com/company/heartchain/" target="_blank" class="icon-2"></a>
+                        <a href="https://t.me/heart_chain" target="_blank" class="icon-3"></a>
+                        <a href="https://www.facebook.com/HeartChainMedical" target="_blank" class="icon-4"></a>
+                        <a href="https://twitter.com/HeartChainHQ" target="_blank" class="icon-5"></a>
+                    </div>
+                </div>
+                <div class="col-sm-6">
+                    <div class="footer-form">
+                        <div class="sucess-msg">
+                            <form action="#" id="form_3" method="post" autocomplete="off" >
+                                <input type="text" placeholder="Your name" name="name" id="name_3" required="required">
+                                <input type="email" placeholder="Email address" name="email" id="email_3" required="required">
+                                <div class="cf-center">
+                                    <input type="submit" value="KEEP ME UPDATED" name="submit">
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6">
+                    <div class="footer-links">
+                        <a href="#">Privacy Policy</a>
+                        <a href="http://www.heartchain.com/file/HeartChain_sales_terms_and_conditions.pdf" target="_blank">Terms & Conditions</a>
+                    </div>
+                    <div class="copyright">
+                        <span>&copy;HeartChain 2018</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+    
+    
+    <div class="modal" tabindex="-1" role="dialog" id="member_1">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Dr. Asher Holzer PhD</h3>
+            <p>Chairman</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/5af47f7993e1c.png)">
+            <a href="https://www.linkedin.com/in/asher-holzer-15188436/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Asher is a physicist turned serial medical devices entrepreneur with extensive experience in the business of both private and public corporations in the medical device and biotech industry. Asher has a proven track record of taking his innovations public.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal" tabindex="-1" role="dialog" id="member_2">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Eytan Lombroso</h3>
+            <p>Vice Chairman</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/5af482bbc6056.png)">
+            <a href="https://www.linkedin.com/in/eytan-j-lombroso-4952832/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Eytan was previously a senior executive at JPMorgan Chase for Retail Banking technology commercialization and payments. More recently, he was Vice Chairman of Magnetecs Corp. a medical robotic technology company he co-founded. He also co-founded NeOnc Technologies, a biotech company with innovative treatments for brain cancer.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal" tabindex="-1" role="dialog" id="member_3">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Jean-Marc Orlando</h3>
+            <p>Vice Chairman</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/5af86e0f94ac0.png)">
+            <a href="https://www.linkedin.com/in/jean-marc-orlando-542b88a/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Mr. Orlando is a Wall Street veteran with 23 years of experience at several leading investment banks, where his titles included Head of Proprietary Algorithmic Trading.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal" tabindex="-1" role="dialog" id="member_4">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Dr. Jeremy Stone MD MBA</h3>
+            <p>Chief Scientific and Clinical Officer</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/team-4.png)">
+            <a href="https://www.linkedin.com/in/jeremy-stone-md-mba/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Multi-national physician (with a research and clinical focus on cardiovascular disease), CEO, start-up expert, Chair, VC, technologist, CFO, COO in medtech, fintech and biopharma. Founding shareholder of Celixir, Sir Martin Evans (2007 Nobel Laureate) stem cell company.  Jeremy also co-founded an early cryptocurrency exchange, Cryex.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal" tabindex="-1" role="dialog" id="member_5">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Simon Leger</h3>
+            <p>Chief Technical Officer</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/team-5.png)">
+            <a href="https://www.linkedin.com/in/simonleger/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Simon's experience as algorithmic trader for international banks and funds led to becoming the Head of High Frequency Trading for FX at BNP Paribas. He has since headed trading teams at proprietary trading companies. Simon has been involved in cryptocurrencies and blockchain technologies since 2012.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    
+    <div class="modal" tabindex="-1" role="dialog" id="adv_1">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Kelly H. Zou</h3>
+            <p>Healthcare and Tokenization</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/adv-1.png)">
+            <a href="https://www.linkedin.com/in/kelly-h-zou-phd-asa-fellow-97307b16/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Senior Director and Real World Data Methods & Algorithms Lead, Real-World Data & Analytics (RWDnA) Center of Excellence (COE), Patient & Health Impact (P&HI), Pfizer Inc, New York, NY
+Dr. Zou has served the following leadership roles: Chair and Secretary, ASA Health Care Policy Statistics Section (HPSS); Chair and Vice Chair, ASA Statistical Partnerships among Academe, Industry, and Government (SPAIG) Committee; Chair, Committee of Presidents of Statistical Societies (COPSS) Awards; Awards Committee Chair, ASA Health Policy Statistics Section and Women in Statistics Conference; Co-Chair, International Conference on Health Policy Statistics; Vice Chair, ASA Committee on Applied Statisticians; Publications Committee, International Chinese Statistical Association; Chair, Judiciary Committee, Radiology Alliance to Health Services Research, Association of University Radiologists; Member, Faculty Taskforce, Joint Committee on the Status of Women, Harvard Medical School and Harvard School of Dental Medicine; Core Team Member, Global Asian Alliance, Pfizer Inc; Member, Corporate Sponsorship Committee, Biopharmaceutical Section; Member, Scientific Program Committees, International Conference on Health Policy Statistics and Symposiums of the International Chinese Statistical Association; Methods and Data Council Member, AcademyHealth.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal" tabindex="-1" role="dialog" id="adv_2">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Laurent de Bernede</h3>
+            <p>Crowdfunding, Blockchain and Finance</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/adv-2.png)">
+            <a href="https://www.linkedin.com/in/laurentdebernede/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Laurent has over 15 years of experience in bringing digital products to market for start-ups and large corporations with a specialty in FinTech and Crowdfunding. He is currently setting-up P2P lending platforms in Europe for a Chinese equipment leasing company. Previously, Laurent successfully co-founded and sold Credit.fr, a leading P2P leading platform for SMEs in France. He is a Crowdfunding expert at Ple Finance Innovation, a Paris based Finance and FinTech cluster and is part of the Fintech Commission at Paris Europlace, the organization in charge of promoting and developing the Paris financial marketplace.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal" tabindex="-1" role="dialog" id="adv_3">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>James Lasry</h3>
+            <p>Legal Counsel and Regulations</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/4a7cb1fafe9445e622c73630c46c423b.png)">
+            <a href="https://www.linkedin.com/in/jameslasry/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>James is Head of Funds advising a range of international groups on fund structuring, as well as assisting with fund-related disputes. James is a highly regarded practitioner who has been instrumental in setting up the majority of Gibraltar’s funds, including the first Experienced Investor Fund and Protected Cell Company Fund and advises the Government of Gibraltar on funds legislation. His department is solely ranked in the top tier of the Legal 500 EMEA for Investment Funds having being called a ‘Rolls-Royce’ practice. James is praised as being ‘a leading investment funds lawyer with first-class knowledge of the local and wider market’. (Chambers Global 2014). James is a graduate of the University of Oxford FinTech Programme and currently completing their Blockchain Programme. He is also leading a group developing a code of conduct and regulations for funds investing in crypto assets. James was a chairman of Gibraltar Funds and Investment Association (GFIA) for four years and currently serves as vice-Chairman. In 2014 James founded the Gibraltar American Chamber of Commerce of which he is president.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    
+    <div class="modal" tabindex="-1" role="dialog" id="who_1">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Malcolm Auld</h3>
+            <p>Marketing, Content</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/wt-2.png)">
+            <a href="https://www.linkedin.com/in/malcolmauld/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Malcolm is a marketing industry pioneer with almost four decades experience working in the USA, Asia and Australia. A best-selling marketing author, in-demand educator and mentor, he has written and delivered numerous digital marketing courses and currently lectures part-time at university.
+ 
+Malcolm's run multinational advertising agencies, marketing departments, data-consultancies, start-ups, online and retail businesses. He has enormous depth of expertise working with health, financial and technology brands including: Pfizer, Novartis, Johnson & Johnson, ResSleep, Corum Health, American Express, ING, Intel, Dell, HP and more. Most recently he has consulted to and created content for The Common Good, an initiative by the Prince Charles Hospital Foundation to allow the general public to directly fund medical research and innovation projects, by sponsoring research head hours.  </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal" tabindex="-1" role="dialog" id="who_2">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Nir Azzout</h3>
+            <p>Events and Business Development</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/wt-3.png)">
+            <a href="https://www.linkedin.com/in/nir-hazzout-05027374/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Nir is a sales specialist, with a decade-old focus on senior business development roles in the fin-tech sector. 
+With also has an impressive track record as an event organizer and moderator, he has created and managed successful and well-attended crypto-related meetups and has built a strong network of crypto enthusiast, investors and entrepreneurs. 
+Nir has a deep understanding of high tech industry, cryptocurrency communities, and fundraising.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal" tabindex="-1" role="dialog" id="who_3">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Patrick Shirkey</h3>
+            <p>Technology, Software</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/wt-4.png)">
+            <a href="https://www.linkedin.com/in/patrick-shirkey-85698822/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>With almost 20 years experience developing and managing complex software projects from embedded to e-commerce, web to mobile, SaaS to B2B, Patrick is a Developers' Developer. As capable of wielding a hammer and saw as he is with Bash fu, Patrick has provided solutions to a diverse range of markets and client use cases. 
+With a keen interest in Crypto payment platforms and associated blockchain technologies Patrick's development expertise is enabling new consumer markets by building with the most advanced open source solutions.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal" tabindex="-1" role="dialog" id="who_4">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Brad Ufkes</h3>
+            <p>Community</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/5af86cf44c5c7.png)">
+            <a href="https://www.linkedin.com/in/brad-ufkes/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Brad is an entrepreneur, investor and advisor who has been involved in the blockchain and cryptocurrency industry since participating in the Ethereum ICO in 2014. Since then Brad has gone on to invest in over 100 other projects and has played a key role as an advisor and community manager for several blockchain startups.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal" tabindex="-1" role="dialog" id="who_5">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content member">
+          <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+          <div class="member-header">
+            <h3>Omri Bein</h3>
+            <p>Social Media Marketing & Research</p>
+          </div>
+          <div class="member-image" style="background-image:url(images/8a472b20db7a0857b38006ca6f932f64.png)">
+            <a href="https://www.linkedin.com/in/omri-bein-0823a3b7/" target="_blank" class="fa fa-linkedin"></a>
+          </div>
+          <div class="member-desc">
+            <p>Omri is HeartChain's stellar intern for Technical marketing, Social media and research.  He is a rising junior at Vanderbilt University and is working on social marketing and event-related projects for HeartChain. Capable of winning three different chess games while watching a basketball game and solving non-linear differential equations, he is an indispensable addition to the HeartChain team. Omri is passionate about technology, blockchain, social media and social justice.  He is a lifeguard, athlete swimmer and volunteers in shelter homes and for underprivileged children education. </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    
+    <div class="modal fade" id="videoModal" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+    <div class="modal-dialog md-video">
+      <div class="modal-content video-nobg">
+        <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+        <div class="modal-body">
+          
+          <iframe width="100%" height="430" src="https://www.youtube.com/embed/M4L-Ml9R4pA" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal fade" id="videoModal2" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+    <div class="modal-dialog md-video">
+      <div class="modal-content video-nobg">
+        <div class="md-close fa fa-times" data-dismiss="modal" aria-label="Close"></div>
+        <div class="modal-body">
+          
+          <iframe width="100%" height="430" src="https://www.youtube.com/embed/qy6v-BYATsk" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+    
+  <div class="floating-social-icons hidden-xs">
+    <div class="social-icons">
+      <a href="https://medium.com/heartchain" target="_blank" class="icon-1"></a>
+      <a href="https://www.linkedin.com/company/heartchain/" target="_blank" class="icon-2"></a>
+      <a href="https://t.me/heart_chain" target="_blank" class="icon-3"></a>
+      <a href="https://www.facebook.com/HeartChainMedical" target="_blank" class="icon-4"></a>
+      <a href="https://twitter.com/HeartChainHQ" target="_blank" class="icon-5"></a>
+    </div>
+  </div>
+
+    <script src="http://code.jquery.com/jquery-latest.min.js" type="text/javascript"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery-easing/1.3/jquery.easing.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/wow/1.1.2/wow.js"></script> 
+    <!-- CUSTOM SCRIPTS  -->
+    <script type="text/javascript">
+
+    
+
+    $(document).ready(function(){
+        $(this).scrollTop(0);
+        setTimeout(function(){
+          $('#status').fadeOut(); // will first fade out the loading animation 
+          $('#preloader').delay(350).fadeOut('slow'); // will fade out the white DIV that covers the website. 
+          $('body').delay(350).css({'overflow':'visible'});
+        },3000);
+
+        new WOW().init();
+
+        $('#show-more').click(function(){
+            $(this).hide();
+            $('#whole-team').slideDown();
+            return false;
+        });
+
+        $('#close-more').click(function(){
+            $('#whole-team').slideUp(function(){
+                $('#show-more').show();
+            });
+            return false;
+        });
+
+        $('.mobile_nav').click(function(){
+            $('.menu_bar').toggleClass('open');
+            $('.mobile_nav').toggleClass('open');
+        });
+        
+        $('.social-toggle-icon').click(function(){
+            $('.social-box').toggleClass('open');
+            $('.social-toggle-icon').toggleClass('open');
+        });
+        
+        $("#videoModal").on('hidden.bs.modal', function (e) {
+            $("#videoModal iframe").attr("src", $("#videoModal iframe").attr("src"));
+        });
+
+        $("#videoModal2").on('hidden.bs.modal', function (e) {
+            $("#videoModal2 iframe").attr("src", $("#videoModal2 iframe").attr("src"));
+        });
+
+        $('#ci-box').click(function(){
+            $('.ci-icon').toggle();
+            $('.ci-cross').toggle();
+            $('.update-box').slideToggle();
+            return false;
+        });
+
+        $('#ci-box-2').click(function(){
+            $('#ci-box-2 .ci-icon').toggle();
+            $('#ci-box-2 .ci-cross').toggle();
+            $('.upbox-2').slideToggle();
+            return false;
+        });
+
+        $('#form_1').submit(function(){
+            var name  = $('#name_1').val();
+            var email = $('#email_1').val();
+            $.post('hubspot.php',{name:name, email:email,submit:'1'}, function(data){
+                if(data == 200){
+                    $('.sucess-msg').hide();
+                    $('.sucess-msg').html('<p>Thank you for joining HeartChain.</p>').addClass('success').fadeIn(1000);
+                    $('#name').val('');
+                    $('#email').val('');
+                }else if(data == 409){
+                    alert('You have been already subscribed.');
+                    $('#name').val('');
+                    $('#email').val('');
+                }else{
+                    alert('We are facing server problems.');
+                    $('#name').val('');
+                    $('#email').val('');
+                }
+            });
+            return false;
+        });
+
+        $('#form_2').submit(function(){
+            var name  = $('#name_2').val();
+            var email = $('#email_2').val();
+            var message = $('#message_2').val();
+            $.post('hubspot_message.php',{name:name, email:email, message:message, submit:'1'}, function(data){
+                if(data == 200){
+                    $('.sucess-msg').hide();
+                    $('.sucess-msg').html('<p>Thank you for joining HeartChain.</p>').addClass('success').fadeIn(1000);
+                    $('#name').val('');
+                    $('#email').val('');
+                }else if(data == 409){
+                    alert('You have been already subscribed.');
+                    $('#name').val('');
+                    $('#email').val('');
+                }else{
+                    alert('We are facing server problems.');
+                    $('#name').val('');
+                    $('#email').val('');
+                }
+            });
+            return false;
+        });
+
+        $('#form_3').submit(function(){
+            var name  = $('#name_3').val();
+            var email = $('#email_3').val();
+            $.post('hubspot.php',{name:name, email:email,submit:'1'}, function(data){
+                if(data == 200){
+                    $('.sucess-msg').hide();
+                    $('.sucess-msg').html('<p>Thank you for joining HeartChain.</p>').addClass('success').fadeIn(1000);
+                    $('#name').val('');
+                    $('#email').val('');
+                }else if(data == 409){
+                    alert('You have been already subscribed.');
+                    $('#name').val('');
+                    $('#email').val('');
+                }else{
+                    alert('We are facing server problems.');
+                    $('#name').val('');
+                    $('#email').val('');
+                }
+            });
+            return false;
+        });
+
+
+        $(document).on("scroll", onScroll);
+
+
+         function onScroll(event){
+            var scrollPos = $(document).scrollTop();
+            $('.menu_bar a').each(function () {
+                var currLink = $(this);
+                var refElement = $(currLink.attr("href"));
+                if (refElement.position().top <= scrollPos && refElement.position().top + refElement.height() > scrollPos) {
+                    $('.menu_bar a').removeClass("active");
+                    currLink.addClass("active");
+                }
+                else{
+                    currLink.removeClass("active");
+                }
+            });
+        }
+
+         //smoothscroll
+        $('.menu_bar a,.logo a,.main_menu_bar a,.desk-logo a').on('click', function (e) {
+            e.preventDefault();
+            $(document).off("scroll");
+            $('.menu_bar').removeClass('open');
+            $('.mobile_nav').removeClass('open');
+            $('.social-toggle-icon').removeClass('open');
+            $('.social-box').removeClass('open');
+            $('.wp-link').removeClass('open');
+            $('.ci-icon').show();
+            $('.ci-cross').hide();
+            $('.update-box').slideUp();
+            $('a').each(function () {
+                $(this).removeClass('active');
+            })
+            $(this).addClass('active');
+          
+            var target = this.hash,
+                menu = target;
+            $target = $(target).find('.target_head');
+            $('html, body').stop().animate({
+                'scrollTop': $target.offset().top+20
+            }, 500, 'swing', function () {
+                window.location.hash = target;
+                $(document).on("scroll", onScroll);
+            });
+            return false;
+        });
+
+      
+
+        var stickyNavTop = $('.header').offset().top;
+
+        var stickyNav = function(){
+        var scrollTop = $(window).scrollTop();
+
+        if (scrollTop > stickyNavTop + 100) { 
+              $('.header').addClass('scroll');
+              $('.header').removeClass('bg_new'); 
+            } else {
+              $('.header').removeClass('scroll'); 
+              $('.header').removeClass('bg_new'); 
+            }
+          };
+
+          stickyNav();
+
+          $(window).scroll(function() {
+            stickyNav();
+          });
+
+
+
+          // extension:
+    $.fn.scrollEnd = function(callback, timeout) {          
+      $(this).scroll(function(){
+        var $this = $(this);
+        if ($this.data('scrollTimeout')) {
+          clearTimeout($this.data('scrollTimeout'));
+        }
+        $this.data('scrollTimeout', setTimeout(callback,timeout));
+      });
+    };
+
+    // how to call it (with a 1000ms timeout):
+    $(window).scrollEnd(function(){
+        var scrollTop = $(window).scrollTop();
+        if (scrollTop > stickyNavTop + 100) { 
+             $('.header').removeClass('scroll'); 
+             $('.header').addClass('bg_new');  
+            } 
+        
+    }, 1500);
+    });
+    </script>
+    <script src="js/bootstrap.js"></script>
+    <script src="js/script.js"></script>
+</body>
+
+</html>

@@ -15,7 +15,7 @@ struct rectangle_double {
 	double height;
 };
 
-class Drawable : public Easable {
+class vwDrawable : public Easable {
 private:
 	void render_label(cairo_t *cr);
 public:
@@ -35,15 +35,15 @@ public:
 	GdkPoint selected_pos;
 	DingleDots *dingle_dots;
 public:
-	Drawable();
-	virtual ~Drawable() {}
-	Drawable(double x, double y, int64_t z, double opacity, double scale);
+	vwDrawable();
+	virtual ~vwDrawable() {}
+	vwDrawable(double x, double y, int64_t z, double opacity, double scale);
 	virtual int deactivate();
 	virtual int activate();
 	void set_mdown(double x, double y, int64_t z);
 	void drag(double mouse_x, double mouse_y);
 	virtual int in(double x_in, double y_in);
-	friend bool operator<(const Drawable& l, const Drawable& r) {
+	friend bool operator<(const vwDrawable& l, const vwDrawable& r) {
 		return l.z < r.z;
 	}
 	virtual bool render(std::vector<cairo_t *> &);
@@ -61,7 +61,7 @@ public:
 	DingleDots *get_dingle_dots() const;
 	void set_dingle_dots(DingleDots *value);
 
-	int activate_spin_and_scale_to_fit();
+	int activate_spin();
 	int scale_to_fit(double duration);
 	int fade_in(double duration);
 	protected:

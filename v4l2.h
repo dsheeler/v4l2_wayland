@@ -22,7 +22,7 @@
 #include <gtk/gtk.h>
 
 #include "v4l2_wayland.h"
-#include "drawable.h"
+#include "vwdrawable.h"
 
 
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
@@ -37,7 +37,7 @@ struct dd_v4l2_buffer {
 };
 
 
-class V4l2 : public Drawable {
+class V4l2 : public vwDrawable {
 public:
 	V4l2();
 	void create(DingleDots *dingle_dots, char *name, double w, double h, uint64_t z);
@@ -70,8 +70,6 @@ public:
 	pthread_mutex_t lock;
 	pthread_cond_t data_ready;
 	jack_ringbuffer_t *rbuf;
-	int activate();
-
 };
 
 #endif

@@ -46,7 +46,7 @@ void Sprite::create(std::string *name, int z, DingleDots *dd) {
 }
 
 int Sprite::activate() {
-	return activate_spin_and_scale_to_fit();
+	return activate_spin();
 }
 
 bool Sprite::render(std::vector<cairo_t *> &contexts)

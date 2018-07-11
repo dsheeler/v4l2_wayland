@@ -26,6 +26,7 @@ typedef struct midi_key_t midi_key_t;
 #include "sprite.h"
 #include "easable.h"
 #include "video_file_out.h"
+#include "x11.h"
 
 #define STR_LEN 80
 #define MAX_NUM_V4L2 4
@@ -70,6 +71,7 @@ public:
 	int current_sprite_index;
 	V4l2 v4l2[MAX_NUM_V4L2];
 	Sprite sprites[MAX_NUM_SPRITES];
+	X11 x11;
 	SnapshotShape snapshot_shape;
 	SoundShape sound_shapes[MAX_NUM_SOUND_SHAPES];
 	Meter meters[2];
@@ -85,6 +87,7 @@ public:
 	double ascale_factor_x;
 	double ascale_factor_y;
 	GdkRectangle selection_rect;
+
 	uint64_t next_z;
 	GdkPoint mouse_pos;
 	uint8_t mdown;
@@ -118,8 +121,8 @@ public:
 	color random_color();
 	uint8_t get_animating() const;
 	void set_animating(const uint8_t &value);
-	void get_sound_shapes(std::vector<Drawable *> &sound_shapes);
-	void get_sources(std::vector<Drawable *> &list);
+	void get_sound_shapes(std::vector<vwDrawable *> &sound_shapes);
+	void get_sources(std::vector<vwDrawable *> &list);
 	double get_selection_box_alpha() const;
 	void set_selection_box_alpha(double value);
 	void render_selection_box(cairo_t *cr);

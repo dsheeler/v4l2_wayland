@@ -19,9 +19,9 @@ extern "C" {
 #include <vector>
 
 #include "v4l2_wayland.h"
-#include "drawable.h"
+#include "vwdrawable.h"
 
-class VideoFile : public Drawable {
+class VideoFile : public vwDrawable {
 public:
 	VideoFile();
 	int create(char *name, double x, double y, uint64_t z);

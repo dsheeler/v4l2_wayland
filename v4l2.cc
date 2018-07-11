@@ -55,7 +55,7 @@ void V4l2::create(DingleDots *dd, char *dev_name, double width, double height, u
 void *V4l2::thread(void *arg) {
 	V4l2 *v = (V4l2 *)arg;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-	int rc = pthread_setname_np(v->thread_id, "vw_v4l2_source");
+	int rc = pthread_setname_np(v->thread_id, "vw_v4l2");
 	if (rc != 0) {
 		errno = rc;
 		perror("pthread_setname_np");
@@ -121,7 +121,10 @@ int V4l2::read_frames() {
 		int space = 4 * this->pos.width * this->pos.height + sizeof(struct timespec);
 		int buf_space = jack_ringbuffer_write_space(this->rbuf);
 		while (buf_space < space) {
-			pthread_cond_wait(&this->data_ready, &this->lock);
+			timespec ts;
+			clock_gettime(CLOCK_REALTIME, &ts);
+			ts.tv_nsec += 500000000;
+			pthread_cond_timedwait(&this->data_ready, &this->lock, &ts);
 			buf_space = jack_ringbuffer_write_space(this->rbuf);
 		}
 		jack_ringbuffer_write(this->rbuf, (const char *)&ts,
@@ -486,11 +489,4 @@ void V4l2::list_devices(std::map<std::string, std::string> &cards) {
 	}
 }
 
-int V4l2::activate() {
-	if (!this->active) {
-		this->easers.clear();
-		this->fade_in(4.0);
-		this->active = 1;
-	}
-	return 0;
-}
+

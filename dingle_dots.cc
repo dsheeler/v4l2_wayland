@@ -55,7 +55,7 @@ int DingleDots::init(int width, int height) {
 	color_init(&c2, 0.0, 0.2, 0.1, 1.0);
 	this->meters[0].init(this, sr, bufsize, 0.1f, 20.0f, width/2 - 2*w, height/2, w, c1);
 	this->meters[1].init(this, sr, bufsize, 0.1f, 20.0f, width/2 + 2*w, height/2, w, c2);
-
+	this->x11.create(this);
 	snapshot_shape.init("SNAPSHOT", this->drawing_rect.width / 2., this->drawing_rect.width / 16.,
 						this->drawing_rect.width / 32., random_color(), this);
 
@@ -90,7 +90,16 @@ double hanning_window(int i, int N) {
 }
 
 int process(jack_nframes_t nframes, void *arg) {
+	static int first_call = 1;
 	DingleDots *dd = (DingleDots *)arg;
+	if (first_call) {
+		first_call = 0;
+		int rc = pthread_setname_np(pthread_self(), "vw_audio");
+		if (rc != 0) {
+			errno = rc;
+			perror("pthread_setname_np");
+		}
+	}
 	if (!dd->can_process) return 0;
 	midi_process_output(nframes, dd);
 	for (int chn = 0; chn < dd->nports; chn++) {
@@ -337,7 +346,7 @@ int DingleDots::add_note(char *scale_name,
 	return -1;
 }
 
-void DingleDots::get_sound_shapes(std::vector<Drawable *> &sound_shapes)
+void DingleDots::get_sound_shapes(std::vector<vwDrawable *> &sound_shapes)
 {
 	for (int i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
 		SoundShape *ss = &this->sound_shapes[i];
@@ -350,8 +359,11 @@ void DingleDots::get_sound_shapes(std::vector<Drawable *> &sound_shapes)
 	//sound_shapes.push_back(&this->snapshot_shape);
 }
 
-void DingleDots::get_sources(std::vector<Drawable *> &list)
+void DingleDots::get_sources(std::vector<vwDrawable *> &list)
 {
+	if (this->x11.active) {
+		list.push_back(&this->x11);
+	}
 	for (int i = 0; i < MAX_NUM_V4L2; i++) {
 		if (this->v4l2[i].active) {
 			list.push_back(&this->v4l2[i]);

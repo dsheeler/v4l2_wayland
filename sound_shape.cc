@@ -1,3 +1,5 @@
+#include <utility>
+#include <functional>
 #include "sound_shape.h"
 #include "midi.h"
 
@@ -60,7 +62,7 @@ bool SoundShape::render(std::vector<cairo_t *> &contexts) {
 			cairo_arc(cr, 0, 0, this->r, 0, 2 * M_PI);
 			cairo_fill(cr);
 		}
-		this->render_label(cr, "");
+		//this->render_label(cr, "");
 		cairo_restore(cr);
 	}
 	return true;
@@ -170,6 +172,22 @@ void SoundShape::set_motion_state(uint8_t state) {
 			}
 		}
 	}
+}
+
+int SoundShape::activate() {
+	if (!this->active) {
+		this->easers.erase(this->easers.begin(), this->easers.end());
+		double duration = 0.8;
+		Easer *er = new Easer();
+		er->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 0, 3, 0.75 * duration);
+		Easer *er2 = new Easer();
+		er2->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 3, 1, 0.25 *duration);
+		er->add_finish_easer(er2);
+		this->active = 1;
+		er->start();
+		gtk_widget_queue_draw(this->dingle_dots->drawing_area);
+	}
+	return 0;
 }
 
 int color_init(color *c, double r, double g, double b, double a) {

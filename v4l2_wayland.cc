@@ -31,12 +31,11 @@
 
 #include "dingle_dots.h"
 #include "kmeter.h"
-#include "muxing.h"
 #include "sound_shape.h"
 #include "midi.h"
 #include "v4l2_wayland.h"
 #include "v4l2.h"
-#include "drawable.h"
+#include "vwdrawable.h"
 #include "video_file_source.h"
 #include "video_file_out.h"
 
@@ -87,6 +86,11 @@ void *snapshot_disk_thread (void *arg) {
 	tzset();
 	DingleDots *dd = (DingleDots *)arg;
 	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	int rc = pthread_setname_np(pthread_self(), "vw_snapshot");
+	if (rc != 0) {
+		errno = rc;
+		perror("pthread_setname_np");
+	}
 	pthread_mutex_lock(&dd->snapshot_thread_info.lock);
 	frame = NULL;
 	frame = av_frame_alloc();
@@ -204,8 +208,9 @@ void clear(cairo_t *cr)
 	cairo_restore(cr);
 }
 
-void get_sources(DingleDots *dd, std::vector<Drawable *> &sources)
+void get_sources(DingleDots *dd, std::vector<vwDrawable *> &sources)
 {
+	sources.push_back(&dd->x11);
 	for (int i = 0; i < MAX_NUM_V4L2; i++) {
 		if (dd->v4l2[i].active) {
 			sources.push_back(&dd->v4l2[i]);
@@ -298,7 +303,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	static struct timespec ts, snapshot_ts;
 	static ccv_comp_t newbox;
 	static int made_first_tld = 0;
-	std::vector<Drawable *> sources;
+	std::vector<vwDrawable *> sources;
 	int s, i;
 	double diff;
 	static uint32_t *save_buf_sources;
@@ -326,13 +331,13 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	}
 	clear(sources_cr);
 	get_sources(dd, sources);
-	std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z < b->z; } );
+	std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z < b->z; } );
 	std::vector<cairo_t *> contexts;
 	cairo_save(screen_cr);
 	cairo_scale(screen_cr, dd->scale, dd->scale);
 	contexts.push_back(screen_cr);
 	contexts.push_back(sources_cr);
-	for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
+	for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 		(*it)->update_easers();
 		(*it)->render(contexts);
 	}
@@ -436,7 +441,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		if (!dd->sound_shapes[i].active) continue;
 		set_to_on_or_off(&dd->sound_shapes[i], dd->drawing_area);
 	}
-	std::vector<Drawable *> sound_shapes;
+	std::vector<vwDrawable *> sound_shapes;
 	std::vector<cairo_t *> ss_contexts;
 	ss_contexts.push_back(screen_cr);
 	if (dd->snapshot_shape.active) {
@@ -455,9 +460,9 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	for (i = 0; i < 2; i++) {
 		sound_shapes.push_back(&dd->meters[i]);
 	}
-	std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z < b->z; } );
-	for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
-		Drawable *d = *it;
+	std::sort(sound_shapes.begin(), sound_shapes.end(), [](vwDrawable *a, vwDrawable *b) { return a->z < b->z; } );
+	for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+		vwDrawable *d = *it;
 		d->update_easers();
 		if (d->active) d->render(ss_contexts);
 	}
@@ -630,7 +635,9 @@ static gboolean window_state_event_cb (GtkWidget *,
 static gint queue_draw_timeout_cb(gpointer data) {
 	DingleDots *dd;
 	dd = (DingleDots *)data;
-	if (dd->meters[0].active || dd->vfo[0].get_recording_started() && !dd->vfo[0].get_recording_stopped()) {
+	if (dd->meters[0].active || dd->x11.active ||
+			dd->vfo[0].get_recording_started() &&
+			!dd->vfo[0].get_recording_stopped()) {
 		gtk_widget_queue_draw(dd->drawing_area);
 	}
 	return TRUE;
@@ -645,19 +652,19 @@ static gboolean draw_cb(GtkWidget *, cairo_t *cr, gpointer   data) {
 
 void mark_hovered(bool use_sources, DingleDots *dd) {
 	int found = 0;
-	std::vector<Drawable *> sources;
+	std::vector<vwDrawable *> sources;
 	get_sources(dd, sources);
-	std::vector<Drawable *> sound_shapes;
+	std::vector<vwDrawable *> sound_shapes;
 	dd->get_sound_shapes(sound_shapes);
 	if (use_sources) {
-		for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+		for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
 			if ((*it)->hovered == 1) {
 				(*it)->hovered = 0;
 				gtk_widget_queue_draw(dd->drawing_area);
 			}
 		}
-		std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-		for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
+		std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
+		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if (found) {
 				if ((*it)->hovered == 1) {
 					(*it)->hovered = 0;
@@ -677,16 +684,16 @@ void mark_hovered(bool use_sources, DingleDots *dd) {
 			}
 		}
 	} else {
-		for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
+		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if ((*it)->hovered == 1) {
 				(*it)->hovered = 0;
 				gtk_widget_queue_draw(dd->drawing_area);
 			}
 		}
 		found = 0;
-		std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-		for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
-			Drawable *s = *it;
+		std::sort(sound_shapes.begin(), sound_shapes.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
+		for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+			vwDrawable *s = *it;
 			if (!found && s->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
 				s->hovered = 1;
 				found = 1;
@@ -761,7 +768,7 @@ static gboolean motion_notify_event_cb(GtkWidget *,
 		dd->dragging = 1;
 	}
 	if (!(event->state & GDK_SHIFT_MASK)) {
-		std::vector<Drawable *> sound_shapes;
+		std::vector<vwDrawable *> sound_shapes;
 		for (i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
 			SoundShape *s = &dd->sound_shapes[i];
 			if (s->active) sound_shapes.push_back(s);
@@ -770,13 +777,13 @@ static gboolean motion_notify_event_cb(GtkWidget *,
 			Meter *m = &dd->meters[i];
 			if (m->active) sound_shapes.push_back(m);
 		}
-		std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-		for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
-			Drawable *s = *it;
+		std::sort(sound_shapes.begin(), sound_shapes.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
+		for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+			vwDrawable *s = *it;
 			if (s->mdown) {
 				if (s->selected) {
-					for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
-						Drawable *sj = *ij;
+					for (std::vector<vwDrawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
+						vwDrawable *sj = *ij;
 						if (sj->selected) {
 							sj->pos.x = dd->mouse_pos.x -
 									s->mdown_pos.x +
@@ -793,10 +800,10 @@ static gboolean motion_notify_event_cb(GtkWidget *,
 			}
 		}
 	} else {
-		std::vector<Drawable *> sources;
+		std::vector<vwDrawable *> sources;
 		get_sources(dd, sources);
-		std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-		for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
+		std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
+		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if ((*it)->active) {
 				if ((*it)->mdown) {
 					(*it)->drag(dd->mouse_pos.x, dd->mouse_pos.y);
@@ -873,7 +880,7 @@ static gboolean button_press_event_cb(GtkWidget *,
 		dd->mdown_pos.x = dd->mouse_pos.x;
 		dd->mdown_pos.y = dd->mouse_pos.y;
 		if (!(event->state & GDK_SHIFT_MASK)) {
-			std::vector<Drawable *> sound_shapes;
+			std::vector<vwDrawable *> sound_shapes;
 			for (i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
 				SoundShape *s = &dd->sound_shapes[i];
 				if (s->active) sound_shapes.push_back(s);
@@ -881,24 +888,24 @@ static gboolean button_press_event_cb(GtkWidget *,
 			for (int i = 0; i < 2; i++){
 				if (dd->meters[i].active) sound_shapes.push_back(&dd->meters[i]);
 			}
-			std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-			for (std::vector<Drawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
-				Drawable *s = *it;
+			std::sort(sound_shapes.begin(), sound_shapes.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
+			for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+				vwDrawable *s = *it;
 				if (s->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
 					if (dd->delete_active) {
 						s->deactivate();
 					} else {
 						if (!s->selected) {
-							for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
-								Drawable *sj = *ij;
+							for (std::vector<vwDrawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
+								vwDrawable *sj = *ij;
 								if (sj->selected) {
 									sj->selected = 0;
 									gtk_widget_queue_draw(dd->drawing_area);
 								}
 							}
 						} else {
-							for (std::vector<Drawable *>::reverse_iterator ij = sound_shapes.rbegin(); ij != sound_shapes.rend(); ++ij) {
-								Drawable *sj = *ij;
+							for (std::vector<vwDrawable *>::reverse_iterator ij = sound_shapes.rbegin(); ij != sound_shapes.rend(); ++ij) {
+								vwDrawable *sj = *ij;
 								if (sj->selected) {
 									sj->z = dd->next_z++;
 									sj->selected_pos.x = sj->pos.x;
@@ -912,16 +919,16 @@ static gboolean button_press_event_cb(GtkWidget *,
 					return FALSE;
 				}
 			}
-			for (std::vector<Drawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
-				Drawable *sj = *ij;
+			for (std::vector<vwDrawable *>::iterator ij = sound_shapes.begin(); ij != sound_shapes.end(); ++ij) {
+				vwDrawable *sj = *ij;
 				sj->selected = 0;
 			}
 			gtk_widget_queue_draw(dd->drawing_area);
 		} else {
-			std::vector<Drawable *> sources;
+			std::vector<vwDrawable *> sources;
 			get_sources(dd, sources);
-			std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
-			for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
+			std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
+			for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 				if ((*it)->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
 					(*it)->set_mdown(dd->mouse_pos.x, dd->mouse_pos.y,
 									 event->state & GDK_CONTROL_MASK ?
@@ -985,9 +992,9 @@ static gboolean button_release_event_cb(GtkWidget *,
 		for (int i = 0; i < 2; ++i) {
 			dd->meters[i].mdown = 0;
 		}
-		std::vector<Drawable *> sources;
+		std::vector<vwDrawable *> sources;
 		get_sources(dd, sources);
-		for (std::vector<Drawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
+		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if ((*it)->active) {
 				(*it)->mdown = 0;
 			}
@@ -1013,13 +1020,13 @@ static gboolean button_release_event_cb(GtkWidget *,
 }
 
 void apply_scrolling_operations_to_list(GdkEventScroll *event, DingleDots *dd,
-										std::vector<Drawable *> drawables)
+										std::vector<vwDrawable *> drawables)
 {
 	gboolean up = FALSE;
 	if (event->delta_y == -1.0) {
 		up = TRUE;
 	}
-	for (std::vector<Drawable *>::iterator it = drawables.begin(); it != drawables.end(); ++it) {
+	for (std::vector<vwDrawable *>::iterator it = drawables.begin(); it != drawables.end(); ++it) {
 		if ((*it)->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
 			if (event->state & GDK_MOD1_MASK) {
 				double inc = 0.025;
@@ -1043,15 +1050,15 @@ static gboolean scroll_cb(GtkWidget *, GdkEventScroll *event,
 	DingleDots *dd = (DingleDots *)data;
 
 	if (!(event->state & GDK_SHIFT_MASK)) {
-		std::vector<Drawable *> sound_shapes;
+		std::vector<vwDrawable *> sound_shapes;
 		dd->get_sound_shapes(sound_shapes);
-		std::sort(sound_shapes.begin(), sound_shapes.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+		std::sort(sound_shapes.begin(), sound_shapes.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
 		apply_scrolling_operations_to_list(event, dd, sound_shapes);
 		return TRUE;
 	} else {
-		std::vector<Drawable *> sources;
+		std::vector<vwDrawable *> sources;
 		dd->get_sources(sources);
-		std::sort(sources.begin(), sources.end(), [](Drawable *a, Drawable *b) { return a->z > b->z; } );
+		std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
 		apply_scrolling_operations_to_list(event, dd, sources);
 		return TRUE;
 	}
@@ -1285,6 +1292,17 @@ static gboolean set_modes_cb(GtkWidget *widget, gpointer data) {
 	return TRUE;
 }
 
+static gboolean x11_cb(GtkWidget *widget, gpointer data) {
+	DingleDots * dd;
+	dd = (DingleDots *)data;
+	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+		dd->x11.activate();
+	} else {
+		dd->x11.deactivate();
+	}
+	return TRUE;
+}
+
 static gboolean camera_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
@@ -1391,12 +1409,14 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	GtkWidget *snapshot_button;
 	GtkWidget *snapshot_shape_button;
 	GtkWidget *camera_button;
+	GtkWidget *x11_button;
 	GtkWidget *make_scale_button;
 	GtkWidget *aspect;
 	GtkWidget *channel_hbox;
 	GtkWidget *channel_label;
 	DingleDots *dd;
 	int ret;
+
 	dd = (DingleDots *)user_data;
 	ccv_enable_default_cache();
 	dd->user_tld_rect.width = dd->drawing_rect.width/5.;
@@ -1470,6 +1490,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	show_sprite_button = gtk_button_new_with_label("SHOW IMAGE");
 	snapshot_button = gtk_button_new_with_label("TAKE SNAPSHOT");
 	camera_button = gtk_button_new_with_label("OPEN CAMERA");
+	x11_button = gtk_toggle_button_new_with_label("CAPTURE X11");
 	bitrate_label = gtk_label_new("VIDEO BITRATE:");
 	GtkWidget *bitrate_suffix = gtk_label_new("(bps)");
 	gtk_box_pack_start(GTK_BOX(toggle_hbox), mbutton, FALSE, FALSE, 0);
@@ -1486,6 +1507,8 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_box_pack_start(GTK_BOX(vbox), play_file_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), show_sprite_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), camera_button, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(vbox), x11_button, FALSE, FALSE, 0);
+
 	dd->scale_combo = gtk_combo_box_text_new();
 	int i = 0;
 	const char *name = midi_scale_id_to_text(i);
@@ -1544,6 +1567,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	g_signal_connect(snapshot_button, "clicked", G_CALLBACK(snapshot_cb), dd);
 	g_signal_connect(snapshot_shape_button, "clicked", G_CALLBACK(snapshot_shape_cb), dd);
 	g_signal_connect(camera_button, "clicked", G_CALLBACK(camera_cb), dd);
+	g_signal_connect(x11_button, "clicked", G_CALLBACK(x11_cb), dd);
 	g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);
 	g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
 	g_signal_connect(meter_button, "toggled", G_CALLBACK(meter_cb), dd);
@@ -1668,6 +1692,12 @@ static const struct option
 		int width = 1280;
 		int height = 720;
 		srand(time(NULL));
+		int rc = pthread_setname_np(pthread_self(), "vw_gui");
+		if (rc != 0) {
+			errno = rc;
+			perror("pthread_setname_np");
+		}
+
 		for (;;) {
 			int idx;
 			int c;

@@ -2,9 +2,9 @@
 #define _KMETER_H (1)
 
 #include "v4l2_wayland.h"
-#include "drawable.h"
+#include "vwdrawable.h"
 
-class Meter : public Drawable {
+class Meter : public vwDrawable {
 public:
 	Meter();
 	void init(DingleDots *dd, int fsamp, int fsize, float hold, float fall,

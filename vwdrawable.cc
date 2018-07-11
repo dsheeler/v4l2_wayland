@@ -1,116 +1,108 @@
 #include <math.h>
-#include <boost/function.hpp>
-#include <boost/bind.hpp>
+#include <functional>
 
-#include "drawable.h"
+#include "vwdrawable.h"
 #include "easer.h"
 #include "dingle_dots.h"
 
-double Drawable::get_opacity() const
+double vwDrawable::get_opacity() const
 {
 	return opacity;
 }
 
-void Drawable::set_opacity(double value)
+void vwDrawable::set_opacity(double value)
 {
 	opacity = value > 1.0 ? 1.0 : (value < 0.0 ? 0.0 : value);
 	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 }
 
-double Drawable::get_scale() const
+double vwDrawable::get_scale() const
 {
 	return scale;
 }
 
-void Drawable::set_scale(double value)
+void vwDrawable::set_scale(double value)
 {
 	scale = value < 0 ? scale : value;
 	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 }
 
-int Drawable::fade_in(double duration) {
+int vwDrawable::fade_in(double duration) {
 	this->opacity = 0.0;
 	Easer *e = new Easer();
-	e->initialize(this, EASER_LINEAR, boost::bind(&Drawable::set_opacity, this, _1), 0, 1.0, duration);
+	e->initialize(this, EASER_LINEAR, std::bind(&vwDrawable::set_opacity, this, std::placeholders::_1), 0, 1.0, duration);
 	e->start();
 	return 0;
 }
 
-int Drawable::scale_to_fit(double duration) {
+int vwDrawable::scale_to_fit(double duration) {
 	this->scale = min(this->dingle_dots->drawing_rect.width / this->pos.width,
 					  this->dingle_dots->drawing_rect.height / this->pos.height);
 	Easer *e = new Easer();
-	e->initialize(this, EASER_BACK_EASE_OUT, boost::bind(&Drawable::set_scale, this, _1), 0, this->scale, duration);
+	e->initialize(this, EASER_BACK_EASE_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 0, this->scale, duration);
 	e->start();
 	return 0;
 }
 
-int Drawable::activate_spin_and_scale_to_fit() {
+int vwDrawable::activate_spin() {
 	if (!this->active) {
 		this->easers.clear();
 		this->scale = min(this->dingle_dots->drawing_rect.width / this->pos.width,
 						  this->dingle_dots->drawing_rect.height / this->pos.height);
 		double duration = 2;
 		Easer *er2 = new Easer();
-		er2->initialize(this, EASER_SINE_EASE_OUT, boost::bind(&Drawable::set_rotation, this, _1), -3*2*M_PI, 0, 2*duration);
-		this->scale_to_fit(duration);
+		er2->initialize(this, EASER_SINE_EASE_OUT, std::bind(&vwDrawable::set_rotation, this, std::placeholders::_1), -3*2*M_PI, 0, 2*duration);
 		this->active = 1;
 		er2->start();
 	}
 	return 0;
 }
-
-int Drawable::activate() {
+int vwDrawable::activate() {
 	if (!this->active) {
-		this->easers.erase(this->easers.begin(), this->easers.end());
-		double duration = 0.8;
-		Easer *er = new Easer();
-		er->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, boost::bind(&Drawable::set_scale, this, _1), 0, 3, 0.75 * duration);
-		Easer *er2 = new Easer();
-		er2->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, boost::bind(&Drawable::set_scale, this, _1), 3, 1, 0.25 *duration);
-		er->add_finish_easer(er2);
+		this->set_scale(1.0);
+		this->easers.clear();
+		this->fade_in(1.0);
 		this->active = 1;
-		er->start();
-		gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 	}
 	return 0;
 }
 
-void Drawable::deactivate_action()
+
+void vwDrawable::deactivate_action()
 {
 	if (active) {
 		this->active = 0;
 	}
 }
 
-int Drawable::deactivate() {
+int vwDrawable::deactivate() {
 	double duration = 0.4;
 	Easer *e = new Easer();
 	Easer *e2 = new Easer();
-	e->initialize(this,EASER_CIRCULAR_EASE_IN_OUT, boost::bind(&Drawable::set_scale,
-															   this, _1),
+	e->initialize(this,EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale,
+															   this, std::placeholders::_1),
 				  this->scale, 3 * this->scale, 0.75 * duration);
-	e2->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, boost::bind(&Drawable::set_scale,
-																 this, _1),
+	e2->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale,
+																 this, std::placeholders::_1),
 				   3 * this->scale, 0, 0.25 * duration);
-	e2->add_finish_action(std::bind(&Drawable::deactivate_action, this));
+	e2->add_finish_action(std::bind(&vwDrawable::deactivate_action, this));
 	e->add_finish_easer(e2);
 	e->start();
 	return 0;
 }
 
 
-DingleDots *Drawable::get_dingle_dots() const
+DingleDots *vwDrawable::get_dingle_dots() const
 {
 	return dingle_dots;
 }
 
-void Drawable::set_dingle_dots(DingleDots *value)
+void vwDrawable::set_dingle_dots(DingleDots *value)
 {
 	dingle_dots = value;
 }
 
-Drawable::Drawable() {
+vwDrawable::vwDrawable() {
 	pos.x = 0.0;
 	pos.y = 0.0;
 	z = 0;
@@ -120,7 +112,7 @@ Drawable::Drawable() {
 	scale = 1.0;
 }
 
-Drawable::Drawable(double x, double y, int64_t z, double opacity, double scale) {
+vwDrawable::vwDrawable(double x, double y, int64_t z, double opacity, double scale) {
 	pos.x = x;
 	pos.y = y;
 	this->z = z;
@@ -132,11 +124,11 @@ Drawable::Drawable(double x, double y, int64_t z, double opacity, double scale) 
 
 
 
-bool Drawable::render(std::vector<cairo_t *> &) {
+bool vwDrawable::render(std::vector<cairo_t *> &) {
 	return FALSE;
 }
 
-bool Drawable::render_surface(std::vector<cairo_t *> &contexts, cairo_surface_t *surf) {
+bool vwDrawable::render_surface(std::vector<cairo_t *> &contexts, cairo_surface_t *surf) {
 	for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
 		cairo_t *cr = *it;
 		cairo_save(cr);
@@ -158,19 +150,19 @@ bool Drawable::render_surface(std::vector<cairo_t *> &contexts, cairo_surface_t 
 	return TRUE;
 }
 
-void Drawable::rotate(double angle)
+void vwDrawable::rotate(double angle)
 {
 	this->rotation_radians += angle;
 	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 }
 
-void Drawable::set_rotation(double angle)
+void vwDrawable::set_rotation(double angle)
 {
 	this->rotation_radians = angle;
 	gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 }
 
-void Drawable::set_mdown(double x, double y, int64_t z) {
+void vwDrawable::set_mdown(double x, double y, int64_t z) {
 	mdown = 1;
 	this->z = z;
 	mdown_pos.x = x;
@@ -179,14 +171,14 @@ void Drawable::set_mdown(double x, double y, int64_t z) {
 	down_pos.y = pos.y;
 }
 
-void Drawable::drag(double mouse_x, double mouse_y) {
+void vwDrawable::drag(double mouse_x, double mouse_y) {
 	if (mdown) {
 		pos.x = mouse_x - mdown_pos.x + down_pos.x;
 		pos.y = mouse_y - mdown_pos.y + down_pos.y;
 	}
 }
 
-int Drawable::in(double x_in, double y_in) {
+int vwDrawable::in(double x_in, double y_in) {
 	double xc = x_in - (this->pos.x + 0.5 * this->pos.width);
 	double yc = y_in - (this->pos.y + 0.5 * this->pos.height);
 	double x = fabs((1./this->scale) * (cos(this->rotation_radians) * xc + sin(this->rotation_radians) * yc));
@@ -198,7 +190,7 @@ int Drawable::in(double x_in, double y_in) {
 	}
 }
 
-void Drawable::render_halo(cairo_t *cr, color c, double len) {
+void vwDrawable::render_halo(cairo_t *cr, color c, double len) {
 	cairo_pattern_t *pat;
 	cairo_save(cr);
 	pat = cairo_pattern_create_linear(0.0, -len, 0.0, 0.0);
@@ -260,7 +252,7 @@ void Drawable::render_halo(cairo_t *cr, color c, double len) {
 	cairo_restore(cr);
 }
 
-void Drawable::render_hovered(cairo_t *cr) {
+void vwDrawable::render_hovered(cairo_t *cr) {
 	color c;
 	c.r = 1;
 	c.g = 1;
@@ -272,7 +264,7 @@ void Drawable::render_hovered(cairo_t *cr) {
 	render_halo(cr, c, 5.0);
 }
 
-void Drawable::render_shadow(cairo_t *cr) {
+void vwDrawable::render_shadow(cairo_t *cr) {
 	color c;
 	c.r = 0;
 	c.g = 0;

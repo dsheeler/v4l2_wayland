@@ -43,7 +43,7 @@ typedef enum {
 } Easer_Type;
 
 class DingleDots;
-class Drawable;
+class vwDrawable;
 class Easable;
 typedef AHFloat (*EasingFuncPtr)(AHFloat);
 class Easer {
