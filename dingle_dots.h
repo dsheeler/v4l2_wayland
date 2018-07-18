@@ -106,6 +106,11 @@ public:
 	GtkWidget *bitrate_entry;
 	GtkWidget *delete_button;
 	GtkWidget *channel_combo;
+	GtkWidget *x11_x_input;
+	GtkWidget *x11_y_input;
+	GtkWidget *x11_w_input;
+	GtkWidget *x11_h_input;
+
 	ca_context *event_sound_ctx;
 	long jack_overruns;
 	int nports;

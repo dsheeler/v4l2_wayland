@@ -9,10 +9,13 @@ class X11 : public vwDrawable
 {
 public:
 	X11();
-	void create(DingleDots *dd);
+	void create(DingleDots *dd, int x, int y, int w, int h);
 	void free();
 	bool render(std::vector<cairo_t *> &contexts);
-private:
+	void get_display_dimensions(int *w, int *h);
+	rectangle_double xpos;
+
+	private:
 	Display *display;
 	Window rootWindow;
 	cairo_surface_t *surf;

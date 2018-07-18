@@ -47,15 +47,17 @@ int DingleDots::init(int width, int height) {
 	this->setup_jack();
 	int sr = jack_get_sample_rate(this->client);
 	int bufsize = jack_get_buffer_size(this->client);
-	float w = width / 5;
+	float w5 = width / 5;
 	ca_context_create(&this->event_sound_ctx);
 	color c1;
 	color c2;
 	color_init(&c1, 0.0, 0.2, 0.4, 1.0);
 	color_init(&c2, 0.0, 0.2, 0.1, 1.0);
-	this->meters[0].init(this, sr, bufsize, 0.1f, 20.0f, width/2 - 2*w, height/2, w, c1);
-	this->meters[1].init(this, sr, bufsize, 0.1f, 20.0f, width/2 + 2*w, height/2, w, c2);
-	this->x11.create(this);
+	this->meters[0].init(this, sr, bufsize, 0.1f, 20.0f, width/2 - 2*w5, height/2, w5, c1);
+	this->meters[1].init(this, sr, bufsize, 0.1f, 20.0f, width/2 + 2*w5, height/2, w5, c2);
+	int w, h;
+	this->x11.get_display_dimensions(&w, &h);
+	this->x11.create(this, 0, 0, w, h);
 	snapshot_shape.init("SNAPSHOT", this->drawing_rect.width / 2., this->drawing_rect.width / 16.,
 						this->drawing_rect.width / 32., random_color(), this);
 

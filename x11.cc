@@ -7,21 +7,30 @@ X11::X11()
 	display = NULL;
 }
 
-void X11::create(DingleDots *dd)
-{
+void X11::get_display_dimensions(int *w, int*h) {
 	XWindowAttributes DOSBoxWindowAttributes;
-	display = XOpenDisplay(NULL);
-	rootWindow = RootWindow(display, DefaultScreen(display));
+	Display *display = XOpenDisplay(NULL);
+	Window rootWindow = RootWindow(display, DefaultScreen(display));
 	XGetWindowAttributes(display, rootWindow, &DOSBoxWindowAttributes);
-	int width = DOSBoxWindowAttributes.width;
-	int height = DOSBoxWindowAttributes.height;
-	this->pos.width = width;
-	this->pos.height = height;
+	*w = DOSBoxWindowAttributes.width;
+	*h = DOSBoxWindowAttributes.height;
+}
+
+void X11::create(DingleDots *dd, int x, int y, int w, int h)
+{
+	this->display = XOpenDisplay(NULL);
+	this->rootWindow = RootWindow(display, DefaultScreen(display));
+	this->xpos.width = w;
+	this->xpos.height = h;
+	this->xpos.x = x;
+	this->xpos.y = y;
+	this->pos.width = w;
+	this->pos.height = h;
 	this->pos.x = 0;
 	this->pos.y = 0;
 	this->dingle_dots = dd;
-	this->surf = cairo_image_surface_create(CAIRO_FORMAT_RGB24, this->pos.width,
-									  this->pos.height);
+	this->surf = cairo_image_surface_create(CAIRO_FORMAT_RGB24, this->xpos.width,
+									  this->xpos.height);
 	this->allocated = 1;
 }
 
@@ -42,22 +51,22 @@ bool X11::render(std::vector<cairo_t *> &contexts) {
 	unsigned long blue_mask;
 
 	image = XGetImage(
-				display, rootWindow, 0, 0, this->pos.width, this->pos.height, AllPlanes, ZPixmap);
+				display, rootWindow, this->xpos.x, this->xpos.y, this->xpos.width,
+				this->xpos.height, AllPlanes, ZPixmap);
 	cairo_surface_flush(surf);
 	unsigned char *data = cairo_image_surface_get_data(surf);
 	red_mask = image->red_mask;
 	green_mask = image->green_mask;
 	blue_mask = image->blue_mask;
-	for (int i = 0; i < this->pos.height; ++i) {
-		for (int j = 0; j < this->pos.width; ++j) {
+	for (int i = 0; i < this->xpos.height; ++i) {
+		for (int j = 0; j < this->xpos.width; ++j) {
 			colors.pixel = XGetPixel(image, j, i);
-			// TODO(richard-to): Figure out why red and blue are swapped
-			data[4*i*((int)this->pos.width) + 4*j] = (colors.pixel & blue_mask);
-			data[4*i*((int)this->pos.width) + 4*j + 1] = (colors.pixel & green_mask)>>8;
-			data[4*i*((int)this->pos.width) + 4*j + 2] = (colors.pixel & red_mask)>>16;
+			data[4*i*((int)this->xpos.width) + 4*j] = (colors.pixel & blue_mask);
+			data[4*i*((int)this->xpos.width) + 4*j + 1] = (colors.pixel & green_mask)>>8;
+			data[4*i*((int)this->xpos.width) + 4*j + 2] = (colors.pixel & red_mask)>>16;
 		}
 	}
-	render_surface(contexts, surf);
 	XDestroyImage(image);
+	render_surface(contexts, surf);
 	return TRUE;
 }

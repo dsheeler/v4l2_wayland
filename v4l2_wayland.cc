@@ -208,26 +208,6 @@ void clear(cairo_t *cr)
 	cairo_restore(cr);
 }
 
-void get_sources(DingleDots *dd, std::vector<vwDrawable *> &sources)
-{
-	sources.push_back(&dd->x11);
-	for (int i = 0; i < MAX_NUM_V4L2; i++) {
-		if (dd->v4l2[i].active) {
-			sources.push_back(&dd->v4l2[i]);
-		}
-	}
-	for (int j = 0; j < MAX_NUM_VIDEO_FILES; j++) {
-		if (dd->vf[j].active) {
-			sources.push_back(&dd->vf[j]);
-		}
-	}
-	for (int i = 0; i < 2; i++) {
-		if (dd->sprites[i].active) {
-			sources.push_back(&dd->sprites[i]);
-		}
-	}
-}
-
 double calculate_motion(SoundShape *ss, AVFrame *sources_frame, uint32_t *save_buf_sources,
 						double width, double height)
 {
@@ -330,7 +310,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 				dd->sources_frame->height);
 	}
 	clear(sources_cr);
-	get_sources(dd, sources);
+	dd->get_sources(sources);
 	std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z < b->z; } );
 	std::vector<cairo_t *> contexts;
 	cairo_save(screen_cr);
@@ -653,7 +633,7 @@ static gboolean draw_cb(GtkWidget *, cairo_t *cr, gpointer   data) {
 void mark_hovered(bool use_sources, DingleDots *dd) {
 	int found = 0;
 	std::vector<vwDrawable *> sources;
-	get_sources(dd, sources);
+	dd->get_sources(sources);
 	std::vector<vwDrawable *> sound_shapes;
 	dd->get_sound_shapes(sound_shapes);
 	if (use_sources) {
@@ -801,7 +781,7 @@ static gboolean motion_notify_event_cb(GtkWidget *,
 		}
 	} else {
 		std::vector<vwDrawable *> sources;
-		get_sources(dd, sources);
+		dd->get_sources(sources);
 		std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
 		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if ((*it)->active) {
@@ -926,7 +906,7 @@ static gboolean button_press_event_cb(GtkWidget *,
 			gtk_widget_queue_draw(dd->drawing_area);
 		} else {
 			std::vector<vwDrawable *> sources;
-			get_sources(dd, sources);
+			dd->get_sources(sources);
 			std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
 			for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 				if ((*it)->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
@@ -993,7 +973,7 @@ static gboolean button_release_event_cb(GtkWidget *,
 			dd->meters[i].mdown = 0;
 		}
 		std::vector<vwDrawable *> sources;
-		get_sources(dd, sources);
+		dd->get_sources(sources);
 		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 			if ((*it)->active) {
 				(*it)->mdown = 0;
@@ -1295,7 +1275,21 @@ static gboolean set_modes_cb(GtkWidget *widget, gpointer data) {
 static gboolean x11_cb(GtkWidget *widget, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
+
 	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+		int x, y, w, h;
+		int display_w, display_h;
+
+		dd->x11.get_display_dimensions(&display_w, &display_h);
+		x = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_x_input));
+		y = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_y_input));
+		w = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_w_input));
+		h = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_h_input));
+		if ((dd->x11.xpos.x != x) || (dd->x11.xpos.y != y) ||
+				(dd->x11.xpos.width != w) || (dd->x11.xpos.height != h)) {
+			dd->x11.free();
+			dd->x11.create(dd, x, y, w, h);
+		}
 		dd->x11.activate();
 	} else {
 		dd->x11.deactivate();
@@ -1409,6 +1403,11 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	GtkWidget *snapshot_button;
 	GtkWidget *snapshot_shape_button;
 	GtkWidget *camera_button;
+	GtkWidget *x11_hbox;
+	GtkWidget *x11_x_label;
+	GtkWidget *x11_y_label;
+	GtkWidget *x11_w_label;
+	GtkWidget *x11_h_label;
 	GtkWidget *x11_button;
 	GtkWidget *make_scale_button;
 	GtkWidget *aspect;
@@ -1490,7 +1489,30 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	show_sprite_button = gtk_button_new_with_label("SHOW IMAGE");
 	snapshot_button = gtk_button_new_with_label("TAKE SNAPSHOT");
 	camera_button = gtk_button_new_with_label("OPEN CAMERA");
+	x11_hbox = gtk_hbox_new(GTK_ORIENTATION_HORIZONTAL, 5);
+	x11_x_label = gtk_label_new("X:");
+	x11_y_label = gtk_label_new("Y:");
+	x11_w_label = gtk_label_new("WIDTH:");
+	x11_h_label = gtk_label_new("HEIGHT:");
+	int w, h;
+	dd->x11.get_display_dimensions(&w, &h);
+	dd->x11_x_input = gtk_spin_button_new_with_range(0, w-1, 10);
+	dd->x11_y_input = gtk_spin_button_new_with_range(0, h-1, 10);
+	dd->x11_w_input = gtk_spin_button_new_with_range(0, w, 10);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dd->x11_w_input), w);
+	dd->x11_h_input = gtk_spin_button_new_with_range(0, h, 10);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dd->x11_h_input), h);
 	x11_button = gtk_toggle_button_new_with_label("CAPTURE X11");
+	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_x_label, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(x11_hbox), dd->x11_x_input, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_y_label, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(x11_hbox), dd->x11_y_input, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_w_label, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(x11_hbox), dd->x11_w_input, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_h_label, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(x11_hbox), dd->x11_h_input, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_button, TRUE, TRUE, 0);
+
 	bitrate_label = gtk_label_new("VIDEO BITRATE:");
 	GtkWidget *bitrate_suffix = gtk_label_new("(bps)");
 	gtk_box_pack_start(GTK_BOX(toggle_hbox), mbutton, FALSE, FALSE, 0);
@@ -1507,8 +1529,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_box_pack_start(GTK_BOX(vbox), play_file_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), show_sprite_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), camera_button, FALSE, FALSE, 0);
-	gtk_box_pack_start(GTK_BOX(vbox), x11_button, FALSE, FALSE, 0);
-
+	gtk_box_pack_start(GTK_BOX(vbox), x11_hbox, FALSE, FALSE, 0);
 	dd->scale_combo = gtk_combo_box_text_new();
 	int i = 0;
 	const char *name = midi_scale_id_to_text(i);
