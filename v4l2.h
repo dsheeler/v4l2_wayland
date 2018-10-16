@@ -41,6 +41,7 @@ class V4l2 : public vwDrawable {
 public:
 	V4l2();
 	void create(DingleDots *dingle_dots, char *name, double w, double h, uint64_t z);
+	bool done();
 	int read_frames();
 	void stop_capturing();
 	void start_capturing();
@@ -58,6 +59,8 @@ private:
 	static void YUV2RGB(const unsigned char y, const unsigned char u,
 						const unsigned char v, unsigned char* r, unsigned char* g,
 						unsigned char* b);
+	bool finished;
+	bool mirror;
 public:
 	char dev_name[DD_V4L2_MAX_STR_LEN];
 	int fd;

@@ -45,16 +45,23 @@ void V4l2::create(DingleDots *dd, char *dev_name, double width, double height, u
 	this->pos.x = 0;
 	this->pos.y = 0;
 	this->active = 0;
+	this->finished = 0;
 	this->allocated = 1;
 	this->pos.width = width;
 	this->pos.height = height;
-	pthread_create(&this->thread_id, NULL, V4l2::thread, this);
+	this->mirror = 0;
+	pthread_create(&this->thread_id, nullptr, V4l2::thread, this);
 
+}
+
+bool V4l2::done()
+{
+	return this->finished;
 }
 
 void *V4l2::thread(void *arg) {
 	V4l2 *v = (V4l2 *)arg;
-	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, nullptr);
 	int rc = pthread_setname_np(v->thread_id, "vw_v4l2");
 	if (rc != 0) {
 		errno = rc;
@@ -73,7 +80,7 @@ void *V4l2::thread(void *arg) {
 	v->stop_capturing();
 	v->uninit_device();
 	v->close_device();
-	return 0;
+	return nullptr;
 }
 
 int V4l2::read_frames() {
@@ -84,8 +91,14 @@ int V4l2::read_frames() {
 	unsigned char *ptr;
 	int i, j, nij;
 	int n;
+	uint32_t pixel;
+	int ret;
 	for (;;) {
-		poll(this->pfd, 1, -1);
+		ret = poll(this->pfd, 1, 40);
+		if (ret == 0) {
+			if (this->done()) break;
+			continue;
+		}
 		if (!this->active) this->activate();
 		CLEAR(buf);
 		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -112,9 +125,19 @@ int V4l2::read_frames() {
 			y1 = (unsigned char)ptr[n + 2];
 			v = (unsigned char)ptr[n + 3];
 			YUV2RGB(y0, u, v, &r, &g, &b);
-			this->save_buf[(int)this->pos.width - 1 - i + j*(int)this->pos.width] = 255 << 24 | r << 16 | g << 8 | b;
+			pixel = 255 << 24 | r << 16 | g << 8 | b;
+			if (true || this->mirror) {
+				this->save_buf[(int)this->pos.width - 1 - i + j*(int)this->pos.width] = pixel;
+			} else {
+				this->save_buf[i + j*(int)this->pos.width] = pixel;
+			}
 			YUV2RGB(y1, u, v, &r, &g, &b);
-			this->save_buf[(int)this->pos.width - 1 - (i+1) + j*(int)this->pos.width] = 255 << 24 | r << 16 | g << 8 | b;
+			pixel = 255 << 24 | r << 16 | g << 8 | b;
+			if (true || this->mirror) {
+				this->save_buf[(int)this->pos.width - 1 - (i+1) + j*(int)this->pos.width] = pixel;
+			} else {
+				this->save_buf[i+1 + j*(int)this->pos.width] = pixel;
+			}
 		}
 		assert(buf.index < this->n_buffers);
 		clock_gettime(CLOCK_MONOTONIC, &ts);

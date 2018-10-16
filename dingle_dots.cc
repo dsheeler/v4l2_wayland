@@ -37,6 +37,7 @@ int DingleDots::init(int width, int height) {
 	this->doing_tld = 0;
 	this->doing_motion = 0;
 	this->show_shapshot_shape = 0;
+	this->use_window_x11 = 0;
 	this->mdown = 0;
 	this->dragging = 0;
 	this->selection_in_progress = 0;
@@ -55,9 +56,7 @@ int DingleDots::init(int width, int height) {
 	color_init(&c2, 0.0, 0.2, 0.1, 1.0);
 	this->meters[0].init(this, sr, bufsize, 0.1f, 20.0f, width/2 - 2*w5, height/2, w5, c1);
 	this->meters[1].init(this, sr, bufsize, 0.1f, 20.0f, width/2 + 2*w5, height/2, w5, c2);
-	int w, h;
-	this->x11.get_display_dimensions(&w, &h);
-	this->x11.create(this, 0, 0, w, h);
+
 	snapshot_shape.init("SNAPSHOT", this->drawing_rect.width / 2., this->drawing_rect.width / 16.,
 						this->drawing_rect.width / 32., random_color(), this);
 
@@ -280,11 +279,11 @@ void DingleDots::add_scale(midi_key_t *key, int midi_channel,
 void DingleDots::render_selection_box(cairo_t *cr) {
 	cairo_save(cr);
 	cairo_rectangle(cr, floor(this->selection_rect.x)+0.5, floor(this->selection_rect.y)+0.5,
-					this->selection_rect.width, this->selection_rect.height);
-	cairo_set_source_rgba(cr, 1, 1, 1, 0.2 * this->selection_box_alpha);
+					floor(this->selection_rect.width), floor(this->selection_rect.height));
+	cairo_set_source_rgba(cr, 0.3, 0.5, 1, 0.2 * this->selection_box_alpha);
 	cairo_fill_preserve(cr);
 	cairo_set_source_rgba(cr, 1, 1, 1, 1 * this->selection_box_alpha);
-	cairo_set_line_width(cr, 0.5);
+	cairo_set_line_width(cr, 1.0);
 	cairo_stroke(cr);
 	cairo_restore(cr);
 }

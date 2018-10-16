@@ -1277,22 +1277,49 @@ static gboolean x11_cb(GtkWidget *widget, gpointer data) {
 	dd = (DingleDots *)data;
 
 	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
-		int x, y, w, h;
-		int display_w, display_h;
+		if (dd->use_window_x11) {
+			Window win;
+			int ret;
 
-		dd->x11.get_display_dimensions(&display_w, &display_h);
-		x = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_x_input));
-		y = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_y_input));
-		w = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_w_input));
-		h = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_h_input));
-		if ((dd->x11.xpos.x != x) || (dd->x11.xpos.y != y) ||
-				(dd->x11.xpos.width != w) || (dd->x11.xpos.height != h)) {
-			dd->x11.free();
-			dd->x11.create(dd, x, y, w, h);
+			Display *display = XOpenDisplay(NULL);
+			Window rootWindow = RootWindow(display, DefaultScreen(display));
+			if (dd->x11.allocated) dd->x11.free();
+			win = X11::get_window_under_click();
+			dd->x11.init_window(dd, win);
+		} else {
+			int x, y, w, h;
+			x = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_x_input));
+			y = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_y_input));
+			w = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_w_input));
+			h = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_h_input));
+			if ((dd->x11.xpos.x != x) || (dd->x11.xpos.y != y) ||
+					(dd->x11.xpos.width != w) || (dd->x11.xpos.height != h)) {
+				if (dd->x11.allocated) dd->x11.free();
+				dd->x11.init(dd, x, y, w, h);
+			}
 		}
 		dd->x11.activate();
 	} else {
 		dd->x11.deactivate();
+	}
+	return TRUE;
+}
+
+static gboolean x11_win_cb(GtkWidget *widget, gpointer data) {
+	DingleDots * dd;
+	dd = (DingleDots *)data;
+	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+		dd->use_window_x11 = 1;
+		gtk_widget_set_sensitive(dd->x11_x_input, 0);
+		gtk_widget_set_sensitive(dd->x11_y_input, 0);
+		gtk_widget_set_sensitive(dd->x11_h_input, 0);
+		gtk_widget_set_sensitive(dd->x11_w_input, 0);
+	} else {
+		dd->use_window_x11 = 0;
+		gtk_widget_set_sensitive(dd->x11_x_input, 1);
+		gtk_widget_set_sensitive(dd->x11_y_input, 1);
+		gtk_widget_set_sensitive(dd->x11_h_input, 1);
+		gtk_widget_set_sensitive(dd->x11_w_input, 1);
 	}
 	return TRUE;
 }
@@ -1409,6 +1436,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	GtkWidget *x11_w_label;
 	GtkWidget *x11_h_label;
 	GtkWidget *x11_button;
+	GtkWidget *x11_win_button;
 	GtkWidget *make_scale_button;
 	GtkWidget *aspect;
 	GtkWidget *channel_hbox;
@@ -1487,6 +1515,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	snapshot_shape_button = gtk_check_button_new_with_label("MOTION SNAPSHOT SHAPE");
 	play_file_button = gtk_button_new_with_label("PLAY VIDEO FILE");
 	show_sprite_button = gtk_button_new_with_label("SHOW IMAGE");
+	x11_win_button = gtk_check_button_new_with_label("PICK WINDOW");
 	snapshot_button = gtk_button_new_with_label("TAKE SNAPSHOT");
 	camera_button = gtk_button_new_with_label("OPEN CAMERA");
 	x11_hbox = gtk_hbox_new(GTK_ORIENTATION_HORIZONTAL, 5);
@@ -1503,6 +1532,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	dd->x11_h_input = gtk_spin_button_new_with_range(0, h, 10);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dd->x11_h_input), h);
 	x11_button = gtk_toggle_button_new_with_label("CAPTURE X11");
+	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_win_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_x_label, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(x11_hbox), dd->x11_x_input, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_y_label, FALSE, FALSE, 0);
@@ -1589,6 +1619,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	g_signal_connect(snapshot_shape_button, "clicked", G_CALLBACK(snapshot_shape_cb), dd);
 	g_signal_connect(camera_button, "clicked", G_CALLBACK(camera_cb), dd);
 	g_signal_connect(x11_button, "clicked", G_CALLBACK(x11_cb), dd);
+	g_signal_connect(x11_win_button, "clicked", G_CALLBACK(x11_win_cb), dd);
 	g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);
 	g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
 	g_signal_connect(meter_button, "toggled", G_CALLBACK(meter_cb), dd);

@@ -4,6 +4,7 @@
 #include "midi.h"
 
 SoundShape::SoundShape() { active = 0; }
+
 void SoundShape::init(char *label, uint8_t midi_note, uint8_t midi_channel,
 					  double x, double y, double r, color *c, DingleDots *dd) {
 	this->clear_state();
@@ -29,8 +30,6 @@ void SoundShape::init(char *label, uint8_t midi_note, uint8_t midi_channel,
 int SoundShape::is_on() {
 	return this->on;
 }
-
-
 
 bool SoundShape::render(std::vector<cairo_t *> &contexts) {
 	color *c;
@@ -62,7 +61,7 @@ bool SoundShape::render(std::vector<cairo_t *> &contexts) {
 			cairo_arc(cr, 0, 0, this->r, 0, 2 * M_PI);
 			cairo_fill(cr);
 		}
-		//this->render_label(cr, "");
+		this->render_label(cr, "");
 		cairo_restore(cr);
 	}
 	return true;
@@ -91,8 +90,6 @@ void SoundShape::render_label(cairo_t *cr, const char *text_to_append) {
 	cairo_restore(cr);
 	g_object_unref(layout);
 }
-
-
 
 void SoundShape::clear_state() {
 	this->selected = 0;

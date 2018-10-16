@@ -52,6 +52,7 @@ public:
 	int can_capture;
 	int make_new_tld;
 	int use_rand_color_for_scale;
+	int use_window_x11;
 	int shift_pressed;
 	int delete_active;
 	double selection_box_alpha;
