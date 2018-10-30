@@ -579,7 +579,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	clock_gettime(CLOCK_MONOTONIC, &end_ts);
 	struct timespec diff_ts;
 	timespec_diff(&start_ts, &end_ts, &diff_ts);
-	printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
+	//printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
 }
 
 void teardown_jack(DingleDots *dd) {
@@ -1278,14 +1278,32 @@ static gboolean x11_cb(GtkWidget *widget, gpointer data) {
 
 	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
 		if (dd->use_window_x11) {
-			Window win;
-			int ret;
+			GtkWidget *dialog;
+			GtkWidget *dialog_content;
+			GtkWidget *combo;
+			int res;
+			GtkDialogFlags flags = (GtkDialogFlags)(GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT);
+			dialog = gtk_dialog_new_with_buttons("Select Window", GTK_WINDOW(dd->ctl_window),
+												 flags, "Open", GTK_RESPONSE_ACCEPT, "Cancel", GTK_RESPONSE_REJECT, NULL);
+			dialog_content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+			combo = gtk_combo_box_text_new();
+			for (Window win : X11::get_top_level_windows()) {
+				gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(combo),
+										  X11::get_window_name(win).c_str(),
+										  X11::get_window_name(win).c_str());
+			}
+			gtk_combo_box_set_active(GTK_COMBO_BOX(combo), 0);
 
-			Display *display = XOpenDisplay(NULL);
-			Window rootWindow = RootWindow(display, DefaultScreen(display));
-			if (dd->x11.allocated) dd->x11.free();
-			win = X11::get_window_under_click();
-			dd->x11.init_window(dd, win);
+			gtk_container_add(GTK_CONTAINER(dialog_content), combo);
+			gtk_widget_show_all(dialog);
+			res = gtk_dialog_run(GTK_DIALOG(dialog));
+			if (res == GTK_RESPONSE_ACCEPT) {
+				const gchar *name;
+				name = gtk_combo_box_get_active_id(GTK_COMBO_BOX(combo));
+				if (dd->x11.allocated) dd->x11.free();
+				dd->x11.init_window(dd, X11::get_window_from_string(string(name)));
+			}
+			gtk_widget_destroy (dialog);
 		} else {
 			int x, y, w, h;
 			x = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dd->x11_x_input));
@@ -1298,8 +1316,10 @@ static gboolean x11_cb(GtkWidget *widget, gpointer data) {
 				dd->x11.init(dd, x, y, w, h);
 			}
 		}
+		gtk_widget_set_sensitive(dd->x11_win_button, 0);
 		dd->x11.activate();
 	} else {
+		gtk_widget_set_sensitive(dd->x11_win_button, 1);
 		dd->x11.deactivate();
 	}
 	return TRUE;
@@ -1314,6 +1334,7 @@ static gboolean x11_win_cb(GtkWidget *widget, gpointer data) {
 		gtk_widget_set_sensitive(dd->x11_y_input, 0);
 		gtk_widget_set_sensitive(dd->x11_h_input, 0);
 		gtk_widget_set_sensitive(dd->x11_w_input, 0);
+
 	} else {
 		dd->use_window_x11 = 0;
 		gtk_widget_set_sensitive(dd->x11_x_input, 1);
@@ -1436,7 +1457,6 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	GtkWidget *x11_w_label;
 	GtkWidget *x11_h_label;
 	GtkWidget *x11_button;
-	GtkWidget *x11_win_button;
 	GtkWidget *make_scale_button;
 	GtkWidget *aspect;
 	GtkWidget *channel_hbox;
@@ -1515,10 +1535,10 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	snapshot_shape_button = gtk_check_button_new_with_label("MOTION SNAPSHOT SHAPE");
 	play_file_button = gtk_button_new_with_label("PLAY VIDEO FILE");
 	show_sprite_button = gtk_button_new_with_label("SHOW IMAGE");
-	x11_win_button = gtk_check_button_new_with_label("PICK WINDOW");
+	dd->x11_win_button = gtk_check_button_new_with_label("PICK WINDOW");
 	snapshot_button = gtk_button_new_with_label("TAKE SNAPSHOT");
 	camera_button = gtk_button_new_with_label("OPEN CAMERA");
-	x11_hbox = gtk_hbox_new(GTK_ORIENTATION_HORIZONTAL, 5);
+	x11_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
 	x11_x_label = gtk_label_new("X:");
 	x11_y_label = gtk_label_new("Y:");
 	x11_w_label = gtk_label_new("WIDTH:");
@@ -1532,7 +1552,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	dd->x11_h_input = gtk_spin_button_new_with_range(0, h, 10);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dd->x11_h_input), h);
 	x11_button = gtk_toggle_button_new_with_label("CAPTURE X11");
-	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_win_button, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(x11_hbox), dd->x11_win_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_x_label, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(x11_hbox), dd->x11_x_input, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_y_label, FALSE, FALSE, 0);
@@ -1619,7 +1639,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	g_signal_connect(snapshot_shape_button, "clicked", G_CALLBACK(snapshot_shape_cb), dd);
 	g_signal_connect(camera_button, "clicked", G_CALLBACK(camera_cb), dd);
 	g_signal_connect(x11_button, "clicked", G_CALLBACK(x11_cb), dd);
-	g_signal_connect(x11_win_button, "clicked", G_CALLBACK(x11_win_cb), dd);
+	g_signal_connect(dd->x11_win_button, "clicked", G_CALLBACK(x11_win_cb), dd);
 	g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);
 	g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
 	g_signal_connect(meter_button, "toggled", G_CALLBACK(meter_cb), dd);

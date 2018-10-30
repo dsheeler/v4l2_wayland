@@ -101,6 +101,7 @@ public:
 	GtkWidget *drawing_area;
 	GtkWidget *scale_combo;
 	GtkWidget *note_combo;
+	GtkWidget *x11_windows_combo;
 	GtkWidget *rand_color_button;
 	GtkWidget *scale_color_button;
 	GtkWidget *record_button;
@@ -111,6 +112,7 @@ public:
 	GtkWidget *x11_y_input;
 	GtkWidget *x11_w_input;
 	GtkWidget *x11_h_input;
+	GtkWidget *x11_win_button;
 
 	ca_context *event_sound_ctx;
 	long jack_overruns;
