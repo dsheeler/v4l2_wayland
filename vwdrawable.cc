@@ -172,9 +172,23 @@ void vwDrawable::set_mdown(double x, double y, int64_t z) {
 }
 
 void vwDrawable::drag(double mouse_x, double mouse_y) {
+	int detent_len = 20;
+	double res;
 	if (mdown) {
 		pos.x = mouse_x - mdown_pos.x + down_pos.x;
 		pos.y = mouse_y - mdown_pos.y + down_pos.y;
+		res = (pos.x + 0.5 * pos.width - 0.5 * (this->scale) * pos.width);
+		if (-detent_len < res && res < detent_len) pos.x = 0.5 * this->scale * pos.width - 0.5 * pos.width;
+		res = (pos.x + 0.5 * pos.width + 0.5 * (this->scale) * pos.width) - dingle_dots->drawing_rect.width;
+		if (-detent_len < res && res < detent_len) pos.x = dingle_dots->drawing_rect.width - 0.5 * scale * pos.width - 0.5 * pos.width;
+		res = (pos.y + 0.5 * pos.height - 0.5 * (this->scale) * pos.height);
+		if (-detent_len < res && res < detent_len) pos.y = 0.5 * this->scale * pos.height - 0.5 * pos.height;
+		res = (pos.y + 0.5 * pos.height + 0.5 * (this->scale) * pos.height) - dingle_dots->drawing_rect.height;
+		if (-detent_len < res && res < detent_len) pos.y = dingle_dots->drawing_rect.height - 0.5 * scale * pos.height - 0.5 * pos.height;
+		res = (pos.x + 0.5 * pos.width) - 0.5 * dingle_dots->drawing_rect.width;
+		if (-detent_len < res && res < detent_len) pos.x = 0.5 * dingle_dots->drawing_rect.width -0.5 * pos.width;
+		res = (pos.y + 0.5 * pos.height) - 0.5 * dingle_dots->drawing_rect.height;
+		if (-detent_len < res && res < detent_len) pos.y = 0.5 * dingle_dots->drawing_rect.height -0.5 * pos.height;
 	}
 }
 
@@ -190,8 +204,9 @@ int vwDrawable::in(double x_in, double y_in) {
 	}
 }
 
-void vwDrawable::render_halo(cairo_t *cr, color c, double len) {
+void vwDrawable::render_halo(cairo_t *cr, color c, double in_length) {
 	cairo_pattern_t *pat;
+	double len = in_length / this->scale;
 	cairo_save(cr);
 	pat = cairo_pattern_create_linear(0.0, -len, 0.0, 0.0);
 	cairo_pattern_add_color_stop_rgba(pat,0.0, c.r, c.g, c.b, 0);
@@ -254,9 +269,9 @@ void vwDrawable::render_halo(cairo_t *cr, color c, double len) {
 
 void vwDrawable::render_hovered(cairo_t *cr) {
 	color c;
-	c.r = 1;
-	c.g = 1;
-	c.b = 1;
+	c.r = 0.1;
+	c.g = 0.5;
+	c.b = 0.85;
 	c.a = 0.25;
 	cairo_rectangle(cr, 0.0, 0.0, this->pos.width, this->pos.height);
 	cairo_set_source_rgba(cr, c.r, c.g, c.b, c.a);
@@ -269,6 +284,6 @@ void vwDrawable::render_shadow(cairo_t *cr) {
 	c.r = 0;
 	c.g = 0;
 	c.b = 0;
-	c.a = 0.25;
+	c.a = 0.75;
 	render_halo(cr, c, 10);
 }
