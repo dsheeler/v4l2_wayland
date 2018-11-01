@@ -5,16 +5,13 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
-#include <X11/extensions/Xcomposite.h>
-#include <X11/extensions/Xrender.h>
-#include <X11/extensions/Xdamage.h>
-#include <X11/extensions/Xfixes.h>
 
 #define WIN_STRING_DIV "\r\n"
 
 X11::X11()
 {
 	XInitThreads();
+	using_window = false;
 	display = NULL;
 }
 
@@ -192,6 +189,7 @@ void X11::init(DingleDots *dd, int x, int y, int w, int h) {
 	this->xpos.height = h;
 	this->xpos.x = x;
 	this->xpos.y = y;
+	this->z = dd->next_z++;
 	this->pos.width = w;
 	this->pos.height = h;
 	this->pos.x = 0;
@@ -201,8 +199,6 @@ void X11::init(DingleDots *dd, int x, int y, int w, int h) {
 	this->surf = cairo_image_surface_create(CAIRO_FORMAT_RGB24, this->xpos.width,
 									  this->xpos.height);
 	this->allocated = 1;
-	//pthread_create(&this->thread_id, nullptr, X11::thread, this);
-
 }
 
 void X11::init_window(DingleDots *dd, Window win) {
@@ -218,12 +214,14 @@ void X11::init_window(DingleDots *dd, Window win) {
 	this->xpos.height = h;
 	this->xpos.x = win_att.x;
 	this->xpos.y = win_att.y;
+	this->z = dd->next_z++;
 	this->pos.width = w;
 	this->pos.height = h;
 	this->pos.x = 0;
 	this->pos.y = 0;
 	this->done = false;
 	this->dingle_dots = dd;
+	this->using_window = true;
 	pthread_create(&this->thread_id, nullptr, X11::thread, this);
 }
 
@@ -232,7 +230,7 @@ void X11::free()
 	this->allocated = 0;
 	this->active = 0;
 	cairo_surface_destroy(this->surf);
-	pthread_cancel(this->thread_id);
+	if (this->thread_id) pthread_cancel(this->thread_id);
 }
 
 bool X11::render(std::vector<cairo_t *> &contexts) {
@@ -243,7 +241,7 @@ bool X11::render(std::vector<cairo_t *> &contexts) {
 	unsigned long green_mask;
 	unsigned long blue_mask;
 	if (pthread_mutex_trylock(&this->lock) == 0) {
-		if (this->dingle_dots->use_window_x11) {
+		if (this->using_window) {
 			image = XGetImage(
 						display, this->window, 0, 0, this->xpos.width,
 						this->xpos.height, AllPlanes, ZPixmap);

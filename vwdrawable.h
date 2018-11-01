@@ -2,6 +2,7 @@
 #define _DRAWABLE_H (1)
 
 #include "gtk/gtk.h"
+#include <gtkmm-3.0/gtkmm.h>
 #include <vector>
 #include <stdint.h>
 #include "v4l2_wayland.h"

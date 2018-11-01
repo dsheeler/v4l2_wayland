@@ -1,9 +1,9 @@
 #ifndef X11_H
 #define X11_H
 
+#include "vwdrawable.h"
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
-#include "vwdrawable.h"
 
 class X11 : public vwDrawable
 {
@@ -14,7 +14,7 @@ public:
 	void free();
 	bool render(std::vector<cairo_t *> &contexts);
 	void deactivate_action();
-	void get_display_dimensions(int *w, int *h);
+	static void get_display_dimensions(int *w, int *h);
 	static std::list<Window> get_top_level_windows();
 	GdkRectangle xpos;
 	pthread_t thread_id;
@@ -31,6 +31,7 @@ private:
 	Window window;
 	cairo_surface_t *surf;
 	bool done;
+	bool using_window;
 	void event_loop();
 };
 

@@ -13,6 +13,7 @@ extern "C" {
 }
 #endif
 #include <gtk/gtk.h>
+#include <gtkmm-3.0/gtkmm.h>
 #include <canberra.h>
 #include "v4l2_wayland.h"
 #include <fftw3.h>
@@ -27,12 +28,15 @@ typedef struct midi_key_t midi_key_t;
 #include "easable.h"
 #include "video_file_out.h"
 #include "x11.h"
+#include "text.h"
 
 #define STR_LEN 80
-#define MAX_NUM_V4L2 4
+#define MAX_NUM_V4L2 8
 #define MAX_NUM_VIDEO_FILES 8
 #define MAX_NUM_SPRITES 32
 #define MAX_NUM_SOUND_SHAPES 128
+#define MAX_NUM_TEXTS 32
+#define MAX_NUM_X11 8
 
 class DingleDots : public Easable {
 public:
@@ -72,7 +76,8 @@ public:
 	int current_sprite_index;
 	V4l2 v4l2[MAX_NUM_V4L2];
 	Sprite sprites[MAX_NUM_SPRITES];
-	X11 x11;
+	X11 x11[MAX_NUM_X11];
+	Text text[MAX_NUM_SOUND_SHAPES];
 	SnapshotShape snapshot_shape;
 	SoundShape sound_shapes[MAX_NUM_SOUND_SHAPES];
 	Meter meters[2];
@@ -113,7 +118,8 @@ public:
 	GtkWidget *x11_w_input;
 	GtkWidget *x11_h_input;
 	GtkWidget *x11_win_button;
-
+	GtkWidget *text_entry;
+	GtkWidget *text_font_entry;
 	ca_context *event_sound_ctx;
 	long jack_overruns;
 	int nports;

@@ -45,15 +45,21 @@ int vwDrawable::scale_to_fit(double duration) {
 }
 
 int vwDrawable::activate_spin() {
+	double duration = 2;
 	if (!this->active) {
 		this->easers.clear();
+		fade_in(duration);
 		this->scale = min(this->dingle_dots->drawing_rect.width / this->pos.width,
 						  this->dingle_dots->drawing_rect.height / this->pos.height);
-		double duration = 2;
 		Easer *er2 = new Easer();
 		er2->initialize(this, EASER_SINE_EASE_OUT, std::bind(&vwDrawable::set_rotation, this, std::placeholders::_1), -3*2*M_PI, 0, 2*duration);
-		this->active = 1;
 		er2->start();
+		Easer *er3 = new Easer();
+		er3->initialize(this, EASER_SINE_EASE_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 0, 1, duration);
+		er3->start();
+		gtk_widget_queue_draw(this->dingle_dots->drawing_area);
+		this->active = 1;
+
 	}
 	return 0;
 }

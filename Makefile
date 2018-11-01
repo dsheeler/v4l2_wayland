@@ -13,6 +13,7 @@ all: $(PROGS)
 LFLAGS = $(shell pkg-config --libs cairo) \
 				 $(shell pkg-config --libs pangocairo) \
 				 $(shell pkg-config --libs gtk+-3.0) \
+				 $(shell pkg-config --libs gtkmm-3.0) \
 				 $(shell pkg-config --libs fftw3) \
 				 $(shell pkg-config --libs glib-2.0 libcanberra) \
 				 -lccv -lm -lpng -ljpeg -lswscale -lavutil -lswresample \
@@ -22,19 +23,20 @@ LIBS =
 CFLAGS =-g -Wall
 CFLAGS +=	$(shell pkg-config --cflags pangocairo) \
 				 	$(shell pkg-config --cflags gtk+-3.0) \
-				 	$(shell pkg-config --cflags fftw3) \
+				 	$(shell pkg-config --cflags gtkmm-3.0) \
+					 $(shell pkg-config --cflags fftw3) \
 					$(shell pkg-config --cflags glib-2.0 libcanberra)
 
 SRCS = vwdrawable.cc v4l2_wayland.cc sound_shape.cc midi.cc kmeter.cc \
 			 video_file_source.cc dingle_dots.cc v4l2.cc sprite.cc snapshot_shape.cc \
-			 easer.cc easable.cc video_file_out.cc x11.cc
+			 easer.cc easable.cc video_file_out.cc x11.cc text.cc
 CSRCS= easing.c
 
 OBJS := $(SRCS:.cc=.o) $(CSRCS:.c=.o)
 
 HDRS = vwdrawable.h sound_shape.h midi.h v4l2_wayland.h kmeter.h \
 			video_file_source.h dingle_dots.h v4l2.h sprite.h snapshot_shape.h \
-			easer.h easing.h easable.h video_file_out.h x11.h
+			easer.h easing.h easable.h video_file_out.h x11.h text.h
 
 .SUFFIXES:
 

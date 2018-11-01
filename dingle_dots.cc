@@ -362,9 +362,18 @@ void DingleDots::get_sound_shapes(std::vector<vwDrawable *> &sound_shapes)
 
 void DingleDots::get_sources(std::vector<vwDrawable *> &list)
 {
-	if (this->x11.active) {
-		list.push_back(&this->x11);
+	for (int i = 0; i < MAX_NUM_X11; ++i) {
+		if (this->x11[i].active) {
+			list.push_back(&this->x11[i]);
+		}
 	}
+
+	for (int i = 0; i < MAX_NUM_TEXTS; ++i) {
+		if (this->text[i].active) {
+			list.push_back(&this->text[i]);
+		}
+	}
+
 	for (int i = 0; i < MAX_NUM_V4L2; i++) {
 		if (this->v4l2[i].active) {
 			list.push_back(&this->v4l2[i]);
