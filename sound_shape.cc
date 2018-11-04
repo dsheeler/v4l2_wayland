@@ -176,13 +176,12 @@ int SoundShape::activate() {
 		this->easers.erase(this->easers.begin(), this->easers.end());
 		double duration = 0.8;
 		Easer *er = new Easer();
-		er->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 0, 3, 0.75 * duration);
+		er->initialize(this->dingle_dots, this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 0, 3, 0.75 * duration);
 		Easer *er2 = new Easer();
-		er2->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 3, 1, 0.25 *duration);
+		er2->initialize(this->dingle_dots, this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 3, 1, 0.25 *duration);
 		er->add_finish_easer(er2);
 		this->active = 1;
 		er->start();
-		gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 	}
 	return 0;
 }

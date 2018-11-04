@@ -119,7 +119,8 @@ public:
 	GtkWidget *x11_h_input;
 	GtkWidget *x11_win_button;
 	GtkWidget *text_entry;
-	GtkWidget *text_font_entry;
+	Gtk::Entry *text_font_entry;
+	Gtk::SpinButton *text_font_size_input;
 	ca_context *event_sound_ctx;
 	long jack_overruns;
 	int nports;
@@ -142,6 +143,7 @@ public:
 	void render_selection_box(cairo_t *cr);
 	void set_selecting_on();
 	void set_selecting_off();
+	void queue_draw();
 };
 
 #endif

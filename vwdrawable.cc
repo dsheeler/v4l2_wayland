@@ -30,7 +30,7 @@ void vwDrawable::set_scale(double value)
 int vwDrawable::fade_in(double duration) {
 	this->opacity = 0.0;
 	Easer *e = new Easer();
-	e->initialize(this, EASER_LINEAR, std::bind(&vwDrawable::set_opacity, this, std::placeholders::_1), 0, 1.0, duration);
+	e->initialize(this->dingle_dots, this, EASER_LINEAR, std::bind(&vwDrawable::set_opacity, this, std::placeholders::_1), 0, 1.0, duration);
 	e->start();
 	return 0;
 }
@@ -39,7 +39,7 @@ int vwDrawable::scale_to_fit(double duration) {
 	this->scale = min(this->dingle_dots->drawing_rect.width / this->pos.width,
 					  this->dingle_dots->drawing_rect.height / this->pos.height);
 	Easer *e = new Easer();
-	e->initialize(this, EASER_BACK_EASE_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 0, this->scale, duration);
+	e->initialize(this->dingle_dots, this, EASER_BACK_EASE_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 0, this->scale, duration);
 	e->start();
 	return 0;
 }
@@ -52,10 +52,10 @@ int vwDrawable::activate_spin() {
 		this->scale = min(this->dingle_dots->drawing_rect.width / this->pos.width,
 						  this->dingle_dots->drawing_rect.height / this->pos.height);
 		Easer *er2 = new Easer();
-		er2->initialize(this, EASER_SINE_EASE_OUT, std::bind(&vwDrawable::set_rotation, this, std::placeholders::_1), -3*2*M_PI, 0, 2*duration);
+		er2->initialize(this->dingle_dots, this, EASER_SINE_EASE_OUT, std::bind(&vwDrawable::set_rotation, this, std::placeholders::_1), -3*2*M_PI, 0, 2*duration);
 		er2->start();
 		Easer *er3 = new Easer();
-		er3->initialize(this, EASER_SINE_EASE_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 0, 1, duration);
+		er3->initialize(this->dingle_dots, this, EASER_SINE_EASE_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 0, 1, duration);
 		er3->start();
 		gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 		this->active = 1;
@@ -85,10 +85,10 @@ int vwDrawable::deactivate() {
 	double duration = 0.4;
 	Easer *e = new Easer();
 	Easer *e2 = new Easer();
-	e->initialize(this,EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale,
+	e->initialize(this->dingle_dots, this,EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale,
 															   this, std::placeholders::_1),
 				  this->scale, 3 * this->scale, 0.75 * duration);
-	e2->initialize(this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale,
+	e2->initialize(this->dingle_dots, this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale,
 																 this, std::placeholders::_1),
 				   3 * this->scale, 0, 0.25 * duration);
 	e2->add_finish_action(std::bind(&vwDrawable::deactivate_action, this));

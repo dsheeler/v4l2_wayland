@@ -991,7 +991,7 @@ static gboolean button_release_event_cb(GtkWidget *,
 		dd->dragging = 0;
 		if (dd->selection_in_progress) {
 			Easer *e = new Easer();
-			e->initialize(dd, EASER_LINEAR, boost::bind(&DingleDots::set_selection_box_alpha, dd, _1), 1.0, 0.0, 0.2);
+			e->initialize(dd, dd, EASER_LINEAR, boost::bind(&DingleDots::set_selection_box_alpha, dd, _1), 1.0, 0.0, 0.2);
 			e->add_finish_action(boost::bind(&DingleDots::set_selecting_off, dd));
 			dd->add_easer(e);
 			e->start();
@@ -1355,12 +1355,29 @@ static gboolean x11_win_cb(GtkWidget *widget, gpointer data) {
 static gboolean text_cb(GtkWidget *, gpointer data) {
 	DingleDots *dd;
 	dd = (DingleDots *)data;
-	char *t = (char *)gtk_entry_get_text(GTK_ENTRY(dd->text_entry));
+	char *text = (char *)gtk_entry_get_text(GTK_ENTRY(dd->text_entry));
 	for(int i = 0; i < MAX_NUM_TEXTS; i++) {
-		if (!dd->text[i].allocated) {
-			dd->text[i].init(t, "Agave", 66, dd);
-			dd->text[i].active = 0;
-			dd->text[i].activate_spin();
+		Text *t = &dd->text[i];
+		if (!t->allocated) {
+			t->init(text, (char*)dd->text_font_entry->get_text().c_str(), dd);
+			t->active = true;
+			t->set_color_hsva(0.0, 0.0, 0.5, 0.777);
+			double duration = 2.0;
+			Easer *eo = new Easer();
+			eo->initialize(dd, &dd->text[i], EASER_LINEAR,
+						   std::bind(&Text::set_opacity, &dd->text[i], std::placeholders::_1),
+						   0., 1., duration);
+			Easer *es = new Easer();
+			es->initialize(dd, t, EASER_LINEAR,
+						   std::bind(&Text::set_color_saturation, t, std::placeholders::_1),
+						   0, 0.5, duration);
+			eo->add_finish_easer(es);
+			Easer *er = new Easer();
+			er->initialize(dd, &dd->text[i], EASER_LINEAR,
+						 std::bind(&Text::set_color_hue, &dd->text[i], std::placeholders::_1),
+						 0., 1., duration);
+			eo->add_finish_easer(er);
+			eo->start();
 			break;
 		}
 	}
@@ -1585,10 +1602,15 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_box_pack_start(GTK_BOX(x11_hbox), dd->x11_h_input, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(x11_hbox), x11_button, TRUE, TRUE, 0);
 	dd->text_entry = gtk_entry_new();
-	dd->text_font_entry = gtk_entry_new();
+	dd->text_font_entry = new Gtk::Entry();
 	text_button = gtk_button_new_with_label("CREATE TEXT");
+	Gtk::Label *text_font_label = new Gtk::Label("FONT: ");
+	Gtk::Label *text_label = new Gtk::Label("TEXT: ");
 	text_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+	gtk_box_pack_start(GTK_BOX(text_hbox), GTK_WIDGET(text_label->gobj()), FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(text_hbox), dd->text_entry, TRUE, TRUE, 0);
+	gtk_box_pack_start(GTK_BOX(text_hbox), GTK_WIDGET(text_font_label->gobj()), FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(text_hbox), GTK_WIDGET(dd->text_font_entry->gobj()), FALSE,FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(text_hbox), text_button, FALSE, FALSE, 0);
 	bitrate_label = gtk_label_new("VIDEO BITRATE:");
 	GtkWidget *bitrate_suffix = gtk_label_new("(bps)");

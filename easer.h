@@ -5,6 +5,7 @@
 #include <vector>
 #include "easing.h"
 #include <boost/function.hpp>
+//#include "vwcolor.h"
 //#include "drawable.h"
 
 typedef enum {
@@ -44,13 +45,13 @@ typedef enum {
 
 class DingleDots;
 class vwDrawable;
+class vwColor;
 class Easable;
 typedef AHFloat (*EasingFuncPtr)(AHFloat);
 class Easer {
 public:
 	Easer();
 	static EasingFuncPtr easer_type_to_easing_func(Easer_Type);
-	void initialize(Easable *target, DingleDots *dd, Easer_Type type, double *value, double value_start, double value_finish, double duration_secs);
 	void start();
 	void finalize();
 	void update_value();
@@ -72,7 +73,7 @@ public:
 	struct timespec start_ts;
 	std::vector<Easer *> finsh_easers;
 	std::vector<boost::function<void ()>> finish_actions;
-	void initialize(Easable *target, Easer_Type type, boost::function<void (double)>, double value_start, double value_finish, double duration_secs);
+	void initialize(DingleDots *dd, Easable *target, Easer_Type type, boost::function<void (double)>, double value_start, double value_finish, double duration_secs);
 };
 
 #endif // EASER_H

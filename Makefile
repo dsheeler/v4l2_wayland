@@ -29,14 +29,16 @@ CFLAGS +=	$(shell pkg-config --cflags pangocairo) \
 
 SRCS = vwdrawable.cc v4l2_wayland.cc sound_shape.cc midi.cc kmeter.cc \
 			 video_file_source.cc dingle_dots.cc v4l2.cc sprite.cc snapshot_shape.cc \
-			 easer.cc easable.cc video_file_out.cc x11.cc text.cc
+			 easer.cc easable.cc video_file_out.cc x11.cc text.cc \
+			 vwcolor.cc
 CSRCS= easing.c
 
 OBJS := $(SRCS:.cc=.o) $(CSRCS:.c=.o)
 
 HDRS = vwdrawable.h sound_shape.h midi.h v4l2_wayland.h kmeter.h \
 			video_file_source.h dingle_dots.h v4l2.h sprite.h snapshot_shape.h \
-			easer.h easing.h easable.h video_file_out.h x11.h text.h
+			easer.h easing.h easable.h video_file_out.h x11.h text.h \
+			vwcolor.h
 
 .SUFFIXES:
 

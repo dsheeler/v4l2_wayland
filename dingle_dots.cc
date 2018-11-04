@@ -300,6 +300,11 @@ void DingleDots::set_selecting_off() {
 	gtk_widget_queue_draw(this->drawing_area);
 }
 
+void DingleDots::queue_draw()
+{
+	gtk_widget_queue_draw(this->drawing_area);
+}
+
 double DingleDots::get_selection_box_alpha() const
 {
 	return selection_box_alpha;

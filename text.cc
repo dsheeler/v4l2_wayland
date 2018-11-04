@@ -1,5 +1,7 @@
 #include "text.h"
 #include "dingle_dots.h"
+#include "vwcolor.h"
+#include "text.h"
 
 #include <cairo/cairo.h>
 #include <pango/pangocairo.h>
@@ -10,7 +12,7 @@ Text::Text()
 	allocated = 0;
 }
 
-void Text::init(char *text, char *font, uint font_size, DingleDots *dd)
+void Text::init(char *text, char *font, DingleDots *dd)
 {
 	PangoLayout *layout;
 	PangoFontDescription *desc;
@@ -22,8 +24,8 @@ void Text::init(char *text, char *font, uint font_size, DingleDots *dd)
 	this->pos.y = 0;
 	this->z = dd->next_z++;
 	this->dingle_dots = dd;
-	this->font_size = font_size;
-	sprintf(lfont, "%s %d", this->font->c_str(), this->font_size);
+	this->color.set_rgba(0., 0., 0., 0.);
+	sprintf(lfont, "%s", this->font->c_str());
 	cairo_surface_t *tsurf = cairo_image_surface_create(CAIRO_FORMAT_RGB24,
 														dd->drawing_rect.width,
 														dd->drawing_rect.height);
@@ -40,6 +42,7 @@ void Text::init(char *text, char *font, uint font_size, DingleDots *dd)
 	cairo_destroy(cr);
 	pango_font_description_free(desc);
 	g_object_unref(layout);
+	active = 0;
 	allocated = 1;
 }
 
@@ -48,7 +51,7 @@ bool Text::render(std::vector<cairo_t *> &contexts)
 	PangoLayout *layout;
 	PangoFontDescription *desc;
 	char lfont[32];
-	sprintf(lfont, "%s %d", this->font->c_str(), font_size);
+	sprintf(lfont, "%s", this->font->c_str());
 	for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
 		cairo_t *cr = *it;
 		layout = pango_cairo_create_layout(cr);
@@ -63,7 +66,7 @@ bool Text::render(std::vector<cairo_t *> &contexts)
 		cairo_scale(cr, this->scale, this->scale);
 		cairo_rotate(cr, this->get_rotation());
 		cairo_translate(cr, -0.5 * this->pos.width, -0.5 * this->pos.height);
-		cairo_set_source_rgba(cr, 1., 1., 1., this->get_opacity());
+		cairo_set_source_rgba(cr, color.get(R), color.get(G), color.get(B), color.get(A) * this->get_opacity());
 		pango_cairo_show_layout(cr, layout);
 		if (this->hovered) {
 			render_hovered(cr);
@@ -71,4 +74,21 @@ bool Text::render(std::vector<cairo_t *> &contexts)
 		cairo_restore(cr);
 		g_object_unref(layout);
 	}
+}
+
+void Text::set_color_hsva(double h, double s, double v, double a) {
+	this->color.set_hsva(h, s, v, a);
+	this->dingle_dots->queue_draw();
+}
+
+void Text::set_color_rgba(double r, double g, double b, double a)
+{
+	this->color.set_rgba(r, g, b, a);
+	this->dingle_dots->queue_draw();
+}
+
+void Text::set_color(color_prop p, double v)
+{
+	this->color.set(p, v);
+	this->dingle_dots->queue_draw();
 }

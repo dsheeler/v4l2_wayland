@@ -87,10 +87,11 @@ void SnapshotShape::set_motion_state(uint8_t state) {
 	if (state && this->motion_state == 0) {
 		this->motion_state = 1;
 		this->motion_state_to_off = 0;
-		this->countdown_radius_easer.initialize(this,
-										   EASER_LINEAR,
-										   std::bind(&SnapshotShape::set_radius_on,
-													 this, std::placeholders::_1),
+		this->countdown_radius_easer.initialize(this->dingle_dots,
+												this,
+												EASER_LINEAR,
+												std::bind(&SnapshotShape::set_radius_on,
+														  this, std::placeholders::_1),
 												final_radius, 0.0,
 												SHUTDOWN_SECS);
 		this->countdown_radius_easer.start();

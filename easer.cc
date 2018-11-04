@@ -111,13 +111,14 @@ EasingFuncPtr Easer::easer_type_to_easing_func(Easer_Type type)
 	return func;
 }
 
-void Easer::initialize(Easable *target, Easer_Type type, boost::function<void(double)> functor,
+void Easer::initialize(DingleDots *dd, Easable *target, Easer_Type type, boost::function<void(double)> functor,
 					   double value_start, double value_finish,
 					   double duration_secs)
 {
 	this->active = FALSE;
 	this->target = target;
-	this->value = 0;
+	this->value = nullptr;
+	this->dd = dd;
 	this->setter = functor;
 	this->duration_secs = duration_secs;
 	this->value_start = value_start;
@@ -128,6 +129,7 @@ void Easer::initialize(Easable *target, Easer_Type type, boost::function<void(do
 void Easer::start() {
 	target->add_easer(this);
 	this->active = TRUE;
+	dd->queue_draw();
 	clock_gettime(CLOCK_MONOTONIC, &this->start_ts);
 }
 
@@ -154,6 +156,7 @@ void Easer::update_value() {
 	easer_value = (this->easing_func)(ratio_complete);
 	delta = this->value_finish - this->value_start;
 	this->setter(this->value_start + easer_value * delta);
+	dd->queue_draw();
 }
 
 bool Easer::done()
