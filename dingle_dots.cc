@@ -4,6 +4,7 @@
 #include "v4l2_wayland.h"
 #include "v4l2.h"
 #include "midi.h"
+#include "dingle_dots.h"
 
 
 DingleDots::DingleDots() { }
@@ -13,7 +14,7 @@ int DingleDots::init(int width, int height) {
 	this->smdown = 0;
 	this->drawing_rect.width = width;
 	this->drawing_rect.height = height;
-
+	this->use_rand_color_for_text = 0;
 	this->animating = 0;
 	this->nports = 2;
 	this->make_new_tld = 0;
@@ -253,6 +254,13 @@ color DingleDots::random_color()
 	h.s = 1.0;
 	h.a = 0.5;
 	return hsv2rgb(&h);
+}
+
+vwColor DingleDots::random_vw_color() {
+	vwColor c;;
+	double h = (double) rand() / RAND_MAX;
+	c.set_hsva(h, 1.0, 0.45, 0.5);
+	return c;
 }
 
 void DingleDots::add_scale(midi_key_t *key, int midi_channel,

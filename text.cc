@@ -18,21 +18,21 @@ void Text::init(char *text, char *font, DingleDots *dd)
 	PangoFontDescription *desc;
 	int width, height;
 	char lfont[32];
-	this->text = new std::string(text);
-	this->font = new std::string(font);
+	this->text = (text);
+	this->font = (font);
 	this->pos.x = 0;
 	this->pos.y = 0;
 	this->z = dd->next_z++;
 	this->dingle_dots = dd;
 	this->color.set_rgba(0., 0., 0., 0.);
-	sprintf(lfont, "%s", this->font->c_str());
+	sprintf(lfont, "%s", this->font.c_str());
 	cairo_surface_t *tsurf = cairo_image_surface_create(CAIRO_FORMAT_RGB24,
 														dd->drawing_rect.width,
 														dd->drawing_rect.height);
 	cairo_t *cr = cairo_create(tsurf);
 	layout = pango_cairo_create_layout(cr);
 	pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
-	pango_layout_set_text(layout, this->text->c_str(), -1);
+	pango_layout_set_text(layout, this->text.c_str(), -1);
 	desc = pango_font_description_from_string(lfont);
 	pango_layout_set_font_description(layout, desc);
 	pango_layout_get_size(layout, &width, &height);
@@ -46,17 +46,21 @@ void Text::init(char *text, char *font, DingleDots *dd)
 	allocated = 1;
 }
 
+void Text::free()
+{
+}
+
 bool Text::render(std::vector<cairo_t *> &contexts)
 {
 	PangoLayout *layout;
 	PangoFontDescription *desc;
 	char lfont[32];
-	sprintf(lfont, "%s", this->font->c_str());
+	sprintf(lfont, "%s", this->font.c_str());
 	for (std::vector<cairo_t *>::iterator it = contexts.begin(); it != contexts.end(); ++it) {
 		cairo_t *cr = *it;
 		layout = pango_cairo_create_layout(cr);
 		pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
-		pango_layout_set_text(layout, this->text->c_str(), -1);
+		pango_layout_set_text(layout, this->text.c_str(), -1);
 		desc = pango_font_description_from_string(lfont);
 		pango_layout_set_font_description(layout, desc);
 		pango_font_description_free(desc);

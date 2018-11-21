@@ -1361,26 +1361,66 @@ static gboolean text_cb(GtkWidget *, gpointer data) {
 		if (!t->allocated) {
 			t->init(text, (char*)dd->text_font_entry->get_text().c_str(), dd);
 			t->active = true;
-			t->set_color_hsva(0.0, 0.0, 0.5, 0.777);
+			vwColor vwc;
+			if (dd->use_rand_color_for_text) {
+				vwc = dd->random_vw_color();
+			} else {
+				Gdk::RGBA *c = &dd->text_color;
+				vwc.set_rgba(c->get_red(), c->get_green(), c->get_blue(), c->get_alpha());
+			}
+			t->set_color_rgba(1.0, 1.0, 1.0, 0.0);
 			double duration = 2.0;
-			Easer *eo = new Easer();
-			eo->initialize(dd, &dd->text[i], EASER_LINEAR,
-						   std::bind(&Text::set_opacity, &dd->text[i], std::placeholders::_1),
-						   0., 1., duration);
 			Easer *es = new Easer();
+			double target_s = vwc.get(S);
 			es->initialize(dd, t, EASER_LINEAR,
 						   std::bind(&Text::set_color_saturation, t, std::placeholders::_1),
-						   0, 0.5, duration);
-			eo->add_finish_easer(es);
-			Easer *er = new Easer();
-			er->initialize(dd, &dd->text[i], EASER_LINEAR,
+						   0, target_s, duration);
+			Easer *eh = new Easer();
+			double target_hue = vwc.get(H);
+			eh->initialize(dd, &dd->text[i], EASER_LINEAR,
 						 std::bind(&Text::set_color_hue, &dd->text[i], std::placeholders::_1),
-						 0., 1., duration);
-			eo->add_finish_easer(er);
+						 0., target_hue, duration);
+			Easer *ev = new Easer();
+			double target_v = vwc.get(V);
+			ev->initialize(dd, &dd->text[i], EASER_LINEAR,
+						 std::bind(&Text::set_color_value, &dd->text[i], std::placeholders::_1),
+						 1., target_v, duration);
+			Easer *ea = new Easer();
+			double target_a = vwc.get(A);
+			ea->initialize(dd, &dd->text[i], EASER_LINEAR,
+						 std::bind(&Text::set_color_alpha, &dd->text[i], std::placeholders::_1),
+						 1., target_a, duration);
+			Easer *eo = new Easer();
+			eo->initialize(dd, &dd->text[i], EASER_LINEAR,
+						 std::bind(&Text::set_color_alpha, &dd->text[i], std::placeholders::_1),
+						 0., 1.0, duration);
+
+			eo->add_finish_easer(eh);
+			eo->add_finish_easer(ev);
+			eo->add_finish_easer(es);
+			eo->add_finish_easer(ea);
 			eo->start();
 			break;
 		}
 	}
+}
+
+static gboolean text_rand_color_cb(GtkWidget *widget, gpointer data) {
+	DingleDots *dd = (DingleDots *)data;
+	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget))) {
+		dd->use_rand_color_for_text = 1;
+		gtk_widget_set_sensitive(GTK_WIDGET(dd->text_color_button->gobj()), 0);
+	} else {
+		dd->use_rand_color_for_text = 0;
+		gtk_widget_set_sensitive(GTK_WIDGET(dd->text_color_button->gobj()), 1);
+	}
+	return TRUE;
+}
+
+static gboolean text_color_cb(GtkWidget *widget, gpointer data) {
+	DingleDots *dd;
+	dd = (DingleDots *) data;
+	gtk_color_button_get_rgba(GTK_COLOR_BUTTON(widget), dd->text_color.gobj());
 }
 
 static gboolean camera_cb(GtkWidget *, gpointer data) {
@@ -1500,6 +1540,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	GtkWidget *channel_label;
 	GtkWidget *text_button;
 	GtkWidget *text_hbox;
+	Gtk::CheckButton *text_rand_color;
 	DingleDots *dd;
 	int ret;
 
@@ -1606,11 +1647,21 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	text_button = gtk_button_new_with_label("CREATE TEXT");
 	Gtk::Label *text_font_label = new Gtk::Label("FONT: ");
 	Gtk::Label *text_label = new Gtk::Label("TEXT: ");
+	dd->text_color.set_red(1.0);
+	dd->text_color.set_green(1.0);
+	dd->text_color.set_blue(1.0);
+	dd->text_color.set_alpha(1.0);
+	text_rand_color = new Gtk::CheckButton("RANDOM COLOR");
+	dd->text_color_button = new Gtk::ColorButton(dd->text_color);
+	dd->text_color_button->set_use_alpha(TRUE);
 	text_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
 	gtk_box_pack_start(GTK_BOX(text_hbox), GTK_WIDGET(text_label->gobj()), FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(text_hbox), dd->text_entry, TRUE, TRUE, 0);
 	gtk_box_pack_start(GTK_BOX(text_hbox), GTK_WIDGET(text_font_label->gobj()), FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(text_hbox), GTK_WIDGET(dd->text_font_entry->gobj()), FALSE,FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(text_hbox), GTK_WIDGET(dd->text_color_button->gobj()), FALSE,FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(text_hbox), GTK_WIDGET(text_rand_color->gobj()), FALSE,FALSE, 0);
+
 	gtk_box_pack_start(GTK_BOX(text_hbox), text_button, FALSE, FALSE, 0);
 	bitrate_label = gtk_label_new("VIDEO BITRATE:");
 	GtkWidget *bitrate_suffix = gtk_label_new("(bps)");
@@ -1691,6 +1742,9 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	g_signal_connect(dd->x11_win_button, "clicked", G_CALLBACK(x11_win_cb), dd);
 	g_signal_connect(make_scale_button, "clicked", G_CALLBACK(make_scale_cb), dd);
 	g_signal_connect(text_button, "clicked", G_CALLBACK(text_cb), dd);
+	g_signal_connect(dd->text_color_button->gobj(), "color_set", G_CALLBACK(text_color_cb), dd);
+	g_signal_connect(text_rand_color->gobj(), "toggled", G_CALLBACK(text_rand_color_cb), dd);
+
 	g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
 	g_signal_connect(meter_button, "toggled", G_CALLBACK(meter_cb), dd);
 	g_signal_connect(play_file_button, "clicked", G_CALLBACK(play_file_cb), dd);

@@ -7,6 +7,7 @@
 class Meter : public vwDrawable {
 public:
 	Meter();
+	~Meter() {}
 	void init(DingleDots *dd, int fsamp, int fsize, float hold, float fall,
 				 float x, float y, float w, color c);
 	void process(float *p, int n);

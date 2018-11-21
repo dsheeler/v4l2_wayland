@@ -119,8 +119,6 @@ std::string X11::get_window_name(Window win)
 
 Window X11::get_window_from_string(std::string wstr)
 {
-	Display *disp = XOpenDisplay(NULL);
-
 	if (wstr == "") {
 		return X11::get_top_level_windows().front();
 	}

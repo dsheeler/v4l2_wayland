@@ -20,7 +20,6 @@ public:
 	pthread_t thread_id;
 	pthread_mutex_t lock;
 	pthread_cond_t data_ready;
-
 	static Window get_window_under_click();
 	static void *thread(void *arg);
 	static std::string get_window_name(Window win);

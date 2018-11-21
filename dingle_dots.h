@@ -56,6 +56,7 @@ public:
 	int can_capture;
 	int make_new_tld;
 	int use_rand_color_for_scale;
+	int use_rand_color_for_text;
 	int use_window_x11;
 	int shift_pressed;
 	int delete_active;
@@ -119,6 +120,8 @@ public:
 	GtkWidget *x11_h_input;
 	GtkWidget *x11_win_button;
 	GtkWidget *text_entry;
+	Gdk::RGBA text_color;
+	Gtk::ColorButton *text_color_button;
 	Gtk::Entry *text_font_entry;
 	Gtk::SpinButton *text_font_size_input;
 	ca_context *event_sound_ctx;
@@ -144,6 +147,7 @@ public:
 	void set_selecting_on();
 	void set_selecting_off();
 	void queue_draw();
+	vwColor random_vw_color();
 };
 
 #endif

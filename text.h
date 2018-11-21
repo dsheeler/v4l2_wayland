@@ -9,7 +9,9 @@ class Text : public vwDrawable
 {
 public:
 	Text();
+	~Text() {}
 	void init(char *text, char *font, DingleDots *dd);
+	void free();
 	bool render(std::vector<cairo_t *> &contexts);
 	void set_color_red(double r) { set_color(R, r); }
 	void set_color_green(double g) { set_color(G, g); }
@@ -19,14 +21,11 @@ public:
 	void set_color_saturation(double s) { set_color(S, s); }
 	void set_color_value(double v) { set_color(V, v); }
 	void set_color_rgba(double r, double g, double v, double a);
-
 	void set_color_hsva(double h, double s, double v, double a);
-	private:
 	void set_color(color_prop p, double v);
-	std::string *text;
-	std::string *font;
-	cairo_surface_t *surf;
-	GdkPoint tpos;
+private:
+	std::string text;
+	std::string font;
 	vwColor color;
 };
 
