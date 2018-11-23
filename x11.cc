@@ -155,11 +155,33 @@ void *X11::thread(void *arg) {
 }
 
 void X11::event_loop() {
+	Display *new_disp = XOpenDisplay(nullptr);
+	XVisualInfo vinfo;
+	XShmSegmentInfo *shminfo;
+	int ret;
+	shminfo = (XShmSegmentInfo *)malloc(sizeof(*shminfo));
+	ret = XMatchVisualInfo(new_disp, DefaultScreen(new_disp), 32, TrueColor, &vinfo);
+	if (ret == 0) {
+		printf("X11::event_loop: no visual found: abort\n");
+		return;
+	}
+	this->shm_image = XShmCreateImage(new_disp, vinfo.visual, 32,
+									  ZPixmap, nullptr, shminfo, this->xpos.width,
+									  this->xpos.height);
+	shminfo->shmid = shmget(IPC_PRIVATE, this->shm_image->bytes_per_line *
+							 this->shm_image->height,
+							 IPC_CREAT|0777);
+	shminfo->shmaddr = this->shm_image->data = (char *)shmat(shminfo->shmid, nullptr, 0);
+	shminfo->readOnly = False;
+	ret = XShmAttach(new_disp, shminfo);
+	if (ret == 0) {
+		printf("X11::event_loop: couldn't attach shared memory segment\n");
+		return;
+	}
 	this->surf = cairo_image_surface_create(CAIRO_FORMAT_RGB24,
 											this->xpos.width,
 											this->xpos.height);
 	this->allocated = 1;
-	Display *new_disp = XOpenDisplay(nullptr);
 	XSelectInput(new_disp, this->window, StructureNotifyMask);
 	while (!this->done) {
 		XEvent e;
@@ -234,6 +256,9 @@ void X11::free()
 
 bool X11::render(std::vector<cairo_t *> &contexts) {
 	if (!this->active || !this->allocated) return TRUE;
+	GTimer *timer = g_timer_new();
+	gdouble sec;
+	gulong usec;
 	XColor colors;
 	XImage *image;
 	unsigned long red_mask;
@@ -241,9 +266,8 @@ bool X11::render(std::vector<cairo_t *> &contexts) {
 	unsigned long blue_mask;
 	if (pthread_mutex_trylock(&this->lock) == 0) {
 		if (this->using_window) {
-			image = XGetImage(
-						display, this->window, 0, 0, this->xpos.width,
-						this->xpos.height, AllPlanes, ZPixmap);
+			image = this->shm_image;
+			XShmGetImage(this->display, this->window, image, 0, 0, AllPlanes);
 		} else {
 			image = XGetImage(
 						display, rootWindow, this->xpos.x, this->xpos.y, this->xpos.width,
@@ -263,11 +287,14 @@ bool X11::render(std::vector<cairo_t *> &contexts) {
 					data[4*i*((int)this->xpos.width) + 4*j + 2] = (colors.pixel & red_mask)>>16;
 				}
 			}
-			XDestroyImage(image);
+			//memset(data, 0, this->xpos.width * this->xpos.height * 4);
+			//XDestroyImage(image);
 		}
 		render_surface(contexts, surf);
 		pthread_mutex_unlock(&this->lock);
 	}
+	sec = g_timer_elapsed(timer, &usec);
+	printf("X11::render took %02f seconds\n", sec);
 	return TRUE;
 }
 
