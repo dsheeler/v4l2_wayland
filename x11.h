@@ -4,6 +4,9 @@
 #include "vwdrawable.h"
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <X11/extensions/XShm.h>
 
 class X11 : public vwDrawable
 {
@@ -28,6 +31,7 @@ private:
 	Display *display;
 	Window rootWindow;
 	Window window;
+	XImage *shm_image;
 	cairo_surface_t *surf;
 	bool done;
 	bool using_window;
