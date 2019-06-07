@@ -12,7 +12,7 @@ Text::Text()
 	allocated = 0;
 }
 
-void Text::init(char *text, char *font, DingleDots *dd)
+void Text::create(char *text, char *font, DingleDots *dd)
 {
 	PangoLayout *layout;
 	PangoFontDescription *desc;

@@ -288,10 +288,11 @@ void DingleDots::render_selection_box(cairo_t *cr) {
 	cairo_save(cr);
 	cairo_rectangle(cr, floor(this->selection_rect.x)+0.5, floor(this->selection_rect.y)+0.5,
 					floor(this->selection_rect.width), floor(this->selection_rect.height));
-	cairo_set_source_rgba(cr, 0.3, 0.5, 1, 0.2 * this->selection_box_alpha);
+	cairo_set_source_rgba(cr, 0.1, 0.5, 0.5, 0.2 * this->selection_box_alpha);
 	cairo_fill_preserve(cr);
-	cairo_set_source_rgba(cr, 1, 1, 1, 1 * this->selection_box_alpha);
-	cairo_set_line_width(cr, 1.0);
+	cairo_set_source_rgba(cr, 0.1, 0.5, 0.5, 1 * this->selection_box_alpha);
+	cairo_set_line_join(cr, CAIRO_LINE_JOIN_ROUND);
+	cairo_set_line_width(cr, 11);
 	cairo_stroke(cr);
 	cairo_restore(cr);
 }

@@ -46,7 +46,19 @@ void Sprite::create(std::string *name, int z, DingleDots *dd) {
 }
 
 int Sprite::activate() {
-	return activate_spin();
+	DingleDots *dd = this->dingle_dots;
+	Sprite *s = &dd->background;
+	double w = s->pos.width;
+	double h = s->pos.height;
+	double ratio_w;
+	double ratio_h;
+	ratio_w = dd->drawing_rect.width / w;
+	ratio_h = dd->drawing_rect.height / h;
+	double scale;
+	scale = ratio_w > ratio_h ? ratio_w : ratio_h;
+	if (scale < 1.0) scale = 1.0;
+	s->set_scale(scale);
+	return activate_spin(this->scale);
 }
 
 bool Sprite::render(std::vector<cairo_t *> &contexts)
@@ -58,6 +70,16 @@ bool Sprite::render(std::vector<cairo_t *> &contexts)
 	render_surface(contexts, tsurf);
 	cairo_surface_destroy(tsurf);
 	return TRUE;
+}
+
+int Sprite::getWidth()
+{
+	return this->pos.width;
+}
+
+int Sprite::getHeight()
+{
+	return this->pos.height;
 }
 
 int Sprite::ff_load_image() {

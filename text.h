@@ -10,7 +10,7 @@ class Text : public vwDrawable
 public:
 	Text();
 	~Text() {}
-	void init(char *text, char *font, DingleDots *dd);
+	void create(char *text, char *font, DingleDots *dd);
 	void free();
 	bool render(std::vector<cairo_t *> &contexts);
 	void set_color_red(double r) { set_color(R, r); }

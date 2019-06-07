@@ -76,6 +76,7 @@ public:
 	int current_video_file_source_index;
 	int current_sprite_index;
 	V4l2 v4l2[MAX_NUM_V4L2];
+	Sprite background;
 	Sprite sprites[MAX_NUM_SPRITES];
 	X11 x11[MAX_NUM_X11];
 	Text text[MAX_NUM_SOUND_SHAPES];

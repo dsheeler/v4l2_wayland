@@ -62,7 +62,7 @@ public:
 	DingleDots *get_dingle_dots() const;
 	void set_dingle_dots(DingleDots *value);
 
-	int activate_spin();
+	int activate_spin(double scale);
 	int scale_to_fit(double duration);
 	int fade_in(double duration);
 	protected:

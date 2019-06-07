@@ -40,8 +40,10 @@ struct dd_v4l2_buffer {
 class V4l2 : public vwDrawable {
 public:
 	V4l2();
-	void create(DingleDots *dingle_dots, char *name, double w, double h, uint64_t z);
-	bool done();
+	void init(DingleDots *dingle_dots, char *name, double w, double h, bool mirrored, uint64_t z);
+	void uninit();
+	int deactivate();
+	bool is_done();
 	int read_frames();
 	void stop_capturing();
 	void start_capturing();
@@ -60,7 +62,7 @@ private:
 						const unsigned char v, unsigned char* r, unsigned char* g,
 						unsigned char* b);
 	bool finished;
-	bool mirror;
+	bool mirrored;
 public:
 	char dev_name[DD_V4L2_MAX_STR_LEN];
 	int fd;

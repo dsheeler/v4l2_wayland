@@ -134,11 +134,12 @@ Window X11::get_window_from_string(std::string wstr)
 
 void X11::get_display_dimensions(int *w, int*h) {
 	XWindowAttributes DOSBoxWindowAttributes;
-	Display *display = XOpenDisplay(NULL);
+	Display *display = XOpenDisplay(nullptr);
 	Window rootWindow = RootWindow(display, DefaultScreen(display));
 	XGetWindowAttributes(display, rootWindow, &DOSBoxWindowAttributes);
 	*w = DOSBoxWindowAttributes.width;
 	*h = DOSBoxWindowAttributes.height;
+    XCloseDisplay(display);
 }
 
 void *X11::thread(void *arg) {

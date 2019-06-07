@@ -38,7 +38,7 @@ void V4l2::YUV2RGB(const unsigned char y, const unsigned char u,
 	*b = CLIPVALUE(b2);
 }
 
-void V4l2::create(DingleDots *dd, char *dev_name, double width, double height, uint64_t z) {
+void V4l2::init(DingleDots *dd, char *dev_name, double width, double height, bool mirrored, uint64_t z) {
 	this->dingle_dots = dd;
 	strncpy(this->dev_name, dev_name, DD_V4L2_MAX_STR_LEN-1);
 	this->z = z;
@@ -46,15 +46,30 @@ void V4l2::create(DingleDots *dd, char *dev_name, double width, double height, u
 	this->pos.y = 0;
 	this->active = 0;
 	this->finished = 0;
-	this->allocated = 1;
+	this->selected = 0;
+	this->mdown = 0;
+	this->allocated = 0;
 	this->pos.width = width;
 	this->pos.height = height;
-	this->mirror = 0;
+	this->mirrored = mirrored;
 	pthread_create(&this->thread_id, nullptr, V4l2::thread, this);
 
 }
 
-bool V4l2::done()
+void V4l2::uninit()
+{
+	this->finished = 1;
+	this->active = 0;
+}
+
+int V4l2::deactivate()
+{
+	this->uninit();
+	this->active = 0;
+	return 0;
+}
+
+bool V4l2::is_done()
 {
 	return this->finished;
 }
@@ -73,13 +88,19 @@ void *V4l2::thread(void *arg) {
 	memset(v->rbuf->buf, 0, v->rbuf->size);
 	v->read_buf = (uint32_t *)(malloc(4 * v->pos.width * v->pos.height));
 	v->save_buf = (uint32_t *)(malloc(4 * v->pos.width * v->pos.height));
+	v->allocated = 1;
 	v->start_capturing();
 	pthread_mutex_lock(&v->lock);
+	v->activate_spin(1.0);
 	v->read_frames();
 	pthread_mutex_unlock(&v->lock);
 	v->stop_capturing();
 	v->uninit_device();
 	v->close_device();
+	jack_ringbuffer_free(v->rbuf);
+	free(v->read_buf);
+	free(v->save_buf);
+	v->allocated = 0;
 	return nullptr;
 }
 
@@ -93,13 +114,11 @@ int V4l2::read_frames() {
 	int n;
 	uint32_t pixel;
 	int ret;
-	for (;;) {
+	while (!this->is_done()) {
 		ret = poll(this->pfd, 1, 40);
-		if (ret == 0) {
-			if (this->done()) break;
+		if (ret == 0 || !this->active) {
 			continue;
 		}
-		if (!this->active) this->activate();
 		CLEAR(buf);
 		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		buf.memory = V4L2_MEMORY_MMAP;
@@ -126,14 +145,14 @@ int V4l2::read_frames() {
 			v = (unsigned char)ptr[n + 3];
 			YUV2RGB(y0, u, v, &r, &g, &b);
 			pixel = 255 << 24 | r << 16 | g << 8 | b;
-			if (true || this->mirror) {
+			if (this->mirrored) {
 				this->save_buf[(int)this->pos.width - 1 - i + j*(int)this->pos.width] = pixel;
 			} else {
 				this->save_buf[i + j*(int)this->pos.width] = pixel;
 			}
 			YUV2RGB(y1, u, v, &r, &g, &b);
 			pixel = 255 << 24 | r << 16 | g << 8 | b;
-			if (true || this->mirror) {
+			if (this->mirrored) {
 				this->save_buf[(int)this->pos.width - 1 - (i+1) + j*(int)this->pos.width] = pixel;
 			} else {
 				this->save_buf[i+1 + j*(int)this->pos.width] = pixel;
@@ -143,17 +162,12 @@ int V4l2::read_frames() {
 		clock_gettime(CLOCK_MONOTONIC, &ts);
 		int space = 4 * this->pos.width * this->pos.height + sizeof(struct timespec);
 		int buf_space = jack_ringbuffer_write_space(this->rbuf);
-		while (buf_space < space) {
-			timespec ts;
-			clock_gettime(CLOCK_REALTIME, &ts);
-			ts.tv_nsec += 500000000;
-			pthread_cond_timedwait(&this->data_ready, &this->lock, &ts);
-			buf_space = jack_ringbuffer_write_space(this->rbuf);
+		if (buf_space >= space) {
+			jack_ringbuffer_write(this->rbuf, (const char *)&ts,
+								  sizeof(struct timespec));
+			jack_ringbuffer_write(this->rbuf, (const char *)this->save_buf,
+								  4 * this->pos.width * this->pos.height);
 		}
-		jack_ringbuffer_write(this->rbuf, (const char *)&ts,
-							  sizeof(struct timespec));
-		jack_ringbuffer_write(this->rbuf, (const char *)this->save_buf,
-							  4 * this->pos.width * this->pos.height);
 		if (-1 == xioctl(this->fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
 		gtk_widget_queue_draw(dingle_dots->drawing_area);
@@ -343,13 +357,6 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 			ret = true;
 			jack_ringbuffer_read(this->rbuf, (char *)&ts, sizeof(struct timespec));
 			jack_ringbuffer_read(this->rbuf, (char *)this->read_buf, 4*this->pos.width*this->pos.height);
-			/*if (jack_ringbuffer_read_space(this->rbuf) >= space) {
-				gtk_widget_queue_draw(dingle_dots->drawing_area);
-			}*/
-			if (pthread_mutex_trylock(&this->lock) == 0) {
-				pthread_cond_signal(&this->data_ready);
-				pthread_mutex_unlock(&this->lock);
-			}
 		}
 		cairo_surface_t *tsurf;
 		tsurf = cairo_image_surface_create_for_data(

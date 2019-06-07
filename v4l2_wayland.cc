@@ -42,8 +42,8 @@
 
 #include "easable.h"
 
-static ccv_dense_matrix_t      *cdm = 0, *cdm2 = 0;
-static ccv_tld_t               *tld = 0;
+static ccv_dense_matrix_t      *cdm = nullptr, *cdm2 = nullptr;
+static ccv_tld_t               *tld = nullptr;
 
 void errno_exit(const char *s) {
 	fprintf(stderr, "%s error %d, %s\n", s, errno, strerror(errno));
@@ -57,10 +57,10 @@ int timespec2file_name(char *buf, uint len, const char *dir,
 	uint ret;
 	struct tm t;
 	const char *homedir;
-	if (localtime_r(&(ts->tv_sec), &t) == NULL) {
+	if (localtime_r(&(ts->tv_sec), &t) == nullptr) {
 		return 1;
 	}
-	if ((homedir = getenv("HOME")) == NULL) {
+	if ((homedir = getenv("HOME")) == nullptr) {
 		homedir = getpwuid(getuid())->pw_dir;
 	}
 	ret = snprintf(buf, len, "%s/%s/v4l2_wayland-", homedir, dir);
@@ -86,14 +86,14 @@ void *snapshot_disk_thread (void *arg) {
 	char timestr[STR_LEN+1];
 	tzset();
 	DingleDots *dd = (DingleDots *)arg;
-	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+	pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, nullptr);
 	int rc = pthread_setname_np(pthread_self(), "vw_snapshot");
 	if (rc != 0) {
 		errno = rc;
 		perror("pthread_setname_np");
 	}
 	pthread_mutex_lock(&dd->snapshot_thread_info.lock);
-	frame = NULL;
+	frame = nullptr;
 	frame = av_frame_alloc();
 	frame->width = dd->drawing_rect.width;
 	frame->height = dd->drawing_rect.height;
@@ -127,7 +127,7 @@ void *snapshot_disk_thread (void *arg) {
 	av_freep(frame->data[0]);
 	av_frame_free(&frame);
 	pthread_mutex_unlock(&dd->snapshot_thread_info.lock);
-	return 0;
+	return nullptr;
 }
 
 ccv_tld_t *new_tld(int x, int y, int w, int h, DingleDots *dd) {
@@ -311,6 +311,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 				dd->sources_frame->height);
 	}
 	clear(sources_cr);
+
 	dd->get_sources(sources);
 	std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z < b->z; } );
 	std::vector<cairo_t *> contexts;
@@ -318,6 +319,10 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	cairo_scale(screen_cr, dd->scale, dd->scale);
 	contexts.push_back(screen_cr);
 	contexts.push_back(sources_cr);
+	if (dd->background.active) {
+		dd->background.update_easers();
+		dd->background.render(contexts);
+	}
 	for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 		(*it)->update_easers();
 		(*it)->render(contexts);
@@ -378,7 +383,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 				tld = new_tld(dd->user_tld_rect.x/dd->ascale_factor_x, dd->user_tld_rect.y/dd->ascale_factor_y,
 							  dd->user_tld_rect.width/dd->ascale_factor_x, dd->user_tld_rect.height/dd->ascale_factor_y, dd);
 			} else {
-				tld = NULL;
+				tld = nullptr;
 				dd->doing_tld = 0;
 				made_first_tld = 0;
 				newbox.rect.x = 0;
@@ -411,7 +416,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			}
 		}
 	} else {
-		tld = NULL;
+		tld = nullptr;
 		made_first_tld = 0;
 		newbox.rect.x = 0;
 		newbox.rect.y = 0;
@@ -496,7 +501,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 			ss_rect.y = ss->pos.y - ss->r * ss->scale;
 			ss_rect.width = 2 * ss->r * ss->scale;
 			ss_rect.height = 2 * ss->r * ss->scale;
-			if (gdk_rectangle_intersect(&ss_rect, &dd->selection_rect, NULL)) {
+			if (gdk_rectangle_intersect(&ss_rect, &dd->selection_rect, nullptr)) {
 				ss->selected = 1;
 				ss->selected_pos.x = ss->pos.x;
 				ss->selected_pos.y = ss->pos.y;
@@ -580,7 +585,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	clock_gettime(CLOCK_MONOTONIC, &end_ts);
 	struct timespec diff_ts;
 	timespec_diff(&start_ts, &end_ts, &diff_ts);
-	//printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
+	printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
 }
 
 void teardown_jack(DingleDots *dd) {
@@ -869,13 +874,7 @@ static gboolean button_press_event_cb(GtkWidget *,
 		dd->mdown_pos.y = dd->mouse_pos.y;
 		if (!(event->state & GDK_SHIFT_MASK)) {
 			std::vector<vwDrawable *> sound_shapes;
-			for (i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
-				SoundShape *s = &dd->sound_shapes[i];
-				if (s->active) sound_shapes.push_back(s);
-			}
-			for (int i = 0; i < 2; i++){
-				if (dd->meters[i].active) sound_shapes.push_back(&dd->meters[i]);
-			}
+			dd->get_sound_shapes(sound_shapes);
 			std::sort(sound_shapes.begin(), sound_shapes.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
 			for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
 				vwDrawable *s = *it;
@@ -902,7 +901,7 @@ static gboolean button_press_event_cb(GtkWidget *,
 							}
 						}
 						s->set_mdown(dd->mouse_pos.x, dd->mouse_pos.y, dd->next_z++);
-						gtk_widget_queue_draw(dd->drawing_area);
+						dd->queue_draw();
 					}
 					return FALSE;
 				}
@@ -918,9 +917,13 @@ static gboolean button_press_event_cb(GtkWidget *,
 			std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
 			for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
 				if ((*it)->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
-					(*it)->set_mdown(dd->mouse_pos.x, dd->mouse_pos.y,
-									 event->state & GDK_CONTROL_MASK ?
-										 (*it)->z : dd->next_z++);
+					if (dd->delete_active) {
+						(*it)->deactivate();
+					} else {
+						(*it)->set_mdown(dd->mouse_pos.x, dd->mouse_pos.y,
+										 event->state & GDK_CONTROL_MASK ?
+											 (*it)->z : dd->next_z++);
+					}
 					break;
 				}
 			}
@@ -1140,6 +1143,40 @@ static gboolean quit_cb(GtkWidget *, gpointer data) {
 	g_application_quit(dd->app);
 	return TRUE;
 }
+
+static gboolean background_cb(GtkWidget *, gpointer data) {
+	DingleDots * dd;
+	dd = (DingleDots *)data;
+	GtkWidget *dialog;
+	GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_OPEN;
+	gint res;
+	dialog = gtk_file_chooser_dialog_new ("Open File",
+										  GTK_WINDOW(dd->ctl_window),
+										  action,
+										  "Cancel",
+										  GTK_RESPONSE_CANCEL,
+										  "Open",
+										  GTK_RESPONSE_ACCEPT,
+										  NULL);
+	res = gtk_dialog_run (GTK_DIALOG (dialog));
+	if (res == GTK_RESPONSE_ACCEPT) {
+		gchar *fname;
+		GtkFileChooser *chooser = GTK_FILE_CHOOSER (dialog);
+		fname = gtk_file_chooser_get_filename(chooser);
+		std::string filename(fname);
+		Sprite *s = &dd->background;
+		if (s->active) {
+			s->free();
+		}
+		s->create(&filename, dd->next_z++, dd);
+
+		gtk_widget_queue_draw(dd->drawing_area);
+		g_free (fname);
+	}
+	gtk_widget_destroy (dialog);
+	return TRUE;
+}
+
 static gboolean show_sprite_cb(GtkWidget *, gpointer data) {
 	DingleDots * dd;
 	dd = (DingleDots *)data;
@@ -1359,7 +1396,7 @@ static gboolean text_cb(GtkWidget *, gpointer data) {
 	for(int i = 0; i < MAX_NUM_TEXTS; i++) {
 		Text *t = &dd->text[i];
 		if (!t->allocated) {
-			t->init(text, (char*)dd->text_font_entry->get_text().c_str(), dd);
+			t->create(text, (char*)dd->text_font_entry->get_text().c_str(), dd);
 			t->active = true;
 			vwColor vwc;
 			if (dd->use_rand_color_for_text) {
@@ -1451,6 +1488,9 @@ static gboolean camera_cb(GtkWidget *, gpointer data) {
 
 	g_signal_connect(combo, "changed", G_CALLBACK(set_modes_cb), resolution_combo);
 
+	Gtk::CheckButton *mirrored_button = new Gtk::CheckButton("MIRRORED");
+	gtk_container_add(GTK_CONTAINER(dialog_content), GTK_WIDGET(mirrored_button->gobj()));
+
 	//gtk_combo_box_set_active(GTK_COMBO_BOX(resolution_combo), 1);
 	gtk_container_add(GTK_CONTAINER(dialog_content), resolution_combo);
 	gtk_widget_show_all(dialog);
@@ -1459,12 +1499,13 @@ static gboolean camera_cb(GtkWidget *, gpointer data) {
 	if (res == GTK_RESPONSE_ACCEPT) {
 		const gchar *name = gtk_combo_box_get_active_id(GTK_COMBO_BOX(combo));
 		gchar *res_str = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(resolution_combo));
+		bool mirrored = mirrored_button->get_active();
 		gchar *w, *h;
 		w = strsep(&res_str, "x");
 		h = strsep(&res_str, "x");
 		for(int i = 0; i < MAX_NUM_V4L2; i++) {
 			if (!dd->v4l2[i].allocated) {
-				dd->v4l2[i].create(dd, (char *)name, atof(w), atof(h), dd->next_z++);
+				dd->v4l2[i].init(dd, (char *)name, atof(w), atof(h), mirrored, dd->next_z++);
 				break;
 			}
 		}
@@ -1528,6 +1569,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	GtkWidget *snapshot_button;
 	GtkWidget *snapshot_shape_button;
 	GtkWidget *camera_button;
+	GtkWidget *background_button;
 	GtkWidget *x11_hbox;
 	GtkWidget *x11_x_label;
 	GtkWidget *x11_y_label;
@@ -1614,10 +1656,12 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	meter_button = gtk_check_button_new_with_label("SOUND METERS");
 	snapshot_shape_button = gtk_check_button_new_with_label("MOTION SNAPSHOT SHAPE");
 	play_file_button = gtk_button_new_with_label("PLAY VIDEO FILE");
+	background_button = gtk_button_new_with_label("BACKGROUND IMAGE");
 	show_sprite_button = gtk_button_new_with_label("SHOW IMAGE");
 	dd->x11_win_button = gtk_check_button_new_with_label("PICK WINDOW");
 	snapshot_button = gtk_button_new_with_label("TAKE SNAPSHOT");
 	camera_button = gtk_button_new_with_label("OPEN CAMERA");
+	Gtk::RadioButton *x11_use_window_button = new Gtk::RadioButton("PICK WINDOW");
 	x11_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
 	x11_x_label = gtk_label_new("X:");
 	x11_y_label = gtk_label_new("Y:");
@@ -1677,6 +1721,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	gtk_box_pack_start(GTK_BOX(vbox), snapshot_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), toggle_hbox, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), play_file_button, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(vbox), background_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), show_sprite_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), camera_button, FALSE, FALSE, 0);
 	gtk_box_pack_start(GTK_BOX(vbox), x11_hbox, FALSE, FALSE, 0);
@@ -1748,6 +1793,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	g_signal_connect(mbutton, "toggled", G_CALLBACK(motion_cb), dd);
 	g_signal_connect(meter_button, "toggled", G_CALLBACK(meter_cb), dd);
 	g_signal_connect(play_file_button, "clicked", G_CALLBACK(play_file_cb), dd);
+	g_signal_connect(background_button, "clicked", G_CALLBACK(background_cb), dd);
 	g_signal_connect(show_sprite_button, "clicked", G_CALLBACK(show_sprite_cb), dd);
 	g_signal_connect(dd->rand_color_button, "toggled", G_CALLBACK(rand_color_cb), dd);
 	g_signal_connect (drawing_area, "draw",
