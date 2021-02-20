@@ -15,7 +15,7 @@ int VideoFileOut::allocate_audio() {
 int VideoFileOut::allocate_video() {
 	pthread_mutex_init(&video_thread_info.lock, NULL);
 	pthread_cond_init(&video_thread_info.data_ready, NULL);
-	uint32_t rb_size = 5 * 4 * width * height;
+	uint32_t rb_size = 50 * 4 * width * height;
 	video_ring_buf = jack_ringbuffer_create(rb_size);
 	memset(video_ring_buf->buf, 0, video_ring_buf->size);
 	return 0;

@@ -34,8 +34,7 @@ extern "C" {
 #define VF_STR_LEN 256
 #define SCALE_FLAGS SWS_BICUBIC
 
-class VideoFileOut
-{
+class VideoFileOut {
 public:
 	VideoFileOut();
 	int allocate_audio();
@@ -69,7 +68,6 @@ public:
 	pthread_mutex_t *get_audio_lock();
 	pthread_cond_t *get_audio_data_ready();
 	void set_audio_ringbuffer(jack_ringbuffer_t *val);
-
 	int get_audio_frame(AVFrame **ret_frame);
 	int get_video_frame(AVFrame **ret_frame);
 	int init_output();
@@ -81,9 +79,8 @@ public:
 	int get_recording_audio() const;
 	void set_recording_audio(int value);
 	void wake_up_audio_write_thread();
-
 	disk_thread_info_t *get_audio_thread_info();
-	private:
+private:
 	int recording_audio;
 	int recording_video;
 	struct timespec video_first_time;
@@ -111,8 +108,6 @@ public:
 	int can_capture;
 	int first_call_audio = 1;
 	int first_call_video = 1;
-
-
 };
 
 #endif // VIDEO_FILE_OUT_H
