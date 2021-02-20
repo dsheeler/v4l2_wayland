@@ -170,7 +170,6 @@ int V4l2::read_frames() {
 		}
 		if (-1 == xioctl(this->fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
-		gtk_widget_queue_draw(dingle_dots->drawing_area);
 	}
 }
 
@@ -364,6 +363,7 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 					this->pos.width, this->pos.height, 4 * this->pos.width);
 		render_surface(contexts, tsurf);
 		cairo_surface_destroy(tsurf);
+		gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 	}
 	return ret;
 }
@@ -468,12 +468,10 @@ void V4l2::list_devices(std::map<std::string, std::string> &cards) {
 	closedir(dp);
 
 	/* Find device nodes which are links to other device nodes */
-	for (dev_vec::iterator iter = files.begin();
-			iter != files.end(); ) {
+	for (dev_vec::iterator iter = files.begin(); iter != files.end(); ) {
 		char link[64+1];
 		int link_len;
 		std::string target;
-		;
 
 		link_len = readlink(iter->c_str(), link, 64);
 		if (link_len < 0) {	/* Not a link or error */
