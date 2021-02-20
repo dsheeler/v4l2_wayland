@@ -25,8 +25,8 @@ public:
 	void create(std::string *name, int z, DingleDots *dd);
 	bool render(std::vector<cairo_t *> &contexts);
 	void free();
-	int getWidth();
-	int getHeight();
+	int get_width();
+	int get_height();
 	//void r(std::vector<cairo_t *> &contexts, cairo_surface_t *tsurf);
 
 	int activate();
