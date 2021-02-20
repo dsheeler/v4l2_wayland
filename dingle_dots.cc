@@ -37,6 +37,7 @@ int DingleDots::init(int width, int height) {
 										   this->analysis_rect.height, AV_PIX_FMT_ARGB, SWS_BICUBIC, NULL, NULL, NULL);
 	this->doing_tld = 0;
 	this->doing_motion = 0;
+	this->do_snapshot = 0;
 	this->show_shapshot_shape = 0;
 	this->use_window_x11 = 0;
 	this->mdown = 0;
@@ -371,7 +372,7 @@ void DingleDots::get_sound_shapes(std::vector<vwDrawable *> &sound_shapes)
 		Meter *m = &this->meters[i];
 		if (m->active) sound_shapes.push_back(m);
 	}
-	//sound_shapes.push_back(&this->snapshot_shape);
+	sound_shapes.push_back(&this->snapshot_shape);
 }
 
 void DingleDots::get_sources(std::vector<vwDrawable *> &list)

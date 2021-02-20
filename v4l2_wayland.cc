@@ -130,13 +130,13 @@ void *snapshot_disk_thread (void *arg) {
 	return nullptr;
 }
 
-ccv_tld_t *new_tld(int x, int y, int w, int h, DingleDots *dd) {
+/*ccv_tld_t *new_tld(int x, int y, int w, int h, DingleDots *dd) {
 	ccv_tld_param_t p = ccv_tld_default_params;
 	ccv_rect_t box = ccv_rect(x, y, w, h);
 	ccv_read(dd->analysis_frame->data[0], &cdm, CCV_IO_ARGB_RAW | CCV_IO_GRAY,
 			dd->analysis_rect.height, dd->analysis_rect.width, 4*dd->analysis_rect.width);
 	return ccv_tld_new(cdm, box, p);
-}
+}*/
 
 static void render_detection_box(cairo_t *cr, int initializing,
 								 int x, int y, int w, int h) {
@@ -375,6 +375,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	if (first_data) {
 		first_data = 0;
 	}
+#if 0
 	if (dd->doing_tld) {
 		sws_scale(dd->analysis_resize, (uint8_t const * const *)dd->sources_frame->data,
 				  dd->sources_frame->linesize, 0, dd->sources_frame->height, dd->analysis_frame->data, dd->analysis_frame->linesize);
@@ -423,6 +424,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		newbox.rect.width = 0;
 		newbox.rect.height = 0;
 	}
+#endif
 	for (int i = 0; i < MAX_NUM_SOUND_SHAPES; i++) {
 		if (!dd->sound_shapes[i].active) continue;
 		set_to_on_or_off(&dd->sound_shapes[i], dd->drawing_area);
@@ -576,6 +578,8 @@ void process_image(cairo_t *screen_cr, void *arg) {
 				pthread_cond_signal(vfo->get_video_data_ready());
 				pthread_mutex_unlock(lock);
 			}
+		} else {
+			fprintf(stderr, "no room on the fifo for another frame");
 		}
 	}
 	cairo_destroy(sources_cr);
@@ -770,6 +774,8 @@ static gboolean motion_notify_event_cb(GtkWidget *,
 			Meter *m = &dd->meters[i];
 			if (m->active) sound_shapes.push_back(m);
 		}
+		SnapshotShape *s = &dd->snapshot_shape;
+		if (s->active) sound_shapes.push_back(s);
 		std::sort(sound_shapes.begin(), sound_shapes.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
 		for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
 			vwDrawable *s = *it;
@@ -983,6 +989,7 @@ static gboolean button_release_event_cb(GtkWidget *,
 		for (int i = 0; i < 2; ++i) {
 			dd->meters[i].mdown = 0;
 		}
+		dd->snapshot_shape.mdown = 0;
 		std::vector<vwDrawable *> sources;
 		dd->get_sources(sources);
 		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
@@ -1587,7 +1594,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 	int ret;
 
 	dd = (DingleDots *)user_data;
-	ccv_enable_default_cache();
+	//ccv_enable_default_cache();
 	dd->user_tld_rect.width = dd->drawing_rect.width/5.;
 	dd->user_tld_rect.height = dd->drawing_rect.height/5.;
 	dd->user_tld_rect.x = dd->drawing_rect.width/2.0;
