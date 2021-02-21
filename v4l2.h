@@ -44,6 +44,7 @@ public:
 	void uninit();
 	int deactivate();
 	bool is_done();
+	bool is_new_frame_ready() { return new_frame_ready; };
 	int read_frames();
 	void stop_capturing();
 	void start_capturing();
@@ -63,6 +64,7 @@ private:
 						unsigned char* b);
 	bool finished;
 	bool mirrored;
+	bool new_frame_ready;
 public:
 	char dev_name[DD_V4L2_MAX_STR_LEN];
 	int fd;
@@ -73,7 +75,6 @@ public:
 	struct pollfd pfd[1];
 	pthread_t thread_id;
 	pthread_mutex_t lock;
-	pthread_cond_t data_ready;
 	jack_ringbuffer_t *rbuf;
 };
 

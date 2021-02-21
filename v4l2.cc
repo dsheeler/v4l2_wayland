@@ -38,6 +38,16 @@ void V4l2::YUV2RGB(const unsigned char y, const unsigned char u,
 	*b = CLIPVALUE(b2);
 }
 
+static int check_new_frame_ready(gpointer data) {
+	V4l2 *v = (V4l2 *)data;
+	if (v->is_done()) {
+		return 0;
+	} else if (v->is_new_frame_ready()) {
+		v->dingle_dots->queue_draw();
+	}
+	return 1;
+}
+
 void V4l2::init(DingleDots *dd, char *dev_name, double width, double height, bool mirrored, uint64_t z) {
 	this->dingle_dots = dd;
 	strncpy(this->dev_name, dev_name, DD_V4L2_MAX_STR_LEN-1);
@@ -49,9 +59,12 @@ void V4l2::init(DingleDots *dd, char *dev_name, double width, double height, boo
 	this->selected = 0;
 	this->mdown = 0;
 	this->allocated = 0;
+	this->new_frame_ready = False;
 	this->pos.width = width;
 	this->pos.height = height;
 	this->mirrored = mirrored;
+	this->hovered = False;
+	g_timeout_add(10, check_new_frame_ready, this);
 	pthread_create(&this->thread_id, nullptr, V4l2::thread, this);
 
 }
@@ -170,7 +183,9 @@ int V4l2::read_frames() {
 		}
 		if (-1 == xioctl(this->fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
+		new_frame_ready = True;
 	}
+	return 0;
 }
 
 void V4l2::stop_capturing() {
@@ -363,7 +378,8 @@ bool V4l2::render(std::vector<cairo_t *> &contexts) {
 					this->pos.width, this->pos.height, 4 * this->pos.width);
 		render_surface(contexts, tsurf);
 		cairo_surface_destroy(tsurf);
-		gtk_widget_queue_draw(this->dingle_dots->drawing_area);
+		new_frame_ready = False;
+		//gtk_widget_queue_draw(this->dingle_dots->drawing_area);
 	}
 	return ret;
 }
