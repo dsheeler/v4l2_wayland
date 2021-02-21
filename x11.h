@@ -7,6 +7,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <X11/extensions/XShm.h>
+#include <X11/Xatom.h>
 
 class X11 : public vwDrawable
 {
@@ -14,7 +15,7 @@ public:
 	X11();
 	void init(DingleDots *dd, int x, int y, int w, int h);
 	void init_window(DingleDots *dd, Window win);
-	void free();
+	void uninit();
 	bool render(std::vector<cairo_t *> &contexts);
 	void deactivate_action();
 	static void get_display_dimensions(int *w, int *h);

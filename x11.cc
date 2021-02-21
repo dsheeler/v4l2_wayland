@@ -1,10 +1,5 @@
 #include "x11.h"
 #include "dingle_dots.h"
-#include "x11.h"
-#include "x11.h"
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#include <X11/Xatom.h>
 
 #define WIN_STRING_DIV "\r\n"
 
@@ -97,11 +92,6 @@ std::string getWindowAtom(Window win, const char *atom)
 		}
 	}
 
-//	char *conv = nullptr;
-//	if (os_mbs_to_utf8_ptr(res.c_str(), 0, &conv))
-//		res = conv;
-//	bfree(conv);
-
 	XFree(tp.value);
 
 	return res;
@@ -189,11 +179,21 @@ void X11::event_loop() {
 		pthread_mutex_lock(&this->lock);
 		if (e.type == ConfigureNotify) {
 			this->allocated	= 0;
-			cairo_surface_destroy(this->surf);
 			this->pos.width = this->xpos.width = e.xconfigure.width;
 			this->pos.height = this->xpos.height = e.xconfigure.height;
 			this->xpos.x = e.xconfigure.x;
 			this->xpos.y = e.xconfigure.y;
+			XDestroyImage(this->shm_image);
+			this->shm_image = XShmCreateImage(new_disp, vinfo.visual, 32,
+											  ZPixmap, nullptr, shminfo, this->xpos.width,
+											  this->xpos.height);
+			shminfo->shmid = shmget(IPC_PRIVATE, this->shm_image->bytes_per_line *
+									 this->shm_image->height,
+									 IPC_CREAT|0777);
+			shminfo->shmaddr = this->shm_image->data = (char *)shmat(shminfo->shmid, nullptr, 0);
+			shminfo->readOnly = False;
+			ret = XShmAttach(new_disp, shminfo);
+			cairo_surface_destroy(this->surf);
 			this->surf = cairo_image_surface_create(CAIRO_FORMAT_RGB24,
 													this->xpos.width,
 													this->xpos.height);
@@ -206,6 +206,7 @@ void X11::event_loop() {
 void X11::init(DingleDots *dd, int x, int y, int w, int h) {
 	this->display = XOpenDisplay(NULL);
 	this->rootWindow = RootWindow(display, DefaultScreen(display));
+	this->window = this->rootWindow;
 	this->xpos.width = w;
 	this->xpos.height = h;
 	this->xpos.x = x;
@@ -217,9 +218,8 @@ void X11::init(DingleDots *dd, int x, int y, int w, int h) {
 	this->pos.y = 0;
 	this->done = false;
 	this->dingle_dots = dd;
-	this->surf = cairo_image_surface_create(CAIRO_FORMAT_RGB24, this->xpos.width,
-									  this->xpos.height);
-	this->allocated = 1;
+	this->hovered = 0;
+	pthread_create(&this->thread_id, nullptr, X11::thread, this);
 }
 
 void X11::init_window(DingleDots *dd, Window win) {
@@ -242,14 +242,17 @@ void X11::init_window(DingleDots *dd, Window win) {
 	this->pos.y = 0;
 	this->done = false;
 	this->dingle_dots = dd;
+	this->hovered = 0;
 	this->using_window = true;
 	pthread_create(&this->thread_id, nullptr, X11::thread, this);
 }
 
-void X11::free()
+void X11::uninit()
 {
 	this->allocated = 0;
 	this->active = 0;
+	this->hovered = 0;
+	XDestroyImage(this->shm_image);
 	cairo_surface_destroy(this->surf);
 	if (this->thread_id) pthread_cancel(this->thread_id);
 }
@@ -269,9 +272,8 @@ bool X11::render(std::vector<cairo_t *> &contexts) {
 			image = this->shm_image;
 			XShmGetImage(this->display, this->window, image, 0, 0, AllPlanes);
 		} else {
-			image = XGetImage(
-						display, rootWindow, this->xpos.x, this->xpos.y, this->xpos.width,
-						this->xpos.height, AllPlanes, ZPixmap);
+			image = this->shm_image;
+			XShmGetImage(this->display, this->window, image, this->xpos.x, this->xpos.y, AllPlanes);
 		}
 		if (image) {
 			cairo_surface_flush(surf);
@@ -287,8 +289,6 @@ bool X11::render(std::vector<cairo_t *> &contexts) {
 					data[4*i*((int)this->xpos.width) + 4*j + 2] = (colors.pixel & red_mask)>>16;
 				}
 			}
-			//memset(data, 0, this->xpos.width * this->xpos.height * 4);
-			//XDestroyImage(image);
 		}
 		render_surface(contexts, surf);
 		pthread_mutex_unlock(&this->lock);
@@ -300,5 +300,5 @@ bool X11::render(std::vector<cairo_t *> &contexts) {
 
 void X11::deactivate_action()
 {
-	this->free();
+	this->uninit();
 }

@@ -327,6 +327,10 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		(*it)->update_easers();
 		(*it)->render(contexts);
 	}
+	clock_gettime(CLOCK_MONOTONIC, &end_ts);
+	struct timespec diff_ts;
+	timespec_diff(&start_ts, &end_ts, &diff_ts);
+	printf("process_image render time: %f\n", timespec_to_seconds(&diff_ts)*1000);
 	if (dd->doing_motion) {
 		std::vector<SoundShape *> sound_shapes;
 		for (i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
@@ -587,7 +591,6 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	cairo_surface_destroy(sources_surf);
 	cairo_surface_destroy(drawing_surf);
 	clock_gettime(CLOCK_MONOTONIC, &end_ts);
-	struct timespec diff_ts;
 	timespec_diff(&start_ts, &end_ts, &diff_ts);
 	printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
 }
@@ -1370,6 +1373,7 @@ static gboolean x11_cb(GtkWidget *widget, gpointer data) {
 			if (!dd->x11[i].allocated) {
 				dd->x11[i].init(dd, x, y, w, h);
 				dd->x11[i].activate();
+				break;
 			}
 		}
 	}
