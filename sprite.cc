@@ -47,6 +47,18 @@ void Sprite::create(std::string *name, int z, DingleDots *dd) {
 
 int Sprite::activate() {
 	DingleDots *dd = this->dingle_dots;
+	if (this == &dd->background) {
+		double w = this->pos.width;
+		double h = this->pos.height;
+		double ratio_w;
+		double ratio_h;
+		ratio_w = dd->drawing_rect.width / w;
+		ratio_h = dd->drawing_rect.height / h;
+		double scale;
+		scale = ratio_w > ratio_h ? ratio_w : ratio_h;
+		if (scale < 1.0) scale = 1.0;
+		this->set_scale(scale);
+	}
 	return activate_spin(this->scale);
 }
 
