@@ -17,7 +17,7 @@ LFLAGS = $(shell pkg-config --libs cairo) \
 				 $(shell pkg-config --libs fftw3) \
 				 $(shell pkg-config --libs glib-2.0 libcanberra) \
 				 -lccv -lm -lpng -ljpeg -lswscale -lavutil -lswresample \
-				 -lavformat -lavcodec -lpthread -ljack -lXext -lX11
+				 -lavformat -lavcodec -lpthread -ljack -lXext -lX11 -lXfixes
 LIBS =
 CFLAGS = -O3 -ffast-math -Wall
 #CFLAGS =-g -Wall

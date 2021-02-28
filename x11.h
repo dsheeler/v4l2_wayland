@@ -8,6 +8,7 @@
 #include <sys/shm.h>
 #include <X11/extensions/XShm.h>
 #include <X11/Xatom.h>
+#include <X11/extensions/Xfixes.h>
 
 class X11 : public vwDrawable
 {

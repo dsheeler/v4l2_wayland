@@ -257,6 +257,76 @@ void X11::uninit()
 	if (this->thread_id) pthread_cancel(this->thread_id);
 }
 
+/*This funciton is stolen verbatim from simple screen recorder.*/
+static void X11ImageDrawCursor(Display* dpy, XImage* image, int recording_area_x, int recording_area_y) {
+
+	// check the image format
+	unsigned int pixel_bytes, r_offset, g_offset, b_offset;
+	if(image->bits_per_pixel == 24 && image->red_mask == 0xff0000 && image->green_mask == 0x00ff00 && image->blue_mask == 0x0000ff) {
+		pixel_bytes = 3;
+		r_offset = 2; g_offset = 1; b_offset = 0;
+	} else if(image->bits_per_pixel == 24 && image->red_mask == 0x0000ff && image->green_mask == 0x00ff00 && image->blue_mask == 0xff0000) {
+		pixel_bytes = 3;
+		r_offset = 0; g_offset = 1; b_offset = 2;
+	} else if(image->bits_per_pixel == 32 && image->red_mask == 0xff0000 && image->green_mask == 0x00ff00 && image->blue_mask == 0x0000ff) {
+		pixel_bytes = 4;
+		r_offset = 2; g_offset = 1; b_offset = 0;
+	} else if(image->bits_per_pixel == 32 && image->red_mask == 0x0000ff && image->green_mask == 0x00ff00 && image->blue_mask == 0xff0000) {
+		pixel_bytes = 4;
+		r_offset = 0; g_offset = 1; b_offset = 2;
+	} else if(image->bits_per_pixel == 32 && image->red_mask == 0xff000000 && image->green_mask == 0x00ff0000 && image->blue_mask == 0x0000ff00) {
+		pixel_bytes = 4;
+		r_offset = 3; g_offset = 2; b_offset = 1;
+	} else if(image->bits_per_pixel == 32 && image->red_mask == 0x0000ff00 && image->green_mask == 0x00ff0000 && image->blue_mask == 0xff000000) {
+		pixel_bytes = 4;
+		r_offset = 1; g_offset = 2; b_offset = 3;
+	} else {
+		return;
+	}
+
+	// get the cursor
+	XFixesCursorImage *xcim = XFixesGetCursorImage(dpy);
+	if(xcim == NULL)
+		return;
+
+	// calculate the position of the cursor
+	int x = xcim->x - xcim->xhot - recording_area_x;
+	int y = xcim->y - xcim->yhot - recording_area_y;
+
+	// calculate the part of the cursor that's visible
+	int cursor_left = std::max(0, -x), cursor_right = std::min((int) xcim->width, image->width - x);
+	int cursor_top = std::max(0, -y), cursor_bottom = std::min((int) xcim->height, image->height - y);
+
+	// draw the cursor
+	// XFixesCursorImage uses 'long' instead of 'int' to store the cursor images, which is a bit weird since
+	// 'long' is 64-bit on 64-bit systems and only 32 bits are actually used. The image uses premultiplied alpha.
+	for(int j = cursor_top; j < cursor_bottom; ++j) {
+		unsigned long *cursor_row = xcim->pixels + xcim->width * j;
+		uint8_t *image_row = (uint8_t*) image->data + image->bytes_per_line * (y + j);
+		for(int i = cursor_left; i < cursor_right; ++i) {
+			unsigned long cursor_pixel = cursor_row[i];
+			uint8_t *image_pixel = image_row + pixel_bytes * (x + i);
+			int cursor_a = (uint8_t) (cursor_pixel >> 24);
+			int cursor_r = (uint8_t) (cursor_pixel >> 16);
+			int cursor_g = (uint8_t) (cursor_pixel >> 8);
+			int cursor_b = (uint8_t) (cursor_pixel >> 0);
+			if(cursor_a == 255) {
+				image_pixel[r_offset] = cursor_r;
+				image_pixel[g_offset] = cursor_g;
+				image_pixel[b_offset] = cursor_b;
+			} else {
+				image_pixel[r_offset] = (image_pixel[r_offset] * (255 - cursor_a) + 127) / 255 + cursor_r;
+				image_pixel[g_offset] = (image_pixel[g_offset] * (255 - cursor_a) + 127) / 255 + cursor_g;
+				image_pixel[b_offset] = (image_pixel[b_offset] * (255 - cursor_a) + 127) / 255 + cursor_b;
+			}
+		}
+	}
+
+	// free the cursor
+	XFree(xcim);
+
+}
+
 bool X11::render(std::vector<cairo_t *> &contexts) {
 	if (!this->active || !this->allocated) return TRUE;
 	GTimer *timer = g_timer_new();
@@ -278,6 +348,7 @@ bool X11::render(std::vector<cairo_t *> &contexts) {
 		if (image) {
 			cairo_surface_flush(surf);
 			unsigned char *data = cairo_image_surface_get_data(surf);
+			X11ImageDrawCursor(this->display, image, this->xpos.x, this->xpos.y);
 			red_mask = image->red_mask;
 			green_mask = image->green_mask;
 			blue_mask = image->blue_mask;
