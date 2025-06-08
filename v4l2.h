@@ -53,24 +53,32 @@ public:
 	void close_device();
 	void open_device();
 	void init_mmap();
-	bool render(std::vector<cairo_t *> &contexts);
+    bool render(std::vector<cairo_t *> &contexts);
+
 	static void get_dimensions(std::string device, std::vector<std::pair<int, int> > &w_h);
 	static void list_devices(std::map<std::string, std::string> &files);
 private:
 	static void* thread(void *v);
 	static int xioctl(int fh, int request, void *arg);
-	static void YUV2RGB(const unsigned char y, const unsigned char u,
-						const unsigned char v, unsigned char* r, unsigned char* g,
-						unsigned char* b);
+
+    AVCodecContext* create_codec_context(int width, int height);
+    void decode_mjpeg(AVCodecContext *codec_context, unsigned char *input_buffer, int input_size, AVFrame *output_frame) ;	
+   
 	bool finished;
-	bool mirrored;
 	bool new_frame_ready;
+    bool mirrored;
 public:
+    /*libav used to decode motion jpeg.*/
+    AVCodecContext *motion_jpeg_av_ctx;
+    AVFrame *motion_jpeg_avframe;
+    SwsContext *motion_jpeg_to_rgba_format_ctx;
+    uint8_t *argb_data[4];
+	int argb_linesize[4];
+    int argb_bufsize;
 	char dev_name[DD_V4L2_MAX_STR_LEN];
 	int fd;
 	struct dd_v4l2_buffer *buffers;
 	unsigned int n_buffers;
-	uint32_t *save_buf;
 	uint32_t *read_buf;
 	struct pollfd pfd[1];
 	pthread_t thread_id;

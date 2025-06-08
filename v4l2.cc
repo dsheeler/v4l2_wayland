@@ -2,7 +2,9 @@
 #include <map>
 #include <iostream>
 #include <fstream>
-
+extern "C" {
+#include <libavcodec/avcodec.h>
+}
 #include "dingle_dots.h"
 #include "v4l2.h"
 
@@ -14,28 +16,6 @@ int V4l2::xioctl(int fh, int request, void *arg) {
 		r = ioctl(fh, request, arg);
 	} while (-1 == r && EINTR == errno);
 	return r;
-}
-
-void V4l2::YUV2RGB(const unsigned char y, const unsigned char u,
-				   const unsigned char v, unsigned char* r,
-				   unsigned char* g, unsigned char* b) {
-	const int y2 = (int)y;
-	const int u2 = (int)u - 128;
-	const int v2 = (int)v - 128;
-	// This is the normal YUV conversion, but
-	// appears to be incorrect for the firewire cameras
-	//   int r2 = y2 + ( (v2*91947) >> 16);
-	//   int g2 = y2 - ( ((u2*22544) + (v2*46793)) >> 16 );
-	//   int b2 = y2 + ( (u2*115999) >> 16);
-	// This is an adjusted version (UV spread out a bit)
-	int r2 = y2 + ((v2 * 37221) >> 15);
-	int g2 = y2 - (((u2 * 12975) + (v2 *
-									18949)) >> 15);
-	int b2 = y2 + ((u2 * 66883) >> 15);
-	// Cap the values.
-	*r = CLIPVALUE(r2);
-	*g = CLIPVALUE(g2);
-	*b = CLIPVALUE(b2);
 }
 
 static int check_new_frame_ready(gpointer data) {
@@ -75,6 +55,80 @@ void V4l2::uninit()
 	this->active = 0;
 }
 
+
+void V4l2::init_device() {
+	struct v4l2_capability cap;
+	struct v4l2_cropcap cropcap;
+	struct v4l2_crop crop;
+	struct v4l2_format fmt;
+	if (-1 == xioctl(this->fd, VIDIOC_QUERYCAP, &cap)) {
+		if (EINVAL == errno) {
+			fprintf(stderr, "%s is no V4L2 device\n",
+					this->dev_name);
+			exit(EXIT_FAILURE);
+		} else {
+			errno_exit("VIDIOC_QUERYCAP");
+		}
+	}
+	if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
+		fprintf(stderr, "%s is no video capture device\n",
+				this->dev_name);
+		exit(EXIT_FAILURE);
+	}
+	if (!(cap.capabilities & V4L2_CAP_STREAMING)) {
+		fprintf(stderr, "%s does not support streaming i/o\n",
+				this->dev_name);
+		exit(EXIT_FAILURE);
+	}
+	/* Select video input, video standard and tune here. */
+	CLEAR(cropcap);
+	cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	if (0 == xioctl(this->fd, VIDIOC_CROPCAP, &cropcap)) {
+		crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		crop.c = cropcap.defrect; /* reset to default */
+		if (-1 == xioctl(this->fd, VIDIOC_S_CROP, &crop)) {
+			switch (errno) {
+				case EINVAL:
+					/* Cropping not supported. */
+					break;
+				default:
+					/* Errors ignored. */
+					break;
+			}
+		}
+	} else {
+		/* Errors ignored. */
+	}
+	CLEAR(fmt);
+	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	fmt.fmt.pix.width       = this->pos.width;
+	fmt.fmt.pix.height      = this->pos.height;
+	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+	fmt.fmt.pix.field       = V4L2_FIELD_ANY;
+	if (-1 == xioctl(this->fd, VIDIOC_S_FMT, &fmt))
+		errno_exit("VIDIOC_S_FMT");
+	this->pos.width = fmt.fmt.pix.width;
+	this->pos.height = fmt.fmt.pix.height;
+	this->pos.x = 0.5 * (this->dingle_dots->drawing_rect.width - this->pos.width);
+	this->pos.y = 0.5 * (this->dingle_dots->drawing_rect.height - this->pos.height);
+    this->motion_jpeg_av_ctx = create_codec_context(this->pos.width, this->pos.height);
+    this->motion_jpeg_avframe = av_frame_alloc();
+    this->argb_bufsize = av_image_alloc(this->argb_data, this->argb_linesize,
+        this->pos.width, this->pos.height, AV_PIX_FMT_ARGB, 1);
+    this->motion_jpeg_to_rgba_format_ctx = sws_getContext(this->pos.width, this->pos.height, AV_PIX_FMT_YUVJ422P, 
+        this->pos.width, this->pos.height, AV_PIX_FMT_BGRA, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+	this->init_mmap();
+}
+
+void V4l2::uninit_device() {
+	unsigned int i;
+	for (i = 0; i < this->n_buffers; ++i)
+		if (-1 == munmap(this->buffers[i].start, this->buffers[i].length))
+			errno_exit("munmap");
+	free(this->buffers);
+    av_freep(&this->argb_data[0]);
+}
+
 int V4l2::deactivate()
 {
 	this->uninit();
@@ -100,7 +154,6 @@ void *V4l2::thread(void *arg) {
 	v->rbuf = jack_ringbuffer_create(5*4*v->pos.width*v->pos.height);
 	memset(v->rbuf->buf, 0, v->rbuf->size);
 	v->read_buf = (uint32_t *)(malloc(4 * v->pos.width * v->pos.height));
-	v->save_buf = (uint32_t *)(malloc(4 * v->pos.width * v->pos.height));
 	v->allocated = 1;
 	v->start_capturing();
 	pthread_mutex_lock(&v->lock);
@@ -112,7 +165,6 @@ void *V4l2::thread(void *arg) {
 	v->close_device();
 	jack_ringbuffer_free(v->rbuf);
 	free(v->read_buf);
-	free(v->save_buf);
 	v->allocated = 0;
 	return nullptr;
 }
@@ -135,7 +187,6 @@ int V4l2::read_frames() {
 		CLEAR(buf);
 		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 		buf.memory = V4L2_MEMORY_MMAP;
-		if (!this->active) continue;
 		if (-1 == xioctl(this->fd, VIDIOC_DQBUF, &buf)) {
 			switch (errno) {
 				case EAGAIN:
@@ -147,39 +198,46 @@ int V4l2::read_frames() {
 					errno_exit("VIDIOC_DQBUF");
 			}
 		}
-		ptr = (unsigned char *)this->buffers[buf.index].start;
-		for (n = 0; n < 2*this->pos.width*this->pos.height; n += 4) {
-			nij = (int) n / 2;
-			i = nij%(int)this->pos.width;
-			j = nij/(int)this->pos.width;
-			y0 = (unsigned char)ptr[n + 0];
-			u = (unsigned char)ptr[n + 1];
-			y1 = (unsigned char)ptr[n + 2];
-			v = (unsigned char)ptr[n + 3];
-			YUV2RGB(y0, u, v, &r, &g, &b);
-			pixel = 255 << 24 | r << 16 | g << 8 | b;
-			if (this->mirrored) {
-				this->save_buf[(int)this->pos.width - 1 - i + j*(int)this->pos.width] = pixel;
-			} else {
-				this->save_buf[i + j*(int)this->pos.width] = pixel;
-			}
-			YUV2RGB(y1, u, v, &r, &g, &b);
-			pixel = 255 << 24 | r << 16 | g << 8 | b;
-			if (this->mirrored) {
-				this->save_buf[(int)this->pos.width - 1 - (i+1) + j*(int)this->pos.width] = pixel;
-			} else {
-				this->save_buf[i+1 + j*(int)this->pos.width] = pixel;
-			}
-		}
 		assert(buf.index < this->n_buffers);
+
+        decode_mjpeg(this->motion_jpeg_av_ctx, (unsigned char *)this->buffers[buf.index].start,
+                     buf.bytesused, this->motion_jpeg_avframe); 
+
+        sws_scale(this->motion_jpeg_to_rgba_format_ctx, (uint8_t const * const *)this->motion_jpeg_avframe->data,
+            this->motion_jpeg_avframe->linesize, 0, this->pos.height, 
+            this->argb_data, this->argb_linesize);
+      
+        if (this->mirrored) {
+            AVFrame *frame = this->motion_jpeg_avframe;
+            int width = frame->width;
+            int height = frame->height;
+            uint8_t* data = this->argb_data[0];
+            int linesize = this->argb_linesize[0];
+        
+            // Iterate through each row
+            for (int y = 0; y < height; ++y) {
+                // Iterate through half of the columns in the row
+                for (int x = 0; x < width / 2; ++x) {
+                    // Calculate byte offsets for the two pixels to swap
+                    uint8_t* pixel1 = data + y * linesize + x * 4;
+                    uint8_t* pixel2 = data + y * linesize + (width - 1 - x) * 4;
+        
+                    // Swap the BGRA pixel data
+                    uint32_t temp_pixel;
+                    memcpy(&temp_pixel, pixel1, 4);
+                    memcpy(pixel1, pixel2, 4);
+                    memcpy(pixel2, &temp_pixel, 4);
+                }
+            }
+        }
 		clock_gettime(CLOCK_MONOTONIC, &ts);
-		int space = 4 * this->pos.width * this->pos.height + sizeof(struct timespec);
+		int space = this->argb_bufsize + sizeof(struct timespec);
 		int buf_space = jack_ringbuffer_write_space(this->rbuf);
 		if (buf_space >= space) {
 			jack_ringbuffer_write(this->rbuf, (const char *)&ts,
 								  sizeof(struct timespec));
-			jack_ringbuffer_write(this->rbuf, (const char *)this->save_buf,
-								  4 * this->pos.width * this->pos.height);
+			jack_ringbuffer_write(this->rbuf, (const char *)this->argb_data[0],
+								  this->argb_bufsize);
 		}
 		if (-1 == xioctl(this->fd, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
@@ -188,12 +246,34 @@ int V4l2::read_frames() {
 	return 0;
 }
 
+bool V4l2::render(std::vector<cairo_t *> &contexts) {
+	struct timespec ts;
+	bool ret = false;
+	if (this->active) {
+		uint space = 4*this->pos.width*this->pos.height + sizeof(struct timespec);
+		if (jack_ringbuffer_read_space(this->rbuf) >= space) {
+			ret = true;
+			jack_ringbuffer_read(this->rbuf, (char *)&ts, sizeof(struct timespec));
+			jack_ringbuffer_read(this->rbuf, (char *)this->read_buf,  this->argb_bufsize);
+		}
+		cairo_surface_t *tsurf;
+		tsurf = cairo_image_surface_create_for_data(
+					(unsigned char *)this->read_buf, CAIRO_FORMAT_ARGB32,
+					this->pos.width, this->pos.height, 4 * this->pos.width);
+		render_surface(contexts, tsurf);
+		cairo_surface_destroy(tsurf);
+		new_frame_ready = jack_ringbuffer_read_space(this->rbuf) >= space;
+	}
+	return ret;
+}
+
 void V4l2::stop_capturing() {
 	enum v4l2_buf_type type;
 	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (-1 == xioctl(this->fd, VIDIOC_STREAMOFF, &type))
 		errno_exit("VIDIOC_STREAMOFF");
 }
+
 
 void V4l2::start_capturing() {
 	unsigned int i;
@@ -210,14 +290,6 @@ void V4l2::start_capturing() {
 	type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (-1 == xioctl(this->fd, VIDIOC_STREAMON, &type))
 		errno_exit("VIDIOC_STREAMON");
-}
-
-void V4l2::uninit_device() {
-	unsigned int i;
-	for (i = 0; i < this->n_buffers; ++i)
-		if (-1 == munmap(this->buffers[i].start, this->buffers[i].length))
-			errno_exit("munmap");
-	free(this->buffers);
 }
 
 void V4l2::init_mmap() {
@@ -266,72 +338,45 @@ void V4l2::init_mmap() {
 	}
 }
 
-void V4l2::init_device() {
-	struct v4l2_capability cap;
-	struct v4l2_cropcap cropcap;
-	struct v4l2_crop crop;
-	struct v4l2_format fmt;
-	if (-1 == xioctl(this->fd, VIDIOC_QUERYCAP, &cap)) {
-		if (EINVAL == errno) {
-			fprintf(stderr, "%s is no V4L2 device\n",
-					this->dev_name);
-			exit(EXIT_FAILURE);
-		} else {
-			errno_exit("VIDIOC_QUERYCAP");
-		}
-	}
-	if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
-		fprintf(stderr, "%s is no video capture device\n",
-				this->dev_name);
-		exit(EXIT_FAILURE);
-	}
-	if (!(cap.capabilities & V4L2_CAP_STREAMING)) {
-		fprintf(stderr, "%s does not support streaming i/o\n",
-				this->dev_name);
-		exit(EXIT_FAILURE);
-	}
-	/* Select video input, video standard and tune here. */
-	CLEAR(cropcap);
-	cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	if (0 == xioctl(this->fd, VIDIOC_CROPCAP, &cropcap)) {
-		crop.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		crop.c = cropcap.defrect; /* reset to default */
-		if (-1 == xioctl(this->fd, VIDIOC_S_CROP, &crop)) {
-			switch (errno) {
-				case EINVAL:
-					/* Cropping not supported. */
-					break;
-				default:
-					/* Errors ignored. */
-					break;
-			}
-		}
-	} else {
-		/* Errors ignored. */
-	}
-	CLEAR(fmt);
+AVCodecContext* V4l2::create_codec_context(int width, int height) {
+    const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
+    if (!codec) {
+        fprintf(stderr, "MJPEG decoder not found.\n");
+        return NULL;
+    }
 
+    AVCodecContext *codec_context = avcodec_alloc_context3(codec);
+    if (!codec_context) {
+        fprintf(stderr, "Failed to allocate codec context.\n");
+        return NULL;
+    }
 
-	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	fmt.fmt.pix.width       = this->pos.width;
-	fmt.fmt.pix.height      = this->pos.height;
-	fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-	fmt.fmt.pix.field       = V4L2_FIELD_ANY;
-	if (-1 == xioctl(this->fd, VIDIOC_S_FMT, &fmt))
-		errno_exit("VIDIOC_S_FMT");
-	this->pos.width = fmt.fmt.pix.width;
-	this->pos.height = fmt.fmt.pix.height;
-	this->pos.x = 0.5 * (this->dingle_dots->drawing_rect.width - this->pos.width);
-	this->pos.y = 0.5 * (this->dingle_dots->drawing_rect.height - this->pos.height);
-	/* Note VIDIOC_S_FMT may change width and height. */
-	/* Buggy driver paranoia. */
-	/*min = fmt.fmt.pix.width * 2;
-  if (fmt.fmt.pix.bytesperline < min)
-	fmt.fmt.pix.bytesperline = min;
-  min = fmt.fmt.pix.bytesperline * fmt.fmt.pix.height;
-  if (fmt.fmt.pix.sizeimage < min)
-	fmt.fmt.pix.sizeimage = min;*/
-	this->init_mmap();
+    codec_context->width = width;
+    codec_context->height = height;
+
+    if (avcodec_open2(codec_context, codec, NULL) < 0) {
+        fprintf(stderr, "Failed to open codec.\n");
+        return NULL;
+    }
+    return codec_context;
+}
+
+void V4l2::decode_mjpeg(AVCodecContext *codec_context, unsigned char *input_buffer, int input_size, AVFrame *output_frame) {
+    AVPacket pkt;
+    av_init_packet(&pkt);
+    pkt.data = input_buffer;
+    pkt.size = input_size;
+
+    int ret = avcodec_send_packet(codec_context, &pkt);
+    if (ret < 0) {
+        fprintf(stderr, "Error sending packet for decoding\n");
+        return;
+    }
+
+    ret = avcodec_receive_frame(codec_context, output_frame);
+    if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
+        fprintf(stderr, "Error decoding frame\n");
+    }
 }
 
 void V4l2::close_device() {
@@ -362,28 +407,6 @@ void V4l2::open_device() {
 	this->pfd->events = POLLIN;
 }
 
-bool V4l2::render(std::vector<cairo_t *> &contexts) {
-	struct timespec ts;
-	bool ret = false;
-	if (this->active) {
-		uint space = 4*this->pos.width*this->pos.height + sizeof(struct timespec);
-		while (jack_ringbuffer_read_space(this->rbuf) >= space) {
-			ret = true;
-			jack_ringbuffer_read(this->rbuf, (char *)&ts, sizeof(struct timespec));
-			jack_ringbuffer_read(this->rbuf, (char *)this->read_buf, 4*this->pos.width*this->pos.height);
-		}
-		cairo_surface_t *tsurf;
-		tsurf = cairo_image_surface_create_for_data(
-					(unsigned char *)this->read_buf, CAIRO_FORMAT_ARGB32,
-					this->pos.width, this->pos.height, 4 * this->pos.width);
-		render_surface(contexts, tsurf);
-		cairo_surface_destroy(tsurf);
-		new_frame_ready = False;
-		//gtk_widget_queue_draw(this->dingle_dots->drawing_area);
-	}
-	return ret;
-}
-
 void V4l2::get_dimensions(std::string device, std::vector<std::pair<int, int>> &w_h) {
 	struct v4l2_frmsizeenum frmsize;
 	int fd;
@@ -392,7 +415,7 @@ void V4l2::get_dimensions(std::string device, std::vector<std::pair<int, int>> &
 		fprintf(stderr, "Cannot open '%s': %d, %s\n",
 				device.c_str(), errno, strerror(errno));
 	}
-	frmsize.pixel_format = V4L2_PIX_FMT_YUYV;
+	frmsize.pixel_format = V4L2_PIX_FMT_MJPEG;
 	frmsize.index = 1; /*Don't understand why 0 seems messed up. start at 1???*/
 	while (xioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) >= 0) {
 		if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
@@ -469,7 +492,7 @@ void V4l2::list_devices(std::map<std::string, std::string> &cards) {
 			fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 			fmt.fmt.pix.width       = 640;
 			fmt.fmt.pix.height      = 360;
-			fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+			fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
 			fmt.fmt.pix.field       = V4L2_FIELD_ANY;
 			if (-1 == xioctl(fd, VIDIOC_S_FMT, &fmt))
 				continue;
