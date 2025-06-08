@@ -84,17 +84,15 @@ int Sprite::get_height()
 }
 
 int Sprite::ff_load_image() {
-	AVInputFormat *iformat = NULL;
+	const AVInputFormat *iformat = NULL;
 	AVFormatContext *format_ctx = NULL;
-	AVCodec *codec;
+	const AVCodec *codec;
 	AVCodecParameters *codec_parms;
 	AVCodecContext *codec_ctx;
 	int ret = 0;
 	AVPacket pkt;
 	struct SwsContext *decoded_to_presentation_ctx;
 
-
-	av_register_all();
 
 	iformat = av_find_input_format("image2");
 	if (iformat == NULL) {
