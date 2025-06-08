@@ -126,7 +126,7 @@ void *VideoFileOut::video_thread(void *arg) {
 void VideoFileOut::start_recording(int width, int height, int bitrate) {
 	struct timespec ts;
 	clock_gettime(CLOCK_REALTIME, &ts);
-	timespec2file_name(name, VF_STR_LEN, "Videos", "webm", &ts);
+	timespec2file_name(name, VF_STR_LEN, "Videos", "mkv", &ts);
 	this->width = width;
 	this->height = height;
 	this->bitrate = bitrate;
@@ -301,7 +301,7 @@ static void add_stream(OutputStream *ost, AVFormatContext *oc,
 					   int height, int video_bitrate) {
 	AVCodecContext *c;
 	int i;
-	*codec = avcodec_find_encoder(codec_id);
+	*codec = (AVCodec*)avcodec_find_encoder(codec_id);
 	if (!(*codec)) {
 		fprintf(stderr, "Could not find encoder for '%s'\n",
 				avcodec_get_name(codec_id));
@@ -333,16 +333,7 @@ static void add_stream(OutputStream *ost, AVFormatContext *oc,
 						c->sample_rate = 48000;
 				}
 			}
-			c->channels = av_get_channel_layout_nb_channels(c->channel_layout);
-			c->channel_layout = AV_CH_LAYOUT_STEREO;
-			if ((*codec)->channel_layouts) {
-				c->channel_layout = (*codec)->channel_layouts[0];
-				for (i = 0; (*codec)->channel_layouts[i]; i++) {
-					if ((*codec)->channel_layouts[i] == AV_CH_LAYOUT_STEREO)
-						c->channel_layout = AV_CH_LAYOUT_STEREO;
-				}
-			}
-			c->channels = av_get_channel_layout_nb_channels(c->channel_layout);
+			c->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
 			ost->st->time_base = (AVRational){ 1, c->sample_rate };
 			break;
 		case AVMEDIA_TYPE_VIDEO:
@@ -373,7 +364,7 @@ static void add_stream(OutputStream *ost, AVFormatContext *oc,
 /* audio output */
 
 static AVFrame *alloc_audio_frame(enum AVSampleFormat sample_fmt,
-								  uint64_t channel_layout, int sample_rate, int nb_samples) {
+								  AVChannelLayout channel_layout, int sample_rate, int nb_samples) {
 	AVFrame *frame = av_frame_alloc();
 	int ret;
 	if (!frame) {
@@ -381,7 +372,7 @@ static AVFrame *alloc_audio_frame(enum AVSampleFormat sample_fmt,
 		exit(1);
 	}
 	frame->format = sample_fmt;
-	frame->channel_layout = channel_layout;
+	frame->ch_layout = channel_layout;
 	frame->sample_rate = sample_rate;
 	frame->nb_samples = nb_samples;
 	if (nb_samples) {
@@ -416,9 +407,9 @@ static void open_audio(AVCodec *codec, OutputStream *ost,
 		nb_samples = c->frame_size;
 	printf("number samples in frame: %d\n", nb_samples);
 	ost->samples_count = 0;
-	ost->frame     = alloc_audio_frame(c->sample_fmt, c->channel_layout,
+	ost->frame     = alloc_audio_frame(c->sample_fmt, c->ch_layout,
 									   c->sample_rate, nb_samples);
-	ost->tmp_frame = alloc_audio_frame(AV_SAMPLE_FMT_FLT, c->channel_layout,
+	ost->tmp_frame = alloc_audio_frame(AV_SAMPLE_FMT_FLT, c->ch_layout,
 									   c->sample_rate, nb_samples);
 	ret = avcodec_parameters_from_context(ost->st->codecpar, c);
 	if (ret < 0) {
@@ -430,10 +421,20 @@ static void open_audio(AVCodec *codec, OutputStream *ost,
 		fprintf(stderr, "Could not allocate resampler context\n");
 		exit(1);
 	}
-	av_opt_set_int(ost->swr_ctx, "in_channel_count", c->channels, 0);
+
+    AVChannelLayout  in_layout, out_layout;
+
+    in_layout.order = AV_CHANNEL_ORDER_UNSPEC,
+    in_layout.nb_channels = c->ch_layout.nb_channels;
+    out_layout = (AVChannelLayout){
+        .order = AV_CHANNEL_ORDER_UNSPEC,
+        .nb_channels = c->ch_layout.nb_channels,
+    };
+
+    av_opt_set_chlayout(ost->swr_ctx, "in_chlayout", &in_layout, 0);
 	av_opt_set_int(ost->swr_ctx, "in_sample_rate", c->sample_rate, 0);
 	av_opt_set_sample_fmt(ost->swr_ctx, "in_sample_fmt", AV_SAMPLE_FMT_FLT, 0);
-	av_opt_set_int(ost->swr_ctx, "out_channel_count", c->channels, 0);
+    av_opt_set_chlayout(ost->swr_ctx, "out_chlayout", &out_layout, 0);
 	av_opt_set_int(ost->swr_ctx, "out_sample_rate", c->sample_rate, 0);
 	av_opt_set_sample_fmt(ost->swr_ctx, "out_sample_fmt", c->sample_fmt, 0);
 	if ((ret = swr_init(ost->swr_ctx)) < 0) {
@@ -453,14 +454,14 @@ int VideoFileOut::get_audio_frame(AVFrame **ret_frame) {
 		ret_frame = NULL;
 		return 1;
 	}
-	uint size = sizeof(float)*frame->nb_samples*ost->enc->channels;
+	uint size = sizeof(float)*frame->nb_samples*ost->enc->ch_layout.nb_channels;
 	if (jack_ringbuffer_read_space(this->audio_ring_buf) < size) {
 		return -1;
 	} else {
 		frame->pts = ost->next_pts;
 		ost->next_pts += frame->nb_samples;
 		for (i = 0; i < frame->nb_samples; i++) {
-			for (j = 0; j < ost->enc->channels; j++) {
+			for (j = 0; j < ost->enc->ch_layout.nb_channels; j++) {
 				jack_ringbuffer_read(this->audio_ring_buf, (char *)q++, sizeof(float));
 			}
 		}
@@ -707,27 +708,23 @@ void close_stream(OutputStream *ost)
 
 int VideoFileOut::init_output() {
 	const char *filename;
-	AVOutputFormat *fmt;
-	AVCodec *audio_codec, *video_codec;
+	const AVOutputFormat *fmt;
+	AVCodec *audio_codec;
+    AVCodec *video_codec;
 	int ret;
 	char err[AV_ERROR_MAX_STRING_SIZE];
 	AVDictionary *opt = NULL;
-	av_register_all();
 	filename = this->name;
 	avformat_alloc_output_context2(&this->video_output_context, NULL, NULL, filename);
 	if (!this->video_output_context) {
-		printf("Could not deduce output format from file extension: using MPEG.\n");
-		avformat_alloc_output_context2(&this->video_output_context, NULL, "mpeg", filename);
-		return 1;
+		avformat_alloc_output_context2(&this->video_output_context, NULL, "metroska", filename);
 	}
 	fmt = this->video_output_context->oformat;
 	add_stream(&this->video_thread_info.stream, this->video_output_context,
-			   &video_codec, fmt->video_codec, this->width,
+			   &video_codec, AV_CODEC_ID_H264, this->width,
 			   this->height, this->bitrate);
-	if (fmt->audio_codec != AV_CODEC_ID_NONE) {
-		add_stream(&this->audio_thread_info.stream, this->video_output_context,
-				   &audio_codec, fmt->audio_codec, 0, 0, 0);
-	}
+	add_stream(&this->audio_thread_info.stream, this->video_output_context,
+			   &audio_codec, AV_CODEC_ID_OPUS, 0, 0, 0);
 	av_dict_set(&opt, "cpu-used", "-8", 0);
 	av_dict_set(&opt, "deadline", "realtime", 0);
 	open_video(this->width, this->height,
