@@ -10,7 +10,7 @@ int VideoFile::open_codec_context(int *stream_idx, AVCodecContext **dec_ctx,
 								  AVFormatContext *fmt_ctx, enum AVMediaType type) {
 	int ret, stream_index;
 	AVStream *st;
-	AVCodec *dec = NULL;
+	const AVCodec *dec = NULL;
 	AVDictionary *opts = NULL;
 	ret = av_find_best_stream(fmt_ctx, type, -1, -1, NULL, 0);
 	if (ret < 0) {
@@ -115,7 +115,6 @@ void *VideoFile::thread(void *arg) {
 		errno = rc;
 		perror("pthread_setname_np");
 	}
-	av_register_all();
 	vf->fmt_ctx = NULL;
 	if (avformat_open_input(&vf->fmt_ctx, vf->name, NULL, NULL) < 0) {
 		printf("cannot open file: %s\n", vf->name);
@@ -154,11 +153,12 @@ void *VideoFile::thread(void *arg) {
 	vf->video_resample = sws_getContext(vf->pos.width, vf->pos.height, vf->pix_fmt,
 								  vf->pos.width, vf->pos.height, AV_PIX_FMT_BGRA, SWS_BICUBIC, NULL, NULL, NULL);
 	if (vf->have_audio) {
-		vf->audio_resample = swr_alloc_set_opts(NULL,
-												AV_CH_LAYOUT_STEREO,
+        AVChannelLayout out_ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+        swr_alloc_set_opts2(&vf->audio_resample,
+												&out_ch_layout,
 												AV_SAMPLE_FMT_FLTP,
 												jack_get_sample_rate(vf->dingle_dots->client),
-												vf->audio_stream->codecpar->channel_layout,
+												&vf->audio_stream->codecpar->ch_layout,
 												(AVSampleFormat) vf->audio_stream->codecpar->format,
 												vf->audio_stream->codecpar->sample_rate, 0, NULL);
 		swr_init(vf->audio_resample);
@@ -221,8 +221,7 @@ void *VideoFile::thread(void *arg) {
 						fprintf(stderr, "Error during decoding\n");
 						goto end;
 					}
-					if (av_get_channel_layout_nb_channels(
-								vf->audio_frame->channel_layout) != 2) {
+					if (vf->audio_frame->ch_layout.nb_channels != 2) {
 						fprintf(stderr, "Unsupported frame parameters\n");
 						goto end;
 					}
@@ -267,7 +266,7 @@ void *VideoFile::thread(void *arg) {
 					vf->video_frame = av_frame_alloc();
 					while ((ret = avcodec_receive_frame(vf->video_dec_ctx, vf->video_frame)) >= 0) {
 						if (vf->pkt.dts != AV_NOPTS_VALUE) {
-							pts = av_frame_get_best_effort_timestamp(vf->video_frame);
+							pts = vf->video_frame->best_effort_timestamp;
 						} else {
 							pts = 0;
 						}
@@ -366,7 +365,8 @@ bool VideoFile::render(std::vector<cairo_t *> &contexts) {
 				cairo_surface_t *tsurf;
 				tsurf = cairo_image_surface_create_for_data(
 							(unsigned char *)this->decoded_video_frame->data[0], CAIRO_FORMAT_ARGB32,
-						this->decoded_video_frame->width, this->decoded_video_frame->height, this->decoded_video_frame->linesize[0]);
+						this->decoded_video_frame->width, this->decoded_video_frame->height, 
+                        this->decoded_video_frame->linesize[0]);
 				render_surface(contexts, tsurf);
 				cairo_surface_destroy(tsurf);
 			}
