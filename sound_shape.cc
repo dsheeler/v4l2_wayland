@@ -170,18 +170,35 @@ void SoundShape::set_motion_state(uint8_t state) {
 		}
 	}
 }
+double fRand(double fMin, double fMax) {
+    double f = (double)rand() / RAND_MAX;
+    return fMin + f * (fMax - fMin);
+}
 
 int SoundShape::activate() {
 	if (!this->active) {
 		this->easers.erase(this->easers.begin(), this->easers.end());
-		double duration = 0.8;
+		double duration = 4;
+		double final_x, final_y;
+		double start_x, start_y;
+		final_x = this->pos.x;
+		final_y = this->pos.y;
+		double w = this->dingle_dots->drawing_rect.width;
+		double h = this->dingle_dots->drawing_rect.height;
+		double r_min = (sqrt(pow(w, 2) + pow(h,2)));
+		double r_max = r_min;
+		double r = fRand(r_min, r_max);
+		double theta = fRand(0, 2 * M_PI);
+		start_x = r * cos(theta);
+		start_y = r * sin(theta);
+		duration += fRand(-2, 2);
 		Easer *er = new Easer();
-		er->initialize(this->dingle_dots, this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 0, 3, 0.75 * duration);
+		er->initialize(this->dingle_dots, this, EASER_ELASTIC_EASE_OUT, std::bind(&vwDrawable::set_x, this, std::placeholders::_1), start_x, final_x, duration);
 		Easer *er2 = new Easer();
-		er2->initialize(this->dingle_dots, this, EASER_CIRCULAR_EASE_IN_OUT, std::bind(&vwDrawable::set_scale, this, std::placeholders::_1), 3, 1, 0.25 *duration);
-		er->add_finish_easer(er2);
+		er2->initialize(this->dingle_dots, this, EASER_ELASTIC_EASE_OUT, std::bind(&vwDrawable::set_y, this, std::placeholders::_1), start_y, final_y, duration);
 		this->active = 1;
 		er->start();
+		er2->start();
 	}
 	return 0;
 }

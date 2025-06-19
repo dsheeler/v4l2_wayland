@@ -330,7 +330,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	clock_gettime(CLOCK_MONOTONIC, &end_ts);
 	struct timespec diff_ts;
 	timespec_diff(&start_ts, &end_ts, &diff_ts);
-	printf("process_image render time: %f\n", timespec_to_seconds(&diff_ts)*1000);
+	//printf("process_image render time: %f\n", timespec_to_seconds(&diff_ts)*1000);
 	if (dd->doing_motion) {
 		std::vector<SoundShape *> sound_shapes;
 		for (i = 0; i < MAX_NUM_SOUND_SHAPES; ++i) {
@@ -592,7 +592,7 @@ void process_image(cairo_t *screen_cr, void *arg) {
 	cairo_surface_destroy(drawing_surf);
 	clock_gettime(CLOCK_MONOTONIC, &end_ts);
 	timespec_diff(&start_ts, &end_ts, &diff_ts);
-	printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
+	//printf("process_image time: %f\n", timespec_to_seconds(&diff_ts)*1000);
 }
 
 void teardown_jack(DingleDots *dd) {
@@ -1407,8 +1407,6 @@ static gboolean text_cb(GtkWidget *, gpointer data) {
 	for(int i = 0; i < MAX_NUM_TEXTS; i++) {
 		Text *t = &dd->text[i];
 		if (!t->allocated) {
-			t->create(text, (char*)dd->text_font_entry->get_text().c_str(), dd);
-			t->active = true;
 			vwColor vwc;
 			if (dd->use_rand_color_for_text) {
 				vwc = dd->random_vw_color();
@@ -1417,6 +1415,8 @@ static gboolean text_cb(GtkWidget *, gpointer data) {
 				vwc.set_rgba(c->get_red(), c->get_green(), c->get_blue(), c->get_alpha());
 			}
 			t->set_color_rgba(1.0, 1.0, 1.0, 0.0);
+            t->create(text, (char*)dd->text_font_entry->get_text().c_str(), 0, 0, vwc,  dd);
+			t->active = true;
 			double duration = 2.0;
 			Easer *es = new Easer();
 			double target_s = vwc.get(S);
@@ -1451,6 +1451,7 @@ static gboolean text_cb(GtkWidget *, gpointer data) {
 			break;
 		}
 	}
+    return TRUE;
 }
 
 static gboolean text_rand_color_cb(GtkWidget *widget, gpointer data) {
@@ -1469,6 +1470,7 @@ static gboolean text_color_cb(GtkWidget *widget, gpointer data) {
 	DingleDots *dd;
 	dd = (DingleDots *) data;
 	gtk_color_button_get_rgba(GTK_COLOR_BUTTON(widget), dd->text_color.gobj());
+    return TRUE;
 }
 
 static gboolean camera_cb(GtkWidget *, gpointer data) {
@@ -1563,7 +1565,7 @@ static void bitrate_combo_change_cb(GtkComboBox *combo, gpointer user_data) {
 	int bitrate = atoi(gtk_combo_box_get_active_id(combo));
 	gtk_entry_set_text(GTK_ENTRY(dd->bitrate_entry), g_strdup_printf("%i", bitrate));
 }
-
+#include "server.h"
 static void activate(GtkApplication *app, gpointer user_data) {
 	GtkWidget *window;
 	GtkWidget *drawing_area;
@@ -1599,6 +1601,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 
 	dd = (DingleDots *)user_data;
 	//ccv_enable_default_cache();
+ 
 	dd->user_tld_rect.width = dd->drawing_rect.width/5.;
 	dd->user_tld_rect.height = dd->drawing_rect.height/5.;
 	dd->user_tld_rect.x = dd->drawing_rect.width/2.0;
@@ -1841,7 +1844,8 @@ static void mainloop(DingleDots *dd) {
 	dd->app = G_APPLICATION(gtk_application_new("org.dsheeler.v4l2_wayland",
 												G_APPLICATION_NON_UNIQUE));
 	g_signal_connect(dd->app, "activate", G_CALLBACK (activate), dd);
-	g_application_run(G_APPLICATION(dd->app), 0, NULL);
+    MultiThreadedServer *server = new MultiThreadedServer(dd);
+    g_application_run(G_APPLICATION(dd->app), 0, NULL);
 }
 
 static void signal_handler(int) {

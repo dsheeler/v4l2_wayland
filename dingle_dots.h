@@ -29,6 +29,7 @@ typedef struct midi_key_t midi_key_t;
 #include "video_file_out.h"
 #include "x11.h"
 #include "text.h"
+#include "hex.h"
 
 #define STR_LEN 80
 #define MAX_NUM_V4L2 8
@@ -79,7 +80,8 @@ public:
 	Sprite background;
 	Sprite sprites[MAX_NUM_SPRITES];
 	X11 x11[MAX_NUM_X11];
-	Text text[MAX_NUM_SOUND_SHAPES];
+	Text text[MAX_NUM_TEXTS];
+    Hex hexes[MAX_NUM_TEXTS];
 	SnapshotShape snapshot_shape;
 	SoundShape sound_shapes[MAX_NUM_SOUND_SHAPES];
 	Meter meters[2];
@@ -139,6 +141,7 @@ public:
 	jack_ringbuffer_t *midi_ring_buf;
 	color random_color();
 	uint8_t get_animating() const;
+    void toggle_fullscreen();
 	void set_animating(const uint8_t &value);
 	void get_sound_shapes(std::vector<vwDrawable *> &sound_shapes);
 	void get_sources(std::vector<vwDrawable *> &list);

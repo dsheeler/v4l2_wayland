@@ -19,6 +19,7 @@ void Easable::update_easers() {
 	}
 	while(to_finalize.size()) {
 		Easer *e = to_finalize.back();
+        
 		e->finalize();
 		to_finalize.pop_back();
 	}

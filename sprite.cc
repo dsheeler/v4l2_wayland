@@ -14,6 +14,7 @@ void Sprite::free()
 {
 	this->active = 0;
 	this->allocated = 0;
+    this->allocating = 0;
 	this->pos.x = this->pos.y = this->pos.width = this->pos.height = 0;
 	if (presentation_frame) {
 		av_freep(&presentation_frame->data[0]);
@@ -33,7 +34,8 @@ std::string *Sprite::get_file_path() const
 }
 
 void Sprite::create(std::string *name, int z, DingleDots *dd) {
-	if (allocated) free();
+	if (allocated || allocating) return;
+    allocating = 1;
 	this->dingle_dots = dd;
 	if (file_path) delete file_path;
 	this->z = z;
@@ -59,6 +61,8 @@ int Sprite::activate() {
 		if (scale < 1.0) scale = 1.0;
 		this->set_scale(scale);
 	}
+    this->allocated = 1;
+    this->allocating = 0;
 	return activate_spin(this->scale);
 }
 
@@ -183,7 +187,6 @@ int Sprite::ff_load_image() {
 	if (ret < 0) {
 		fprintf(stderr, "Error loading image file '%s'\n", file_path->c_str());
 	} else {
-		this->allocated = 1;
 		this->activate();
 	}
 	return ret;

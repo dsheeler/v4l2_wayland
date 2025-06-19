@@ -50,9 +50,10 @@ class Easable;
 typedef AHFloat (*EasingFuncPtr)(AHFloat);
 class Easer {
 public:
-	Easer();
+	Easer(bool repeat = false);
 	static EasingFuncPtr easer_type_to_easing_func(Easer_Type);
 	void start();
+    void restart();
 	void finalize();
 	void update_value();
 	bool done();
@@ -66,6 +67,7 @@ public:
 	boost::function<void(double)> setter;
 	DingleDots *dd;
 	bool active;
+    bool repeat;
 	float duration_secs;
 	double *value;
 	double value_start;

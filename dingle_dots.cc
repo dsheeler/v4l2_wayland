@@ -83,6 +83,17 @@ int DingleDots::deactivate_sound_shapes() {
 	return 0;
 }
 
+void DingleDots::toggle_fullscreen() {
+    GtkWidget *toplevel = gtk_widget_get_toplevel(this->drawing_area);
+    if (gtk_widget_is_toplevel(toplevel)) {
+        if (!this->fullscreen) {
+            gtk_window_fullscreen(GTK_WINDOW(toplevel));
+        } else {
+            gtk_window_unfullscreen(GTK_WINDOW(toplevel));
+        }
+    }
+}
+
 void jack_shutdown (void *) {
 	printf("JACK shutdown\n");
 	abort();
@@ -386,6 +397,12 @@ void DingleDots::get_sources(std::vector<vwDrawable *> &list)
 	for (int i = 0; i < MAX_NUM_TEXTS; ++i) {
 		if (this->text[i].active) {
 			list.push_back(&this->text[i]);
+		}
+	}
+
+    for (int i = 0; i < MAX_NUM_TEXTS; ++i) {
+		if (this->hexes[i].active) {
+			list.push_back(&this->hexes[i]);
 		}
 	}
 

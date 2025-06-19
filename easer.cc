@@ -5,8 +5,8 @@
 #include "dingle_dots.h"
 #include "vwdrawable.h"
 
-Easer::Easer() {}
-
+Easer::Easer(bool repeat) : repeat(repeat), active(FALSE), target(nullptr), value(nullptr), dd(nullptr),
+                             duration_secs(0.0), value_start(0.0), value_finish(0.0), easing_func(nullptr) {}
 EasingFuncPtr Easer::easer_type_to_easing_func(Easer_Type type)
 {
 	EasingFuncPtr func;
@@ -129,12 +129,21 @@ void Easer::initialize(DingleDots *dd, Easable *target, Easer_Type type, boost::
 void Easer::start() {
 	target->add_easer(this);
 	this->active = TRUE;
-	dd->queue_draw();
 	clock_gettime(CLOCK_MONOTONIC, &this->start_ts);
+    this->update_value();
+}
+void Easer::restart() {
+    this->active = TRUE;
+    clock_gettime(CLOCK_MONOTONIC, &this->start_ts);
+    this->update_value();
 }
 
 void Easer::finalize() {
 	this->setter(this->value_finish);
+    if (this->repeat) {
+        this->restart();
+        return;
+    }
 	for (std::vector<Easer *>::iterator it = this->finsh_easers.begin();
 		 it != this->finsh_easers.end(); ++it) {
 		Easer *e = *it;

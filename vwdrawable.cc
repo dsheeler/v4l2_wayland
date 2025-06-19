@@ -5,6 +5,7 @@
 #include "easer.h"
 #include "dingle_dots.h"
 
+typedef struct color color;
 double vwDrawable::get_opacity() const
 {
 	return opacity;
@@ -145,9 +146,7 @@ bool vwDrawable::render_surface(std::vector<cairo_t *> &contexts, cairo_surface_
 		cairo_paint_with_alpha(cr, o);
 		if (this->hovered) {
 			render_hovered(cr);
-		} else {
-			render_shadow(cr);
-		}
+        }
 		cairo_restore(cr);
 	}
 	return TRUE;
@@ -289,4 +288,21 @@ void vwDrawable::render_shadow(cairo_t *cr) {
 	c.b = 0;
 	c.a = 0.75;
 	render_halo(cr, c, 10);
+}
+
+void vwDrawable::set_color_hsva(double h, double s, double v, double a) {
+	this->c.set_hsva(h, s, v, a);
+	this->dingle_dots->queue_draw();
+}
+
+void vwDrawable::set_color_rgba(double r, double g, double b, double a)
+{
+	this->c.set_rgba(r, g, b, a);
+	this->dingle_dots->queue_draw();
+}
+
+void vwDrawable::set_color(color_prop p, double v)
+{
+	this->c.set(p, v);
+	this->dingle_dots->queue_draw();
 }

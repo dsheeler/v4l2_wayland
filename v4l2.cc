@@ -38,7 +38,7 @@ void V4l2::init(DingleDots *dd, char *dev_name, double width, double height, boo
 	this->finished = 0;
 	this->selected = 0;
 	this->mdown = 0;
-	this->allocated = 0;
+	this->allocated = 1;
 	this->new_frame_ready = False;
 	this->pos.width = width;
 	this->pos.height = height;

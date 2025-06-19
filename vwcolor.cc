@@ -17,6 +17,7 @@ vwColor::vwColor(double in_h, double in_s, double in_v, double in_a)
 	a = in_a;
 }
 
+
 void vwColor::set(color_prop p, double value)
 {
 	if (p == R || p == G || p == B) {

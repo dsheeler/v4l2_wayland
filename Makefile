@@ -6,7 +6,7 @@ PROGNAME=v4l2_wayland
 DESKTOP_FILENAME=$(PROGNAME).desktop
 ICON=v4l2_wayland.svg
 ICONDIR=$(PREFIX)/share/icons/hicolor/scalable/apps
-PROGS=$(PROGNAME)
+PROGS=$(PROGNAME) vw_client
 
 all: $(PROGS)
 
@@ -19,18 +19,19 @@ LFLAGS = $(shell pkg-config --libs cairo) \
 				 -lccv -lm -lpng -ljpeg -lswscale -lavutil -lswresample \
 				 -lavformat -lavcodec -lpthread -ljack -lXext -lX11 -lXfixes
 LIBS =
-CFLAGS = -O3 -ffast-math -Wall
-#CFLAGS =-g -Wall
+#CFLAGS = -O3 -ffast-math -Wall
+CFLAGS =-g -Wall
 CFLAGS +=	$(shell pkg-config --cflags pangocairo) \
 				 	$(shell pkg-config --cflags gtk+-3.0) \
+				 	$(shell pkg-config --cflags sigc++-2.0) \
 				 	$(shell pkg-config --cflags gtkmm-3.0) \
-					 $(shell pkg-config --cflags fftw3) \
+					$(shell pkg-config --cflags fftw3) \
 					$(shell pkg-config --cflags glib-2.0 libcanberra)
 
 SRCS = vwdrawable.cc v4l2_wayland.cc sound_shape.cc midi.cc kmeter.cc \
 			 video_file_source.cc dingle_dots.cc v4l2.cc sprite.cc snapshot_shape.cc \
 			 easer.cc easable.cc video_file_out.cc x11.cc text.cc \
-			 vwcolor.cc
+			 vwcolor.cc server.cc hex.cc
 CSRCS= easing.c
 
 OBJS := $(SRCS:.cc=.o) $(CSRCS:.c=.o)
@@ -38,7 +39,7 @@ OBJS := $(SRCS:.cc=.o) $(CSRCS:.c=.o)
 HDRS = vwdrawable.h sound_shape.h midi.h v4l2_wayland.h kmeter.h \
 			video_file_source.h dingle_dots.h v4l2.h sprite.h snapshot_shape.h \
 			easer.h easing.h easable.h video_file_out.h x11.h text.h \
-			vwcolor.h
+			vwcolor.h server.h hex.h
 
 .SUFFIXES:
 
@@ -52,6 +53,9 @@ HDRS = vwdrawable.h sound_shape.h midi.h v4l2_wayland.h kmeter.h \
 
 v4l2_wayland: v4l2_wayland.cc ${OBJS}
 	${CC} -o $@ ${OBJS} ${LFLAGS}
+
+vw_client: vw_client.cc
+	${CC} -o $@ vw_client.cc -lreadline
 
 install: all
 	install $(PROGNAME) $(BINDIR)

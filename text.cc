@@ -12,7 +12,7 @@ Text::Text()
 	allocated = 0;
 }
 
-void Text::create(char *text, char *font, DingleDots *dd)
+void Text::create(const char *text, const char *font, double x, double y, vwColor c, DingleDots *dd)
 {
 	PangoLayout *layout;
 	PangoFontDescription *desc;
@@ -20,11 +20,11 @@ void Text::create(char *text, char *font, DingleDots *dd)
 	char lfont[32];
 	this->text = (text);
 	this->font = (font);
-	this->pos.x = 0;
-	this->pos.y = 0;
+	this->pos.x = x;
+	this->pos.y = y;
 	this->z = dd->next_z++;
 	this->dingle_dots = dd;
-	this->color.set_rgba(0., 0., 0., 0.);
+	this->c =c;
 	sprintf(lfont, "%s", this->font.c_str());
 	cairo_surface_t *tsurf = cairo_image_surface_create(CAIRO_FORMAT_RGB24,
 														dd->drawing_rect.width,
@@ -70,7 +70,7 @@ bool Text::render(std::vector<cairo_t *> &contexts)
 		cairo_scale(cr, this->scale, this->scale);
 		cairo_rotate(cr, this->get_rotation());
 		cairo_translate(cr, -0.5 * this->pos.width, -0.5 * this->pos.height);
-		cairo_set_source_rgba(cr, color.get(R), color.get(G), color.get(B), color.get(A) * this->get_opacity());
+		cairo_set_source_rgba(cr, this->c.get(R), this->c.get(G), this->c.get(B), this->c.get(A) * this->get_opacity());
 		pango_cairo_show_layout(cr, layout);
 		if (this->hovered) {
 			render_hovered(cr);
@@ -78,21 +78,6 @@ bool Text::render(std::vector<cairo_t *> &contexts)
 		cairo_restore(cr);
 		g_object_unref(layout);
 	}
+    return true;
 }
 
-void Text::set_color_hsva(double h, double s, double v, double a) {
-	this->color.set_hsva(h, s, v, a);
-	this->dingle_dots->queue_draw();
-}
-
-void Text::set_color_rgba(double r, double g, double b, double a)
-{
-	this->color.set_rgba(r, g, b, a);
-	this->dingle_dots->queue_draw();
-}
-
-void Text::set_color(color_prop p, double v)
-{
-	this->color.set(p, v);
-	this->dingle_dots->queue_draw();
-}

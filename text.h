@@ -10,23 +10,13 @@ class Text : public vwDrawable
 public:
 	Text();
 	~Text() {}
-	void create(char *text, char *font, DingleDots *dd);
+	void create(const char *text, const char *font, double x, double y, vwColor color, DingleDots *dd);
 	void free();
 	bool render(std::vector<cairo_t *> &contexts);
-	void set_color_red(double r) { set_color(R, r); }
-	void set_color_green(double g) { set_color(G, g); }
-	void set_color_blue(double b) { set_color(B, b); }
-	void set_color_alpha(double a) { set_color(A, a); }
-	void set_color_hue(double h) { set_color(H, h); }
-	void set_color_saturation(double s) { set_color(S, s); }
-	void set_color_value(double v) { set_color(V, v); }
-	void set_color_rgba(double r, double g, double v, double a);
-	void set_color_hsva(double h, double s, double v, double a);
-	void set_color(color_prop p, double v);
+
 private:
 	std::string text;
 	std::string font;
-	vwColor color;
 };
 
 #endif // TEXT_H
