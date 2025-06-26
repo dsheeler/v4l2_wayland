@@ -29,7 +29,8 @@ static int check_new_frame_ready(gpointer data) {
 }
 
 void V4l2::init(DingleDots *dd, char *dev_name, double width, double height, bool mirrored, uint64_t z) {
-	this->dingle_dots = dd;
+	this->allocating = 1;
+    this->dingle_dots = dd;
 	strncpy(this->dev_name, dev_name, DD_V4L2_MAX_STR_LEN-1);
 	this->z = z;
 	this->pos.x = 0;
@@ -38,7 +39,7 @@ void V4l2::init(DingleDots *dd, char *dev_name, double width, double height, boo
 	this->finished = 0;
 	this->selected = 0;
 	this->mdown = 0;
-	this->allocated = 1;
+	this->allocated = 0;
 	this->new_frame_ready = False;
 	this->pos.width = width;
 	this->pos.height = height;
@@ -155,6 +156,7 @@ void *V4l2::thread(void *arg) {
 	memset(v->rbuf->buf, 0, v->rbuf->size);
 	v->read_buf = (uint32_t *)(malloc(4 * v->pos.width * v->pos.height));
 	v->allocated = 1;
+    v->allocating = 0;
 	v->start_capturing();
 	pthread_mutex_lock(&v->lock);
 	v->activate_spin(1.0);

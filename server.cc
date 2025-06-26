@@ -1,5 +1,5 @@
 #include <fstream>
-
+#include <thread>
 #include "server.h"
 
 #define PORT 12345
@@ -28,8 +28,6 @@ MultiThreadedServer::tokenizeString(const std::string &str, char delimiter) {
         quotedString =
             token.substr(1); // Start with the first part of the quoted string
         while (getline(iss, token2, delimiter)) {
-          printf("Token2: %s\n", token2.c_str());
-          printf("token2.back(): %c\n", token2.back());
           if (token2.back() != '"') {
             quotedString += delimiter + token2; // Append the next token
           } else {
@@ -76,7 +74,15 @@ vwDrawable *MultiThreadedServer::parse_id(string id) {
       return nullptr;
     }
     drawable = &dingle_dots->sprites[pic_id];
-  } else if (id.find("text") != std::string::npos) {
+  } else if (id.find("video") != std::string::npos) {
+    int vid_id =
+        std::stoi(id.substr(5)); // Extract the numeric part after "pic"
+    if (vid_id < 0 || vid_id >= MAX_NUM_VIDEO_FILES) {
+      g_message("Invalid Video ID: %d", vid_id);
+      return nullptr;
+    }
+    drawable = &dingle_dots->vf[vid_id];
+} else if (id.find("text") != std::string::npos) {
     int text_id =
         std::stoi(id.substr(4)); // Extract the numeric part after "pic"
     if (text_id < 0 || text_id >= MAX_NUM_TEXTS) {
@@ -106,16 +112,11 @@ void *MultiThreadedServer::handle_client(void *data) {
     g_message("Received: %s", buffer);
     string message(buffer);
     std::vector<std::string> lines = tokenizeString(message, '\n');
-    printf("Number of lines: %zu\n", lines.size());
     for (const auto &line : lines) {
-
       std::vector<std::string> commands = tokenizeString(line, ';');
       for (const auto &command : commands) {
         g_message("Processing command: %s", command.c_str());
         std::vector<std::string> tokens = tokenizeString(command);
-        for (const auto &token : tokens) {
-          g_message("Token: %s", token.c_str());
-        }
         if (tokens.size() > 0) {
           if (tokens[0] == "quit") {
             g_message("Client requested to quit.");
@@ -126,8 +127,10 @@ void *MultiThreadedServer::handle_client(void *data) {
               double x = std::stod(tokens[2]);
               double y = std::stod(tokens[3]);
               double duration = std::stod(tokens[4]);
-              g_message("Moving %s to (%f, %f) over %f seconds", id, x, y,
-                        duration);
+                if (duration <= 0) {
+                    g_message("Invalid duration for mv command: %f", duration);
+                    continue;
+                }
               vwDrawable *drawable = thread_data->server->parse_id(id);
               if (drawable == nullptr) {
                 g_message("Drawable with ID %s does not exist or is invalid.",
@@ -143,20 +146,20 @@ void *MultiThreadedServer::handle_client(void *data) {
                   id.c_str(), x, y, duration);
               Easer *easer_x = new Easer();
               easer_x->initialize(thread_data->dingle_dots, drawable,
-                                  EASER_ELASTIC_EASE_OUT,
+                                  EASER_ELASTIC_EASE_IN_OUT,
                                   std::bind(&vwDrawable::set_x, drawable,
                                             std::placeholders::_1),
                                   drawable->pos.x, x, duration);
               Easer *easer_y = new Easer();
               easer_y->initialize(thread_data->dingle_dots, drawable,
-                                  EASER_ELASTIC_EASE_OUT,
+                                  EASER_ELASTIC_EASE_IN_OUT,
                                   std::bind(&vwDrawable::set_y, drawable,
                                             std::placeholders::_1),
                                   drawable->pos.y, y, duration);
               easer_x->start();
               easer_y->start();
             } else {
-              g_message("Invalid mv command format. Usage: mv <v4l2id> <x> <y> "
+              g_message("Invalid mv command format. Usage: mv <id> <x> <y> "
                         "<duration>");
             }
           } else if (tokens[0] == "rotate") {
@@ -174,7 +177,7 @@ void *MultiThreadedServer::handle_client(void *data) {
               g_message("Rotating %s  to %f", id, angle);
               Easer *easer_angle = new Easer();
               easer_angle->initialize(
-                  thread_data->dingle_dots, drawable, EASER_CUBIC_EASE_IN_OUT,
+                  thread_data->dingle_dots, drawable, EASER_QUAD_EASE_IN_OUT,
                   std::bind(&vwDrawable::set_rotation, drawable,
                             std::placeholders::_1),
                   drawable->get_rotation(), angle, duration);
@@ -214,7 +217,7 @@ void *MultiThreadedServer::handle_client(void *data) {
               }
             } else {
               g_message("Invalid makev4l2 command format. Usage: makev4l2 "
-                        "<name> <width> <height> <mirrored>");
+                        "<device path> <width> <height> <mirrored>");
             }
           } else if (tokens[0] == "makehex") {
             if (tokens.size() == 8) {
@@ -230,10 +233,18 @@ void *MultiThreadedServer::handle_client(void *data) {
                 g_message("Invalid width for hex: (%f)", w);
                 continue;
               }
+                if (r < 0 || r > 1 || g < 0 || g > 1 || b < 0 || b > 1 ||
+                    a < 0 || a > 1) {
+                    g_message("Color values must be between 0 and 1.");
+                    continue;
+                }
+
               for (int i = 0; i < MAX_NUM_TEXTS; i++) {
-                if (!thread_data->dingle_dots->hexes[i].allocated) {
+                if (!thread_data->dingle_dots->hexes[i].allocated &&
+                    !thread_data->dingle_dots->hexes[i].allocating) {
+
                   vwColor c;
-                  c.set_rgba(r, g, b, a); // Set color with full opacity
+                  c.set_rgba(r, g, b, a); 
                   g_message("Creating hex at (%f, %f) with width %f", x, y, w);
                   thread_data->dingle_dots->hexes[i].create(
                       x, y, w, c, thread_data->dingle_dots);
@@ -353,7 +364,7 @@ void *MultiThreadedServer::handle_client(void *data) {
                   thread_data->dingle_dots->text[i].create(
                       text.c_str(), font.c_str(), x, y, c,
                       thread_data->dingle_dots);
-                  thread_data->dingle_dots->text[i].active = true;
+                  thread_data->dingle_dots->text[i].activate();
                   break;
                 }
               }
@@ -368,7 +379,21 @@ void *MultiThreadedServer::handle_client(void *data) {
             } else {
               g_message("Invalid snapshot command format. Usage: snapshot");
             }
-          } else if (tokens[0] == "scale") {
+        } else if (tokens[0] == "sleep") {
+            if (tokens.size() == 2) {
+                double sleep_time = std::stod (tokens[1]);
+            if (sleep_time < 0) {
+              g_message("Sleep time must be non-negative.");
+              continue;
+            }
+            g_message("Sleeping for %f seconds", sleep_time);
+            std::chrono::duration<double> sleep_duration(sleep_time);
+            std::this_thread::sleep_for(sleep_duration);
+            g_message("Sleep complete");
+            } else {
+              g_message("Invalid sleep command format. Usage: sleep <seconds>");
+            }
+         } else if (tokens[0] == "scale") {
             if (tokens.size() == 4) {
               string id = tokens[1];
               double scale = std::stod(tokens[2]);
@@ -410,7 +435,7 @@ void *MultiThreadedServer::handle_client(void *data) {
                           id.c_str());
                 continue;
               }
-              g_message("Setting opacity of %s to %f", id, opacity);
+              g_message("Setting opacity of %s to %f", id.c_str(), opacity);
               Easer *easer_opacity = new Easer();
               easer_opacity->initialize(
                   thread_data->dingle_dots, drawable, EASER_LINEAR,
@@ -446,17 +471,23 @@ void *MultiThreadedServer::handle_client(void *data) {
               g_message("Invalid fullscreen command format. Usage: fullscreen");
             }
           } else if (tokens[0] == "help") {
-            g_message("Available commands:\n"
-                      "quit\n"
-                      "mv <v4l2id> <x> <y> <duration>\n"
-                      "rotate <id> <angle> <duration>\n"
-                      "makev4l2 <name> <width> <height> <mirrored>\n"
-                      "snapshot\n"
-                      "opacity <id> <value> <duration>\n"
-                      "delete <id>\n"
-                      "fullscreen\n"
-                      "help");
-          }
+            g_message("Available commands:");
+            g_message("  quit - Exit the server");
+            g_message("  mv <id> <x> <y> <duration> - Move drawable to (x, y)");
+            g_message("  rotate <id> <angle> <duration> - Rotate drawable");
+            g_message("  makev4l2 <device path> <width> <height> <mirrored>");
+            g_message("  makehex <x> <y> <width> <r> <g> <b>");
+            g_message("  makepic <filename> <x> <y>");
+            g_message("  setcolor <id> <r> <g> <b> <a> <duration>");
+            g_message("  maketext '<text>' '<font>' <x> <y>  <r> <g> <b> "
+                      "<a>");
+            g_message("  snapshot - Take a snapshot");
+            g_message("  sleep <seconds> - Sleep for specified seconds");
+            g_message("  scale <id> <value> <duration>");
+            g_message("  opacity <id> <value> <duration>");
+            g_message("  delete <id>");
+            g_message("  fullscreen - Toggle fullscreen mode");
+          } 
           /*}  else if (tokens[0] == "addnote") {
               if (tokens.size() == 8) {
                   char *scale_name = strdup(tokens[1].c_str());
@@ -514,43 +545,43 @@ void *MultiThreadedServer::handle_client(void *data) {
         }
       }
     }
-
-    g_object_unref(thread_data->connection);
-    return NULL;
   }
+  g_object_unref(thread_data->connection);
+  return NULL;
 }
-  void *MultiThreadedServer::handle_incoming_connection(
-      GSocketService * service, GSocketConnection * connection,
-      GObject * source_object, gpointer user_data) {
-    MultiThreadedServer *server = static_cast<MultiThreadedServer *>(user_data);
-    g_message("Received Connection from client!\n");
-    pthread_t thread_id;
-    ThreadData *thread_data = new ThreadData();
-    thread_data->dingle_dots = server->dingle_dots;
-    thread_data->connection = g_object_ref(connection);
-    thread_data->server = server;
-    g_message("Creating thread to handle client connection...");
-    // Create a new thread to handle the client connection
-    pthread_create(&thread_id, nullptr, handle_client, thread_data);
-    return NULL;
+
+void *MultiThreadedServer::handle_incoming_connection(
+    GSocketService *service, GSocketConnection *connection,
+    GObject *source_object, gpointer user_data) {
+  MultiThreadedServer *server = static_cast<MultiThreadedServer *>(user_data);
+  g_message("Received Connection from client!\n");
+  pthread_t thread_id;
+  ThreadData *thread_data = new ThreadData();
+  thread_data->dingle_dots = server->dingle_dots;
+  thread_data->connection = g_object_ref(connection);
+  thread_data->server = server;
+  g_message("Creating thread to handle client connection...");
+  // Create a new thread to handle the client connection
+  pthread_create(&thread_id, nullptr, handle_client, thread_data);
+  return NULL;
+}
+
+// The server class
+MultiThreadedServer::MultiThreadedServer(DingleDots *dd) : dingle_dots(dd) {
+
+  gboolean ret;
+  GError *error = NULL;
+  service = g_socket_service_new();
+  ret = g_socket_listener_add_inet_port(G_SOCKET_LISTENER(service), PORT, NULL,
+                                        &error);
+
+  if (ret && error != NULL) {
+    g_error("%s", error->message);
+    g_clear_error(&error);
   }
 
-  // The server class
-  MultiThreadedServer::MultiThreadedServer(DingleDots * dd) : dingle_dots(dd) {
+  g_signal_connect(service, "incoming", G_CALLBACK(handle_incoming_connection),
+                   this);
 
-    gboolean ret;
-    GError *error = NULL;
-    service = g_socket_service_new();
-    ret = g_socket_listener_add_inet_port(G_SOCKET_LISTENER(service), PORT,
-                                          NULL, &error);
-
-    if (ret && error != NULL) {
-      g_error("%s", error->message);
-      g_clear_error(&error);
-    }
-
-    g_signal_connect(service, "incoming",
-                     G_CALLBACK(handle_incoming_connection), this);
-
-    g_socket_service_start(service);
-  }
+  g_socket_service_start(service);
+}

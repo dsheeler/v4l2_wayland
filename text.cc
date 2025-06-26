@@ -18,6 +18,7 @@ void Text::create(const char *text, const char *font, double x, double y, vwColo
 	PangoFontDescription *desc;
 	int width, height;
 	char lfont[32];
+    this->allocating = 1;
 	this->text = (text);
 	this->font = (font);
 	this->pos.x = x;
@@ -44,6 +45,7 @@ void Text::create(const char *text, const char *font, double x, double y, vwColo
 	g_object_unref(layout);
 	active = 0;
 	allocated = 1;
+    allocating = 0;
 }
 
 void Text::free()

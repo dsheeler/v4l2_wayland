@@ -67,6 +67,7 @@ int vwDrawable::activate() {
 		this->easers.clear();
 		this->fade_in(1.0);
 		this->active = 1;
+        this->dingle_dots->queue_draw();
 	}
 	return 0;
 }
@@ -114,6 +115,8 @@ vwDrawable::vwDrawable() {
 	mdown = 0;
 	opacity = 1.0;
 	scale = 1.0;
+    c = vwColor(0.0, 0.0, 0.0, 0.0);
+    hovered = 0;
 }
 
 vwDrawable::vwDrawable(double x, double y, int64_t z, double opacity, double scale) {
@@ -124,6 +127,8 @@ vwDrawable::vwDrawable(double x, double y, int64_t z, double opacity, double sca
 	this->opacity = opacity;
 	mdown = 0;
 	this->scale = scale;
+    c = vwColor(0.0, 0.0, 0.0, 0.0);
+    hovered = 0;
 }
 
 
@@ -144,6 +149,11 @@ bool vwDrawable::render_surface(std::vector<cairo_t *> &contexts, cairo_surface_
 		cairo_set_source_surface(cr, surf, 0.0, 0.0);
 		double o = this->get_opacity();
 		cairo_paint_with_alpha(cr, o);
+        
+        cairo_rectangle(cr, 0.0, 0.0, this->pos.width, this->pos.height);
+	    cairo_set_source_rgba(cr, c.get(R), c.get(G), c.get(B), c.get(A) * o);
+	    cairo_fill(cr);
+
 		if (this->hovered) {
 			render_hovered(cr);
         }

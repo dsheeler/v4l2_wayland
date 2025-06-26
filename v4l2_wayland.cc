@@ -278,6 +278,62 @@ void set_to_on_or_off(SoundShape *ss, GtkWidget *da)
 	}
 }
 
+void mark_hovered(bool use_sources, DingleDots *dd) {
+	int found = 0;
+	std::vector<vwDrawable *> sources;
+	dd->get_sources(sources);
+	std::vector<vwDrawable *> sound_shapes;
+	dd->get_sound_shapes(sound_shapes);
+	if (use_sources) {
+		for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+			if ((*it)->hovered == 1) {
+				(*it)->hovered = 0;
+				gtk_widget_queue_draw(dd->drawing_area);
+			}
+		}
+		std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
+		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
+			if (found) {
+				if ((*it)->hovered == 1) {
+					(*it)->hovered = 0;
+					gtk_widget_queue_draw(dd->drawing_area);
+				}
+			} else if ((*it)->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+				found = 1;
+				if ((*it)->hovered == 0) {
+					(*it)->hovered = 1;
+					gtk_widget_queue_draw(dd->drawing_area);
+				}
+			} else {
+				if ((*it)->hovered == 1) {
+					(*it)->hovered = 0;
+					gtk_widget_queue_draw(dd->drawing_area);
+				}
+			}
+		}
+	} else {
+		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
+			if ((*it)->hovered == 1) {
+				(*it)->hovered = 0;
+				gtk_widget_queue_draw(dd->drawing_area);
+			}
+		}
+		found = 0;
+		std::sort(sound_shapes.begin(), sound_shapes.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
+		for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
+			vwDrawable *s = *it;
+			if (!found && s->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
+				s->hovered = 1;
+				found = 1;
+				gtk_widget_queue_draw(dd->drawing_area);
+			} else if (s->hovered == 1) {
+				s->hovered = 0;
+				gtk_widget_queue_draw(dd->drawing_area);
+			}
+		}
+	}
+}
+
 void process_image(cairo_t *screen_cr, void *arg) {
 	DingleDots *dd = (DingleDots *)arg;
 	static int first_data = 1;
@@ -310,8 +366,8 @@ void process_image(cairo_t *screen_cr, void *arg) {
 		memcpy(save_buf_sources, dd->sources_frame->data[0], 4 * dd->sources_frame->width *
 				dd->sources_frame->height);
 	}
-	clear(sources_cr);
-
+	clear(sources_cr);		
+    mark_hovered(dd->shift_pressed, dd);
 	dd->get_sources(sources);
 	std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z < b->z; } );
 	std::vector<cairo_t *> contexts;
@@ -650,62 +706,6 @@ static gboolean draw_cb(GtkWidget *, cairo_t *cr, gpointer   data) {
 	return TRUE;
 }
 
-void mark_hovered(bool use_sources, DingleDots *dd) {
-	int found = 0;
-	std::vector<vwDrawable *> sources;
-	dd->get_sources(sources);
-	std::vector<vwDrawable *> sound_shapes;
-	dd->get_sound_shapes(sound_shapes);
-	if (use_sources) {
-		for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
-			if ((*it)->hovered == 1) {
-				(*it)->hovered = 0;
-				gtk_widget_queue_draw(dd->drawing_area);
-			}
-		}
-		std::sort(sources.begin(), sources.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
-		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
-			if (found) {
-				if ((*it)->hovered == 1) {
-					(*it)->hovered = 0;
-					gtk_widget_queue_draw(dd->drawing_area);
-				}
-			} else if ((*it)->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
-				found = 1;
-				if ((*it)->hovered == 0) {
-					(*it)->hovered = 1;
-					gtk_widget_queue_draw(dd->drawing_area);
-				}
-			} else {
-				if ((*it)->hovered == 1) {
-					(*it)->hovered = 0;
-					gtk_widget_queue_draw(dd->drawing_area);
-				}
-			}
-		}
-	} else {
-		for (std::vector<vwDrawable *>::iterator it = sources.begin(); it != sources.end(); ++it) {
-			if ((*it)->hovered == 1) {
-				(*it)->hovered = 0;
-				gtk_widget_queue_draw(dd->drawing_area);
-			}
-		}
-		found = 0;
-		std::sort(sound_shapes.begin(), sound_shapes.end(), [](vwDrawable *a, vwDrawable *b) { return a->z > b->z; } );
-		for (std::vector<vwDrawable *>::iterator it = sound_shapes.begin(); it != sound_shapes.end(); ++it) {
-			vwDrawable *s = *it;
-			if (!found && s->in(dd->mouse_pos.x, dd->mouse_pos.y)) {
-				s->hovered = 1;
-				found = 1;
-				gtk_widget_queue_draw(dd->drawing_area);
-			} else if (s->hovered == 1) {
-				s->hovered = 0;
-				gtk_widget_queue_draw(dd->drawing_area);
-			}
-		}
-	}
-}
-
 static gboolean motion_notify_event_cb(GtkWidget *,
 									   GdkEventMotion *event, gpointer data) {
 	int i;
@@ -1034,7 +1034,7 @@ void apply_scrolling_operations_to_list(GdkEventScroll *event, DingleDots *dd,
 				double o = (*it)->get_opacity();
 				(*it)->set_opacity(o + (up ? inc: -inc));
 			} else if (dd->s_pressed){
-				double inc = 0.05;
+				double inc = 0.025;
 				(*it)->set_scale((*it)->get_scale() + (up ? inc: -inc));
 			} else if (event->state & GDK_CONTROL_MASK) {
 				double inc = 2 * M_PI / 180;
@@ -1091,6 +1091,7 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event,
 		return TRUE;
 	} else if (event->keyval == GDK_KEY_Shift_L ||
 			   event->keyval == GDK_KEY_Shift_R) {
+                dd->shift_pressed = 1;
 		if (!dd->selection_in_progress)
 			mark_hovered(1, dd);
 		return TRUE;
@@ -1112,6 +1113,7 @@ static gboolean on_key_release(GtkWidget *, GdkEventKey *event,
 	}
 	if (event->keyval == GDK_KEY_Shift_L ||
 			event->keyval == GDK_KEY_Shift_R) {
+                dd->shift_pressed = 0;
 		if (!dd->dragging && !dd->selection_in_progress) mark_hovered(0, dd);
 		return TRUE;
 	}

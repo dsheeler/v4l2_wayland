@@ -70,19 +70,30 @@ int main(int argc, char const *argv[]) {
             struct timespec tim;
             tim.tv_sec = 0;       // 0 seconds
             tim.tv_nsec = 5000000; // 5 million nanoseconds (0.5 seconds)
-            int line_count = 0;
-            while (file.good()) {
-                printf("line_count: %d\n", ++line_count);
+            
+            while (!file.eof()) {
                 std::string line;
                 std::getline(file, line);
-                printf("Read line: %s\n", line.c_str());
+                if (file.eof()) {
+                    break; // Exit the loop if end of file is reached
+                }
+                if (file.fail()) {
+                    std::cerr << "Error reading line from file: " << filename << std::endl;
+                    break; // Exit the loop on read error
+                }
+                // Check if the line is not empty before sending
                 if (!line.empty()) {
                     printf("Sending: %s\n", line.c_str());
-                    send(client_fd, (line + "\n").c_str(), line.length() + 1, 0);
+                    size_t sent = send(client_fd, (line + "\n").c_str(), line.length() + 1, 0);
+                    if (sent < 0) {
+                        perror("send");
+                        break; // Exit the loop on send error
+                    }
                     fsync(client_fd); // Ensure the data is sent immediately
                     nanosleep(&tim, NULL);
                 }
             }
+            printf("End of file reached for %s\n", filename.c_str());
             // Close the file after reading
             file.close();
         }

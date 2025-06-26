@@ -29,20 +29,22 @@ Hex::Hex()
 
 void Hex::create(double x, double y, double w, vwColor c, DingleDots *dd)
 {
+    this->allocating = 1;
 	this->pos.x = x;
 	this->pos.y = y;
     this->pos.width = w;
-    this->pos.height = w * sqrt(3) / 2; // height of hexagon based on width
+    this->pos.height = w; 
     this->rotation_radians = 0.0;
 	this->z = dd->next_z++;
 	this->dingle_dots = dd;
 	this->c = c;
     Easer *e = new Easer(true);
     e->initialize(this->dingle_dots, this, EASER_LINEAR, std::bind(&vwDrawable::set_rotation,
-                                                                               this, std::placeholders::_1), 0.0, 360, 4.0);
+                                                                               this, std::placeholders::_1), 0.0, 2*M_PI, 4.0);
     e->start();
 	active = 1;
 	allocated = 1;
+    this->allocating = 0;
 }
 
 void Hex::free()
@@ -78,7 +80,7 @@ bool Hex::render(std::vector<cairo_t *> &contexts) {
         cairo_translate(cr, x, y);
         cairo_scale(cr, this->get_scale(), this->get_scale());
 
-        cairo_rotate(cr, rotation * (M_PI/180.0));
+        cairo_rotate(cr, rotation);
         cairo_translate(cr, -(w/2), -r1);
     
         cairo_move_to(cr, 0, 0);
@@ -95,10 +97,18 @@ bool Hex::render(std::vector<cairo_t *> &contexts) {
         cairo_rel_line_to(cr, w, 0);
     
         cairo_fill(cr);
-    
         cairo_restore(cr);
     
-   
+        cairo_save(cr);
+        cairo_translate(cr, x, y);
+        cairo_scale(cr, this->get_scale(), this->get_scale());
+        cairo_rotate(cr, this->get_rotation());
+        cairo_translate(cr, -0.5 *this->pos.width, -0.5 * this->pos.height);
+
+        if (this->hovered) {
+            render_hovered(cr);
+        }
+        cairo_restore(cr);
     }
     return true;
   }
