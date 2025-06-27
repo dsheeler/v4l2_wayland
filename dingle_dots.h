@@ -15,6 +15,7 @@ extern "C" {
 #include <gtk/gtk.h>
 #include <gtkmm-3.0/gtkmm.h>
 #include <canberra.h>
+#include <opencv2/opencv.hpp>
 #include "v4l2_wayland.h"
 #include <fftw3.h>
 typedef struct midi_key_t midi_key_t;
@@ -30,6 +31,7 @@ typedef struct midi_key_t midi_key_t;
 #include "x11.h"
 #include "text.h"
 #include "hex.h"
+#include "opencvCam.h"
 
 #define STR_LEN 80
 #define MAX_NUM_V4L2 8
@@ -82,6 +84,7 @@ public:
 	X11 x11[MAX_NUM_X11];
 	Text text[MAX_NUM_TEXTS];
     Hex hexes[MAX_NUM_TEXTS];
+    OpenCVCam opencv_cam;
 	SnapshotShape snapshot_shape;
 	SoundShape sound_shapes[MAX_NUM_SOUND_SHAPES];
 	Meter meters[2];

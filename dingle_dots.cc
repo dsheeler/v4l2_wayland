@@ -62,6 +62,7 @@ int DingleDots::init(int width, int height) {
 	snapshot_shape.init("SNAPSHOT", this->drawing_rect.width / 2., this->drawing_rect.width / 16.,
 						this->drawing_rect.width / 32., random_color(), this);
 
+
 	pthread_mutex_init(&this->snapshot_thread_info.lock, NULL);
 
 	pthread_cond_init(&this->snapshot_thread_info.data_ready, NULL);
@@ -71,7 +72,8 @@ int DingleDots::init(int width, int height) {
 		   this->snapshot_thread_info.ring_buf->size);
 	pthread_create(&this->snapshot_thread_info.thread_id, NULL, snapshot_disk_thread,
 				   this);
-	return 0;
+    this->opencv_cam.init(this, 0, 1920, 1080, false, this->next_z++);
+    return 0;
 }
 
 int DingleDots::deactivate_sound_shapes() {
@@ -421,4 +423,6 @@ void DingleDots::get_sources(std::vector<vwDrawable *> &list)
 			list.push_back(&this->sprites[i]);
 		}
 	}
+    if (this->opencv_cam.active)
+        list.push_back(&this->opencv_cam);
 }

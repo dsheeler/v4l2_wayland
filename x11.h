@@ -2,6 +2,7 @@
 #define X11_H
 
 #include "vwdrawable.h"
+#include <opencv2/opencv.hpp>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <sys/ipc.h>

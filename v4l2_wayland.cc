@@ -1840,6 +1840,7 @@ static void activate(GtkApplication *app, gpointer user_data) {
 						   | GDK_KEY_PRESS_MASK | GDK_KEY_RELEASE_MASK | GDK_SMOOTH_SCROLL_MASK);
 	gtk_widget_show_all (window);
 	gtk_widget_show_all (dd->ctl_window);
+    dd->opencv_cam.activate();
 }
 
 static void mainloop(DingleDots *dd) {
